@@ -18,7 +18,6 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
@@ -38,9 +37,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.BasicTextField
-import androidx.compose.foundation.text.KeyboardActions
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Book
 import androidx.compose.material.icons.filled.Check
@@ -80,7 +76,6 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.PathMeasure
-import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Stroke
@@ -1334,85 +1329,6 @@ fun LoadingSkeleton(
             .clip(shape)
             .background(MaterialTheme.colorScheme.surfaceContainerHigh)
             .alpha(alpha),
-    )
-}
-
-/**
- * 通用输入框（surfaceContainerHighest 底、12dp 圆角、bodyLarge）。
- * v0.294.52：根因是弹窗底与输入框底同为 surfaceContainerHigh、无描边，
- * 框直接融进背景（订阅弹窗在深浅主题下都看不清）。从本版起一律描边：
- * 平时 1dp outline、聚焦 2dp 主色，底色与弹窗底错开一档；bordered 参数
- * 仅为调用处兼容保留，不再决定是否描边（原来只在通用网页源弹窗传 true）。
- */
-@Composable
-fun AppTextField(
-    value: String,
-    onValueChange: (String) -> Unit,
-    modifier: Modifier = Modifier,
-    placeholder: String = "",
-    singleLine: Boolean = true,
-    keyboardOptions: KeyboardOptions = KeyboardOptions.Default,
-    keyboardActions: KeyboardActions = KeyboardActions.Default,
-    /** v0.294.3：输入框右侧单位（如“秒”），空则不显示。 */
-    suffix: String? = null,
-    /** v0.294.52 起不再使用：全部输入框一律描边，见上方说明。 */
-    @Suppress("UNUSED_PARAMETER")
-    bordered: Boolean = true,
-) {
-    val cs = MaterialTheme.colorScheme
-    val shape = RoundedCornerShape(V5.CornerMd)
-    // v0.294.3：有值时占位提示缩成框内顶部小标签——原来一填值提示就消失，
-    // 预填的框（如跳过设置的两个 0）看不出各是什么；纯数字占位（如 "0"）不当标签。
-    val floatLabel = value.isNotEmpty() && placeholder.isNotBlank() && placeholder.any { !it.isDigit() }
-    val interactionSource = remember { MutableInteractionSource() }
-    val focused by interactionSource.collectIsFocusedAsState()
-    BasicTextField(
-        value = value,
-        onValueChange = onValueChange,
-        singleLine = singleLine,
-        textStyle = MaterialTheme.typography.bodyLarge.copy(color = cs.onSurface),
-        cursorBrush = SolidColor(cs.primary),
-        interactionSource = interactionSource,
-        keyboardOptions = keyboardOptions,
-        keyboardActions = keyboardActions,
-        modifier = modifier
-            .clip(shape)
-            .background(cs.surfaceContainerHighest)
-            .border(
-                width = if (focused) 2.dp else 1.dp,
-                color = if (focused) cs.primary else cs.outline,
-                shape = shape,
-            )
-            .padding(horizontal = 16.dp, vertical = if (floatLabel) 6.dp else 12.dp),
-        decorationBox = { inner ->
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f)) {
-                    if (floatLabel) {
-                        Text(
-                            placeholder,
-                            style = MaterialTheme.typography.labelSmall,
-                            color = cs.primary,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                    }
-                    Box {
-                        if (value.isEmpty() && placeholder.isNotBlank()) {
-                            Text(placeholder, style = MaterialTheme.typography.bodyLarge, color = cs.onSurfaceVariant)
-                        }
-                        inner()
-                    }
-                }
-                if (!suffix.isNullOrBlank()) {
-                    Text(
-                        suffix,
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = cs.onSurfaceVariant,
-                        modifier = Modifier.padding(start = 8.dp),
-                    )
-                }
-            }
-        },
     )
 }
 

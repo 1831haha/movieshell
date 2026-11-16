@@ -53,7 +53,6 @@ import com.movieshell.player.HistoryStore
 import com.movieshell.ui.components.TabTopBar
 import com.movieshell.ui.components.CapsuleTabBar
 import com.movieshell.ui.components.AppCard
-import com.movieshell.ui.components.AppTextField
 import com.movieshell.ui.components.EmptyKind
 import com.movieshell.ui.components.EmptyState
 import java.text.SimpleDateFormat

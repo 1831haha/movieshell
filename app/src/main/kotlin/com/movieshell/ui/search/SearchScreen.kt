@@ -69,7 +69,6 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.movieshell.ui.components.AppCard
 import com.movieshell.ui.components.V5Chip
-import com.movieshell.ui.components.AppTextField
 import com.movieshell.ui.components.AppToast
 import com.movieshell.ui.components.EmptyKind
 import com.movieshell.ui.components.EmptyState

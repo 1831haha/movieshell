@@ -37,7 +37,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
@@ -75,6 +74,7 @@ import com.movieshell.ui.components.AppSwitch
 import com.movieshell.ui.components.AppToast
 import com.movieshell.ui.components.TabTopBar
 import com.movieshell.ui.components.TechDialog
+import com.movieshell.ui.components.TechTextField
 import kotlinx.coroutines.launch
 
 /**
@@ -516,11 +516,11 @@ fun MediaServerScreen(
                     }
                 }
                 item {
-                    OutlinedTextField(
+                    TechTextField(
                         value = query,
                         onValueChange = { query = it },
                         modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
-                        placeholder = { Text("搜索影片 / 剧集") },
+                        placeholder = "搜索影片 / 剧集",
                         leadingIcon = { Icon(Icons.Outlined.Search, contentDescription = null) },
                         trailingIcon = {
                             if (query.isNotEmpty()) {
@@ -529,7 +529,6 @@ fun MediaServerScreen(
                                 }
                             }
                         },
-                        shape = RoundedCornerShape(24.dp),
                         singleLine = true,
                         keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
                         keyboardActions = KeyboardActions(onSearch = { doSearch(server, query) }),
@@ -678,12 +677,17 @@ fun MediaServerScreen(
             onConfirm = { if (!formTesting) saveForm() },
             dismissText = "取消",
         ) {
-            Column(verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(8.dp)) {
-                OutlinedTextField(
+            // v1.2.15：输入框统一样式（全胶囊、淡描边、底色对比、收窄）+ 表单收窄到
+            // 标题宽度附近（160dp，左对齐；密码眼睛图标与主机名还留得下），内容区滚动、按钮常驻。
+            Column(
+                modifier = Modifier.width(160.dp),
+                verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(8.dp),
+            ) {
+                TechTextField(
                     value = formName,
                     onValueChange = { formName = it },
                     modifier = Modifier.fillMaxWidth(),
-                    label = { Text("名称（可空）") },
+                    placeholder = "名称（可空）",
                     singleLine = true,
                 )
                 SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
@@ -698,12 +702,11 @@ fun MediaServerScreen(
                         shape = SegmentedButtonDefaults.itemShape(index = 1, count = 2),
                     ) { Text("Jellyfin") }
                 }
-                OutlinedTextField(
+                TechTextField(
                     value = formRemark,
                     onValueChange = { formRemark = it },
                     modifier = Modifier.fillMaxWidth(),
-                    label = { Text("备注（可空，多服时列表里区分）") },
-                    placeholder = { Text("如：家里群晖 / 宿舍小主机") },
+                    placeholder = "备注（可空，多服时列表里区分）",
                     singleLine = true,
                 )
                 SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
@@ -718,35 +721,27 @@ fun MediaServerScreen(
                         shape = SegmentedButtonDefaults.itemShape(index = 1, count = 2),
                     ) { Text("https") }
                 }
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    OutlinedTextField(
-                        value = formHost,
-                        onValueChange = { formHost = it },
-                        modifier = Modifier.weight(1f),
-                        label = { Text("主机") },
-                        placeholder = { Text("192.168.1.10") },
-                        singleLine = true,
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
-                    )
-                    OutlinedTextField(
-                        value = formPort,
-                        onValueChange = { formPort = it.filter { c -> c.isDigit() } },
-                        modifier = Modifier.width(96.dp),
-                        label = { Text("端口") },
-                        placeholder = { Text("8096") },
-                        singleLine = true,
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                    )
-                }
-                OutlinedTextField(
+                TechTextField(
+                    value = formHost,
+                    onValueChange = { formHost = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    placeholder = "主机",
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
+                )
+                TechTextField(
+                    value = formPort,
+                    onValueChange = { formPort = it.filter { c -> c.isDigit() } },
+                    modifier = Modifier.fillMaxWidth(),
+                    placeholder = "端口",
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                )
+                TechTextField(
                     value = formPath,
                     onValueChange = { formPath = it },
                     modifier = Modifier.fillMaxWidth(),
-                    label = { Text("路径（可空，反代用）") },
-                    placeholder = { Text("/proxy") },
+                    placeholder = "路径（可空，反代用）",
                     singleLine = true,
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
                 )
@@ -759,14 +754,11 @@ fun MediaServerScreen(
                     verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier.fillMaxWidth(),
                 ) {
-                    Column(Modifier.weight(1f)) {
-                        Text("忽略证书验证", style = MaterialTheme.typography.bodyMedium)
-                        Text(
-                            "仅在信任该服务器时开启 · 只对这台服务器生效",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
+                    Text(
+                        "忽略证书验证",
+                        style = MaterialTheme.typography.bodyMedium,
+                        modifier = Modifier.weight(1f),
+                    )
                     AppSwitch(
                         checked = formIgnoreCert,
                         onCheckedChange = { formIgnoreCert = it },
@@ -778,18 +770,18 @@ fun MediaServerScreen(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(top = 8.dp),
                 )
-                OutlinedTextField(
+                TechTextField(
                     value = formUser,
                     onValueChange = { formUser = it },
                     modifier = Modifier.fillMaxWidth(),
-                    label = { Text("用户名") },
+                    placeholder = "用户名",
                     singleLine = true,
                 )
-                OutlinedTextField(
+                TechTextField(
                     value = formPass,
                     onValueChange = { formPass = it },
                     modifier = Modifier.fillMaxWidth(),
-                    label = { Text("密码（无密码用户留空）") },
+                    placeholder = "密码（无密码用户留空）",
                     singleLine = true,
                     visualTransformation = if (formPassVisible) VisualTransformation.None else PasswordVisualTransformation(),
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
@@ -808,11 +800,11 @@ fun MediaServerScreen(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(top = 8.dp),
                 )
-                OutlinedTextField(
+                TechTextField(
                     value = formApiKey,
                     onValueChange = { formApiKey = it },
                     modifier = Modifier.fillMaxWidth(),
-                    label = { Text("API Key") },
+                    placeholder = "API Key",
                     singleLine = true,
                     visualTransformation = PasswordVisualTransformation(),
                 )

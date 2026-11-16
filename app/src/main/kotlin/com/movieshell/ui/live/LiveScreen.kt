@@ -121,7 +121,7 @@ import com.movieshell.player.PlayerScreen
 import com.movieshell.ui.components.AppButton
 import com.movieshell.ui.components.AppButtonVariant
 import com.movieshell.ui.components.AppCard
-import com.movieshell.ui.components.AppTextField
+import com.movieshell.ui.components.TechTextField
 import com.movieshell.ui.components.EmptyKind
 import com.movieshell.ui.components.EmptyState
 import com.movieshell.ui.components.TabTopBar
@@ -754,7 +754,7 @@ private fun LiveSettingsSheet(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 Spacer(Modifier.height(8.dp))
-                AppTextField(
+                TechTextField(
                     value = epgText,
                     onValueChange = { epgText = it },
                     modifier = Modifier.fillMaxWidth(),
@@ -1355,7 +1355,7 @@ fun LiveManageScreen(onBack: () -> Unit) {
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                         Spacer(Modifier.height(8.dp))
-                        AppTextField(
+                        TechTextField(
                             value = globalEpgText,
                             onValueChange = { globalEpgText = it },
                             modifier = Modifier.fillMaxWidth(),
@@ -1459,7 +1459,7 @@ fun LiveManageScreen(onBack: () -> Unit) {
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     Spacer(Modifier.height(4.dp))
-                    AppTextField(
+                    TechTextField(
                         value = name, onValueChange = { name = it },
                         modifier = Modifier.fillMaxWidth(),
                     )
@@ -1470,7 +1470,7 @@ fun LiveManageScreen(onBack: () -> Unit) {
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     Spacer(Modifier.height(4.dp))
-                    AppTextField(
+                    TechTextField(
                         value = url,
                         onValueChange = { url = it; err = false },
                         modifier = Modifier.fillMaxWidth(),
@@ -1518,7 +1518,7 @@ fun LiveManageScreen(onBack: () -> Unit) {
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     Spacer(Modifier.height(4.dp))
-                    AppTextField(
+                    TechTextField(
                         value = name, onValueChange = { name = it },
                         modifier = Modifier.fillMaxWidth(),
                     )
@@ -1529,7 +1529,7 @@ fun LiveManageScreen(onBack: () -> Unit) {
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     Spacer(Modifier.height(4.dp))
-                    AppTextField(
+                    TechTextField(
                         value = url,
                         onValueChange = { url = it; err = false },
                         modifier = Modifier.fillMaxWidth(),
@@ -1550,7 +1550,7 @@ fun LiveManageScreen(onBack: () -> Unit) {
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     Spacer(Modifier.height(4.dp))
-                    AppTextField(
+                    TechTextField(
                         value = logo, onValueChange = { logo = it },
                         modifier = Modifier.fillMaxWidth(),
                     )

@@ -4,3 +4,4 @@ build/
 .gradle/
 *.apk
 local.properties
+build-downloads/

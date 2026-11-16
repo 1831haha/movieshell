@@ -36,7 +36,6 @@ import com.movieshell.data.source.subtitle.SubtitleSources
 import com.movieshell.data.store.PlayerSettings
 import com.movieshell.ui.components.AppButton
 import com.movieshell.ui.components.AppButtonVariant
-import com.movieshell.ui.components.AppTextField
 import com.movieshell.player.PlayerDialogCard
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch

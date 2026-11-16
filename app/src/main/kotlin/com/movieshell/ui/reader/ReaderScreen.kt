@@ -1878,6 +1878,8 @@ fun ReaderScreen(
             subtitle = novel?.title,
             dismissText = "关闭",
             forceDark = isReaderDark,
+            // v1.2.15：内容含 LazyColumn 自己滚，TechDialog 内容区不套滚动。
+            scrollable = false,
         ) {
             Button(
                 onClick = { addBookmark() },

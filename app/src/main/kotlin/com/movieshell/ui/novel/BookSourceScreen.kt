@@ -834,6 +834,8 @@ fun BookSourceScreen(
         TechDialog(
             onDismissRequest = { urlPreview = null },
             title = "订阅预览",
+            // v1.2.15：内容含 LazyColumn 自己滚，TechDialog 内容区不套滚动。
+            scrollable = false,
             subtitle = "共 ${preview.size} 个书源，已选 ${urlChecked.size} 个",
             confirmText = "导入选中",
             onConfirm = {

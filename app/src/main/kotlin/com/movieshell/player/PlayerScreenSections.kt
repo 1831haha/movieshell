@@ -112,7 +112,7 @@ import com.movieshell.data.store.PlayerSettings
 import com.movieshell.domain.model.SubtitleStyle
 import com.movieshell.ui.components.AppButton
 import com.movieshell.ui.components.AppButtonVariant
-import com.movieshell.ui.components.AppTextField
+import com.movieshell.ui.components.TechTextField
 import com.movieshell.ui.components.AppToast
 import java.util.Locale
 import kotlinx.coroutines.Dispatchers
@@ -737,7 +737,7 @@ internal fun SubtitleDialog(
     var edge by remember { mutableIntStateOf(initialStyle.edge) }
     var position by remember { mutableIntStateOf(initialStyle.position) }
     var offsetSec by remember { mutableIntStateOf((initialStyle.offsetMs / 1000).toInt()) }
-    // v0.27.0：统一卡片容器 + V5Chip 多选 + AppTextField
+    // v0.27.0：统一卡片容器 + V5Chip 多选 + TechTextField
     PlayerDialogCard(
         title = "字幕设置",
         onDismiss = onDismiss,
@@ -892,7 +892,7 @@ internal fun SubtitleDialog(
         if (isLandscape) {
             Row(verticalAlignment = Alignment.Top) {
                 Column(modifier = Modifier.weight(1f)) {
-                    AppTextField(
+                    TechTextField(
                         value = url,
                         onValueChange = { url = it },
                         placeholder = "字幕地址",
@@ -918,7 +918,7 @@ internal fun SubtitleDialog(
                 }
             }
         } else {
-            AppTextField(
+            TechTextField(
                 value = url,
                 onValueChange = { url = it },
                 placeholder = "字幕地址",
@@ -1087,7 +1087,7 @@ private fun SkipField(
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         Spacer(Modifier.height(2.dp))
-        AppTextField(
+        TechTextField(
             value = value,
             onValueChange = onValueChange,
             placeholder = "0",

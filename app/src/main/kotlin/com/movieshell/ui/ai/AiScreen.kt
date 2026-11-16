@@ -69,7 +69,7 @@ import com.movieshell.data.ai.LlmClient
 import com.movieshell.data.source_mgr.SourceProbe
 import com.movieshell.ui.components.AppButton
 import com.movieshell.ui.components.AppButtonVariant
-import com.movieshell.ui.components.AppTextField
+import com.movieshell.ui.components.TechTextField
 import com.movieshell.ui.components.AppToast
 import com.movieshell.ui.components.TechDialog
 import com.movieshell.ui.components.V5Divider
@@ -755,7 +755,7 @@ fun AiScreen() {
                         contentDescription = "选图",
                     )
                 }
-                AppTextField(
+                TechTextField(
                     value = input,
                     onValueChange = { input = it },
                     placeholder = "发消息给 AI…（可粘贴日志）",

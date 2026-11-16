@@ -50,7 +50,6 @@ import com.movieshell.domain.model.NovelSearchResult
 import com.movieshell.data.novel.PyBookSourceManager
 import com.movieshell.data.store.NovelStore
 import com.movieshell.ui.components.AppCard
-import com.movieshell.ui.components.AppTextField
 import com.movieshell.ui.components.StatusRing
 import com.movieshell.ui.components.StatusRingState
 import kotlinx.coroutines.async
@@ -172,6 +171,8 @@ fun ChangeSourceDialog(
         onDismissRequest = onDismiss,
         title = "换源",
         forceDark = forceDark,
+        // v1.2.15：内容含 LazyColumn 自己滚，TechDialog 内容区不套滚动。
+        scrollable = false,
     ) {
             Column(modifier = Modifier.fillMaxWidth()) {
                 Row(verticalAlignment = Alignment.CenterVertically) {

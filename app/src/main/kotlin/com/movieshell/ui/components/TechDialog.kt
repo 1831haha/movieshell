@@ -17,8 +17,12 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Button
@@ -74,6 +78,11 @@ fun TechDialog(
     // 弹窗（如 AI 助手设置）在小屏上放不下时用：内外边距与标题字号收紧，
     // 底部按钮降到 36dp；仍不带滚动，内容必须靠调用处精简到一屏内。
     compact: Boolean = false,
+    // v1.2.15：内容区默认可滚动 + 底部按钮常驻——长表单（如 Emby 添加服务器）
+    // 再也不会把按钮截在屏外。内含 LazyColumn 的弹窗传 false，让 LazyColumn
+    // 自己滚（滚动容器里再放 LazyColumn 会量出无限高而崩）：BookDetailDialog、
+    // ParseProgressOverlay、BookSourceScreen 订阅预览、ChangeSourceDialog、ReaderScreen 书签。
+    scrollable: Boolean = true,
     // content 放最后：调用处用尾随 lambda 写法时必须对应最后一个参数
     content: @Composable ColumnScope.() -> Unit,
 ) {
@@ -110,6 +119,8 @@ fun TechDialog(
             modifier = Modifier
                 .fillMaxWidth(widthFraction ?: 1f)
                 .widthIn(max = if (widthFraction != null) 560.dp else 420.dp)
+                // v1.2.15：弹窗限高 85% 屏高，超长内容走内容区滚动，标题与按钮常驻。
+                .heightIn(max = (cfg.screenHeightDp * 0.85f).dp)
                 // v0.279.0 旧版：平面弹窗——s1 底 + 1px 分隔线描边 + 12dp 圆角，去掉渐变描边。
                 .clip(RoundedCornerShape(28.dp))
                 .background(dialogBg)
@@ -136,8 +147,15 @@ fun TechDialog(
                 Spacer(Modifier.height(if (compact) 6.dp else 12.dp))
                 // v0.194.0：内容区不再固定浅色，改跟主题——浅色主题下裸 Text
                 // 拿 onSurface 深色正好可读，深色主题下拿浅色也可读。
-                CompositionLocalProvider(LocalContentColor provides MaterialTheme.colorScheme.onSurface) {
-                    content()
+                // v1.2.15：内容区占剩余高度、超长可滚；短内容不撑满，按钮紧贴其下。
+                Column(
+                    modifier = Modifier
+                        .weight(1f, fill = false)
+                        .then(if (scrollable) Modifier.verticalScroll(rememberScrollState()) else Modifier),
+                ) {
+                    CompositionLocalProvider(LocalContentColor provides MaterialTheme.colorScheme.onSurface) {
+                        content()
+                    }
                 }
                 Spacer(Modifier.height(if (compact) 6.dp else 16.dp))
                 Row(
@@ -186,6 +204,10 @@ fun TechDialog(
 /**
  * v0.84.0：科技感输入框——深底 + 清晰描边，聚焦时描边变主题色。
  * 替代弹窗里的 OutlinedTextField（原来边框太淡、看不清）。
+ * v1.2.15：全 app 输入框统一样式——全胶囊（圆角 50%）、描边放淡到几乎
+ * 看不见（靠底色与弹窗/页面底区分，对比度走填充不走框线）、默认收窄
+ * （上下内边距 12dp 降到 8dp）。新增 leadingIcon/trailingIcon/keyboardActions，
+ * 供原 OutlinedTextField/TextField 调用处迁移（密码眼睛、搜索图标等）。
  */
 @Composable
 fun TechTextField(
@@ -196,14 +218,19 @@ fun TechTextField(
     singleLine: Boolean = true,
     minLines: Int = 1,
     keyboardOptions: KeyboardOptions = KeyboardOptions.Default,
+    keyboardActions: KeyboardActions = KeyboardActions.Default,
     enabled: Boolean = true,
     // v0.213.0：Cookie 输入框遮掩用（默认不遮掩，其他调用方不受影响）
     visualTransformation: VisualTransformation = VisualTransformation.None,
     // v1.1.20：紧凑模式（默认关）——上下内边距 12dp 降到 6dp、字号降到
     // bodyMedium，供一屏放不下的长弹窗（如 AI 助手设置）调用处显式开启。
     compact: Boolean = false,
+    leadingIcon: (@Composable () -> Unit)? = null,
+    trailingIcon: (@Composable () -> Unit)? = null,
+    // v1.2.15：输入框右侧单位（如“秒”），空则不显示（原 AppTextField 同名参数，播放器跳过设置用）。
+    suffix: String? = null,
 ) {
-    val shape = RoundedCornerShape(12.dp)
+    val shape = RoundedCornerShape(50)
     // v0.294.3：有值时占位提示缩成框内顶部小标签（同 AppTextField），预填值的编辑框不再“无标签”
     val floatLabel = value.isNotEmpty() && placeholder.isNotBlank() && placeholder.any { !it.isDigit() }
     val interactionSource = remember { MutableInteractionSource() }
@@ -219,17 +246,18 @@ fun TechTextField(
         cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
         interactionSource = interactionSource,
         keyboardOptions = keyboardOptions,
+        keyboardActions = keyboardActions,
         visualTransformation = visualTransformation,
         modifier = modifier
             .clip(shape)
             .background(MaterialTheme.colorScheme.surfaceContainerHighest)
             .border(
-                width = if (focused) 2.dp else 1.dp,
+                width = if (focused) 1.5.dp else 1.dp,
                 color = if (focused) MaterialTheme.colorScheme.primary
-                else MaterialTheme.colorScheme.outline,
+                else MaterialTheme.colorScheme.outline.copy(alpha = 0.30f),
                 shape = shape,
             )
-            .padding(horizontal = 16.dp, vertical = if (compact || floatLabel) 6.dp else 12.dp),
+            .padding(horizontal = 16.dp, vertical = if (compact || floatLabel) 6.dp else 8.dp),
         decorationBox = { inner ->
             Column {
                 if (floatLabel) {
@@ -242,15 +270,31 @@ fun TechTextField(
                         overflow = TextOverflow.Ellipsis,
                     )
                 }
-                Box {
-                    if (value.isEmpty() && placeholder.isNotBlank()) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    if (leadingIcon != null) {
+                        Box(Modifier.padding(end = 8.dp)) { leadingIcon() }
+                    }
+                    Box(Modifier.weight(1f)) {
+                        if (value.isEmpty() && placeholder.isNotBlank()) {
+                            Text(
+                                text = placeholder,
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                        inner()
+                    }
+                    if (trailingIcon != null) {
+                        Box(Modifier.padding(start = 8.dp)) { trailingIcon() }
+                    }
+                    if (!suffix.isNullOrBlank()) {
                         Text(
-                            text = placeholder,
+                            suffix,
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(start = 8.dp),
                         )
                     }
-                    inner()
                 }
             }
         },

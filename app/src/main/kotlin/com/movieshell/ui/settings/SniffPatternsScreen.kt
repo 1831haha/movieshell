@@ -36,7 +36,7 @@ import com.movieshell.core.log.LogBus
 import com.movieshell.data.store.SniffPatternStore
 import com.movieshell.ui.components.TabTopBar
 import com.movieshell.ui.components.AppCard
-import com.movieshell.ui.components.AppTextField
+import com.movieshell.ui.components.TechTextField
 import com.movieshell.ui.components.EmptyKind
 import com.movieshell.ui.components.EmptyState
 import com.movieshell.ui.components.V5SectionTitle
@@ -180,7 +180,7 @@ fun SniffPatternsScreen(onBack: () -> Unit = {}) {
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     Spacer(Modifier.height(4.dp))
-                    AppTextField(
+                    TechTextField(
                         value = input,
                         onValueChange = {
                             input = it

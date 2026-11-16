@@ -159,6 +159,8 @@ private fun LinePickerDialog(
         title = "指定解析线路",
         subtitle = "只用选中的线路解析本集",
         dismissText = "取消",
+        // v1.2.15：内容是 LazyColumn 自己滚，TechDialog 内容区不套滚动。
+        scrollable = false,
     ) {
         LazyColumn(Modifier.fillMaxWidth().heightIn(max = 360.dp)) {
             itemsIndexed(lines) { i, p ->

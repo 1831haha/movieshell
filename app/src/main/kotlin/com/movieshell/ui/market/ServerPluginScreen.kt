@@ -71,7 +71,6 @@ import com.movieshell.data.source_mgr.ServicePluginManager
 import com.movieshell.ui.components.AppButton
 import com.movieshell.ui.components.AppCard
 import com.movieshell.ui.components.V5Chip
-import com.movieshell.ui.components.AppTextField
 import com.movieshell.ui.components.EmptyKind
 import com.movieshell.ui.components.EmptyState
 import com.movieshell.ui.components.StatusRing
@@ -897,7 +896,7 @@ private fun EditorSection(
  * v0.132.0：服务全屏编辑器——基本配置 + 高级配置（可执行文件/工作目录/
  * 环境变量/探活方式）+ 占位符 chip 插入最近聚焦字段。字段组件照全屏页表单
  * v0.146.0：高级配置不再折叠、直接展示；页边距收紧、段标题用主题主色。
- * 现成口径用 AppTextField；保存由宿主在 IO 线程调 saveService 并回列表。
+ * 现成口径用 TechTextField；保存由宿主在 IO 线程调 saveService 并回列表。
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -987,21 +986,21 @@ private fun ServiceEditor(
         ) {
             EditorSection(title = "基本配置") {
             FieldLabel("名称（必填）")
-            AppTextField(
+            TechTextField(
                 value = name,
                 onValueChange = { name = it },
                 placeholder = "服务名称",
                 modifier = Modifier.fillMaxWidth(),
             )
             FieldLabel("描述")
-            AppTextField(
+            TechTextField(
                 value = desc,
                 onValueChange = { desc = it },
                 placeholder = "一句话说明这个服务是做什么的",
                 modifier = Modifier.fillMaxWidth(),
             )
             FieldLabel("端口")
-            AppTextField(
+            TechTextField(
                 value = portText,
                 onValueChange = { v -> portText = v.filter { it.isDigit() } },
                 placeholder = "如 29580",
@@ -1046,7 +1045,7 @@ private fun ServiceEditor(
                 )
             }
             FieldLabel("启动参数")
-            AppTextField(
+            TechTextField(
                 value = argsText,
                 onValueChange = { argsText = it },
                 placeholder = "多个参数以空格分隔",
@@ -1113,7 +1112,7 @@ private fun ServiceEditor(
             }
             EditorSection(title = "高级配置") {
             FieldLabel("可执行文件")
-            AppTextField(
+            TechTextField(
                 value = command,
                 onValueChange = { command = it },
                 placeholder = "如 server.sh 或 __plugin:php__/bin/php",
@@ -1121,7 +1120,7 @@ private fun ServiceEditor(
                     .onFocusChanged { if (it.isFocused) insertTarget = "command" },
             )
             FieldLabel("工作目录")
-            AppTextField(
+            TechTextField(
                 value = workDir,
                 onValueChange = { workDir = it },
                 placeholder = "如 __plugin:hello-service__",
@@ -1135,7 +1134,7 @@ private fun ServiceEditor(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    AppTextField(
+                    TechTextField(
                         value = pair.first,
                         onValueChange = { v ->
                             envList[idx] = v to envList[idx].second
@@ -1143,7 +1142,7 @@ private fun ServiceEditor(
                         placeholder = "变量名，如 OPENLIST_ADMIN_PASSWORD",
                         modifier = Modifier.weight(1f),
                     )
-                    AppTextField(
+                    TechTextField(
                         value = pair.second,
                         onValueChange = { v ->
                             envList[idx] = envList[idx].first to v
@@ -1214,7 +1213,7 @@ private fun ServiceEditor(
             }
             FieldLabel("HTTP 路径")
             if (healthMode == ServicePluginManager.HealthMode.HTTP) {
-                AppTextField(
+                TechTextField(
                     value = healthPath,
                     onValueChange = { healthPath = it },
                     placeholder = "如 /healthz",

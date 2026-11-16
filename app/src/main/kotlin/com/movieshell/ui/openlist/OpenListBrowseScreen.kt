@@ -23,7 +23,6 @@ import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.List
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -46,6 +45,7 @@ import com.movieshell.data.source.TmdbClient
 import com.movieshell.ui.components.AppToast
 import com.movieshell.ui.components.PosterCard
 import com.movieshell.ui.components.TabTopBar
+import com.movieshell.ui.components.TechTextField
 import com.movieshell.ui.components.V5Segmented
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -241,10 +241,10 @@ fun OpenListBrowseScreen(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 Spacer(Modifier.height(8.dp))
-                OutlinedTextField(
+                TechTextField(
                     value = password,
                     onValueChange = { password = it },
-                    label = { Text("管理员密码") },
+                    placeholder = "管理员密码",
                     singleLine = true,
                     visualTransformation = PasswordVisualTransformation(),
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),

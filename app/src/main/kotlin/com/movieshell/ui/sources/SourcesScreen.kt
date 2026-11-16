@@ -128,7 +128,7 @@ import com.movieshell.ui.components.AppButtonVariant
 import com.movieshell.ui.components.AppCard
 import com.movieshell.ui.components.CapsuleTabBar
 import com.movieshell.ui.components.V5Chip
-import com.movieshell.ui.components.AppTextField
+import com.movieshell.ui.components.TechTextField
 import com.movieshell.ui.components.EmptyKind
 import com.movieshell.ui.components.EmptyState
 import com.movieshell.ui.components.V5SectionTitle
@@ -1995,7 +1995,7 @@ fun SourcesScreen(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 Spacer(Modifier.height(4.dp))
-                AppTextField(
+                TechTextField(
                     value = editNote,
                     onValueChange = { editNote = it },
                     modifier = Modifier.fillMaxWidth(),
@@ -2008,7 +2008,7 @@ fun SourcesScreen(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 Spacer(Modifier.height(4.dp))
-                AppTextField(
+                TechTextField(
                     value = editGroup,
                     onValueChange = { editGroup = it },
                     modifier = Modifier.fillMaxWidth(),
@@ -2057,7 +2057,7 @@ fun SourcesScreen(
             onConfirm = { addSubscription() },
         ) {
                 Column {
-                    AppTextField(
+                    TechTextField(
                         value = nameInput,
                         onValueChange = { nameInput = it },
                         modifier = Modifier.fillMaxWidth(),
@@ -2070,7 +2070,7 @@ fun SourcesScreen(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     Spacer(Modifier.height(12.dp))
-                    AppTextField(
+                    TechTextField(
                         value = urlInput,
                         onValueChange = { urlInput = it; urlError = false },
                         modifier = Modifier.fillMaxWidth(),
@@ -2092,7 +2092,7 @@ fun SourcesScreen(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     Spacer(Modifier.height(4.dp))
-                    AppTextField(
+                    TechTextField(
                         value = noteInput,
                         onValueChange = { noteInput = it },
                         modifier = Modifier.fillMaxWidth(),
@@ -2105,7 +2105,7 @@ fun SourcesScreen(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     Spacer(Modifier.height(4.dp))
-                    AppTextField(
+                    TechTextField(
                         value = groupInput,
                         onValueChange = { groupInput = it },
                         modifier = Modifier.fillMaxWidth(),
@@ -2135,7 +2135,7 @@ fun SourcesScreen(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     Spacer(Modifier.height(4.dp))
-                    AppTextField(
+                    TechTextField(
                         value = webNameInput,
                         onValueChange = { webNameInput = it },
                         modifier = Modifier.fillMaxWidth(),
@@ -2148,7 +2148,7 @@ fun SourcesScreen(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     Spacer(Modifier.height(4.dp))
-                    AppTextField(
+                    TechTextField(
                         value = webUrlInput,
                         onValueChange = { webUrlInput = it; webUrlError = false },
                         modifier = Modifier.fillMaxWidth(),
@@ -2186,12 +2186,11 @@ fun SourcesScreen(
                         color = MaterialTheme.colorScheme.onSurface,
                     )
                     Spacer(Modifier.height(4.dp))
-                    AppTextField(
+                    TechTextField(
                         value = webParseUrlInput,
                         onValueChange = { webParseUrlInput = it; webParseUrlError = false },
                         modifier = Modifier.fillMaxWidth(),
                         placeholder = "如：www.4kcz.com",
-                        bordered = true,
                     )
                     if (webParseUrlError) {
                         Spacer(Modifier.height(4.dp))
@@ -2208,12 +2207,11 @@ fun SourcesScreen(
                         color = MaterialTheme.colorScheme.onSurface,
                     )
                     Spacer(Modifier.height(4.dp))
-                    AppTextField(
+                    TechTextField(
                         value = webParseNameInput,
                         onValueChange = { webParseNameInput = it },
                         modifier = Modifier.fillMaxWidth(),
                         placeholder = "如：示例影视站",
-                        bordered = true,
                     )
                 }
         }
@@ -3070,7 +3068,7 @@ private fun SubscriptionSiteRows(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 Spacer(Modifier.height(4.dp))
-                AppTextField(
+                TechTextField(
                     value = noteInput,
                     onValueChange = { noteInput = it },
                     modifier = Modifier.fillMaxWidth(),
@@ -3083,7 +3081,7 @@ private fun SubscriptionSiteRows(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 Spacer(Modifier.height(4.dp))
-                AppTextField(
+                TechTextField(
                     value = groupInput,
                     onValueChange = { groupInput = it },
                     modifier = Modifier.fillMaxWidth(),

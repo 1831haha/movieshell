@@ -53,7 +53,7 @@ import com.movieshell.core.log.LogBus
 import com.movieshell.data.store.ParseStore
 import com.movieshell.data.source.ParseApi
 import com.movieshell.ui.components.TabTopBar
-import com.movieshell.ui.components.AppTextField
+import com.movieshell.ui.components.TechTextField
 import kotlinx.coroutines.async
 import kotlinx.coroutines.launch
 
@@ -305,14 +305,14 @@ fun ParseSettingsScreen(onBack: () -> Unit) {
             },
         ) {
                 Column(modifier = Modifier.fillMaxWidth()) {
-                    AppTextField(
+                    TechTextField(
                         value = parseName,
                         onValueChange = { parseName = it },
                         placeholder = "名称",
                         modifier = Modifier.fillMaxWidth(),
                     )
                     Spacer(Modifier.height(8.dp))
-                    AppTextField(
+                    TechTextField(
                         value = parseUrl,
                         onValueChange = { parseUrl = it },
                         placeholder = "接口地址（视频地址拼在后面）",

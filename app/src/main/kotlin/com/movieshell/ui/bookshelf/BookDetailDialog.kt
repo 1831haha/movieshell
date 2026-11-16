@@ -146,6 +146,8 @@ fun BookDetailDialog(
         subtitle = null,
         onConfirm = null,
         dismissText = "关闭",
+        // v1.2.15：内容含 LazyColumn 自己滚，TechDialog 内容区不套滚动。
+        scrollable = false,
         // v0.240.0：弹窗真正改小——宽度收进屏幕 80%，239 那版只收了封面和间距，
         // 整体还是接近满屏，看着像没改。
         widthFraction = 0.80f,

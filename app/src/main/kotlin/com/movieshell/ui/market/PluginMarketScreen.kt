@@ -74,7 +74,7 @@ import com.movieshell.data.store.PluginStore
 import com.movieshell.data.source_mgr.SubSiteStore
 import com.movieshell.ui.components.AppCard
 import com.movieshell.ui.components.V5Chip
-import com.movieshell.ui.components.AppTextField
+import com.movieshell.ui.components.TechTextField
 import com.movieshell.ui.components.EmptyKind
 import com.movieshell.ui.components.EmptyState
 import com.movieshell.ui.components.LoadingSkeleton
@@ -94,7 +94,7 @@ import java.util.Locale
  * - 搜索过滤；不支持的 type 默认隐藏（设置里可开"显示不兼容插件"，置灰禁装）
  * - 卡片点击进详情页；卡片上可直接安装/更新/卸载
  *
- * v0.27.0 Soft Tech 换皮：卡片走 AppCard，筛选走 V5Chip，搜索走 AppTextField，
+ * v0.27.0 Soft Tech 换皮：卡片走 AppCard，筛选走 V5Chip，搜索走 TechTextField，
  * 三态走 EmptyState / LoadingSkeleton。过滤与按钮状态机逻辑零变更。
  * v0.134.0：多市场归并——注册表里启用的市场并发拉取、按插件 id 去重
  * （注册表顺序在前者胜出），头部信息条汇总市场/插件/可更新数，市场增删改
@@ -694,7 +694,7 @@ private fun ManageMarketsSheet(
             // GitHub 加速代理：单一入口、全 App 生效（数据层按域作用于拉取与下载）
             Text(text = "GitHub 加速代理（作用于 GitHub 域直链）", style = MaterialTheme.typography.bodyLarge)
             val githubProxy by PluginStore.githubProxy.collectAsState()
-            AppTextField(
+            TechTextField(
                 value = githubProxy,
                 onValueChange = { PluginStore.setGithubProxy(context, it) },
                 placeholder = "如 https://gh-proxy.com/，留空 = 直连",
@@ -757,14 +757,14 @@ private fun ManageMarketsSheet(
             dismissText = "取消",
         ) {
             Column(modifier = Modifier.fillMaxWidth()) {
-                AppTextField(
+                TechTextField(
                     value = nameInput,
                     onValueChange = { nameInput = it },
                     placeholder = "名称",
                     modifier = Modifier.fillMaxWidth(),
                 )
                 Spacer(Modifier.height(8.dp))
-                AppTextField(
+                TechTextField(
                     value = urlInput,
                     onValueChange = { urlInput = it },
                     placeholder = "market.json 地址",

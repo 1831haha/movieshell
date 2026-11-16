@@ -26,7 +26,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -44,6 +43,7 @@ import androidx.compose.ui.unit.dp
 import com.movieshell.data.source.TmdbClient
 import com.movieshell.ui.components.AppToast
 import com.movieshell.ui.components.TabTopBar
+import com.movieshell.ui.components.TechTextField
 import com.movieshell.ui.theme.V5
 import kotlinx.coroutines.launch
 
@@ -141,12 +141,11 @@ fun TmdbSettingsScreen(
                 item {
                     SettingsGroup(title = "API Key") {
                         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            OutlinedTextField(
+                            TechTextField(
                                 value = keyText,
                                 onValueChange = { keyText = it },
                                 modifier = Modifier.fillMaxWidth(),
-                                label = { Text("TMDB API Key") },
-                                placeholder = { Text("粘贴 TMDB API Key（留空 = 不联网）") },
+                                placeholder = "TMDB API Key",
                                 singleLine = true,
                                 visualTransformation = if (keyVisible) VisualTransformation.None else PasswordVisualTransformation(),
                                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
@@ -194,25 +193,31 @@ fun TmdbSettingsScreen(
                 item {
                     SettingsGroup(title = "地址") {
                         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            OutlinedTextField(
+                            TechTextField(
                                 value = searchBaseText,
                                 onValueChange = { searchBaseText = it },
                                 modifier = Modifier.fillMaxWidth(),
-                                label = { Text("API 地址") },
-                                placeholder = { Text(TmdbClient.DEFAULT_SEARCH_BASE) },
-                                supportingText = { Text("留空恢复默认：${TmdbClient.DEFAULT_SEARCH_BASE}") },
+                                placeholder = "API 地址",
                                 singleLine = true,
                                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
                             )
-                            OutlinedTextField(
+                            Text(
+                                text = "留空恢复默认：${TmdbClient.DEFAULT_SEARCH_BASE}",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                            TechTextField(
                                 value = imageBaseText,
                                 onValueChange = { imageBaseText = it },
                                 modifier = Modifier.fillMaxWidth(),
-                                label = { Text("图片地址") },
-                                placeholder = { Text(TmdbClient.DEFAULT_IMAGE_BASE) },
-                                supportingText = { Text("留空恢复默认：${TmdbClient.DEFAULT_IMAGE_BASE}") },
+                                placeholder = "图片地址",
                                 singleLine = true,
                                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
+                            )
+                            Text(
+                                text = "留空恢复默认：${TmdbClient.DEFAULT_IMAGE_BASE}",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                         }
                     }

@@ -177,7 +177,7 @@ import androidx.compose.material.icons.filled.Image
 import coil.imageLoader
 
 // v0.27.0 Soft Tech 换皮：分组卡片走 AppCard，分组标题走 V5SectionTitle，
-// 对话框 20dp 圆角 + 输入框走 AppTextField，按钮走 AppButton。逻辑与文案零变更。
+// 对话框 20dp 圆角 + 输入框走 TechTextField，按钮走 AppButton。逻辑与文案零变更。
 
 @OptIn(ExperimentalMaterial3Api::class, androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
@@ -1662,18 +1662,32 @@ internal fun SingleChoiceDialog(
         onDismissRequest = onDismiss,
         title = title,
     ) {
-            Column {
+            // v1.2.15：收紧行高 + 选中行浅底高亮（效果图定版）；点行即选即关，不加确认按钮。
+            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 options.forEach { option ->
-                    ListItem(
-                        headlineContent = { Text(option, style = MaterialTheme.typography.bodyMedium) },
-                        trailingContent = {
-                            RadioButton(
-                                selected = option == selected,
-                                onClick = { onSelect(option) },
+                    val isSelected = option == selected
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(
+                                if (isSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.08f)
+                                else Color.Transparent,
                             )
-                        },
-                        modifier = Modifier.clickable { onSelect(option) },
-                    )
+                            .clickable { onSelect(option) }
+                            .padding(horizontal = 12.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            option,
+                            style = MaterialTheme.typography.bodyMedium,
+                            modifier = Modifier.weight(1f),
+                        )
+                        RadioButton(
+                            selected = isSelected,
+                            onClick = { onSelect(option) },
+                        )
+                    }
                 }
             }
     }
