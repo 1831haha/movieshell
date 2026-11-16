@@ -295,6 +295,10 @@ fun DetailScreen(
     // 当前源本身不列；失败静默，只显示搜到的。
     var sameTitleGroups by remember { mutableStateOf<List<SiteSearchResult>>(emptyList()) }
     var sameTitleSearching by remember { mutableStateOf(false) }
+    // v1.2.20：海报兜底——详情接口不给 vod_pic 时（本版《走马上任》实证：简介/线路/
+    // 选集全有，唯独海报位空白），用同名剧搜索里别源同名片的第一张海报补上；
+    // 同名剧搜索本来就在后台跑，不另发请求；detail 有图时本值恒不用。
+    var fallbackPic by remember(vodId) { mutableStateOf("") }
     // v1.1.20：搜完标记——搜完为空时显示“其他源暂无同名剧”，不再整区隐藏。
     var sameTitleDone by remember { mutableStateOf(false) }
     val sameTitleRepo = remember {
@@ -417,7 +421,7 @@ fun DetailScreen(
     var lastMagnetUrl by remember { mutableStateOf("") }
     // v0.21.0：封面点开放大
     var showCoverDialog by remember { mutableStateOf(false) }
-    val coverUrl = detail?.vodPic.orEmpty()
+    val coverUrl = detail?.vodPic.orEmpty().ifBlank { fallbackPic }
 
     // v0.168.0：收藏已去掉（与追剧重复），片单选择一并删除
     // v0.26.0：追剧
@@ -865,6 +869,7 @@ fun DetailScreen(
         // 不能读包好的 val，否则 snapshotFlow 观测不到变化。
         snapshotFlow { !embeddedResolving && (autoPlayed || lineEpisodes.isEmpty()) }.first { it }
         sameTitleGroups = emptyList()
+        fallbackPic = ""
         sameTitleSearching = true
         sameTitleDone = false
         try {
@@ -883,6 +888,11 @@ fun DetailScreen(
                 val exact = group.vods.filter { it.vodName.trim() == sameTitleKey.trim() }
                 if (exact.isNotEmpty()) {
                     sameTitleGroups = sameTitleGroups + SiteSearchResult(group.site, exact)
+                    // v1.2.20：海报兜底——别源同名片的第一张有图海报，先到先用；
+                    // coverUrl 只在 detail 自身无图时才取它。
+                    if (fallbackPic.isBlank()) {
+                        exact.firstOrNull { it.vodPic.isNotBlank() }?.vodPic?.let { fallbackPic = it }
+                    }
                 }
             }
         } catch (e: Exception) {

@@ -44,14 +44,20 @@ import com.movieshell.ui.components.PosterCard
 import com.movieshell.ui.components.TabTopBar
 import com.movieshell.ui.search.buildSearchConfigJson
 import com.movieshell.ui.search.goDetail
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /**
  * v0.88.0：演员作品页。详情页点演员名进入，聚合搜索该演员的作品海报墙。
- * 搜索链路复用 ui.search 的共享函数（buildSearchConfigJson / SiteRepository.searchAll / goDetail），
+ * 搜索链路复用 ui.search 的共享函数（buildSearchConfigJson / SiteRepository.searchAllFlow / goDetail），
  * 不另起炉灶；点海报进详情走同一 goDetail（站点上下文照带）。
+ * v1.2.20：由等全量的 searchAll 改走流式 searchAllFlow——搜片页 v0.191.0 已证实
+ * 旧路会让用户对着骨架屏干等几分钟（日志里早回来的源一个都看不到），
+ * 本页之前因“跨源去重需一次性全量”被特意留在旧路；现改为流式增量去重
+ * （先到者胜，键口径不变），快源几秒内就出墙，页顶显示已搜进度。
  */
 @Composable
 fun ActorWorksScreen(
@@ -74,50 +80,66 @@ fun ActorWorksScreen(
     var allFailed by remember { mutableStateOf(false) }
     var works by remember { mutableStateOf<List<Pair<Site, ModelVod>>>(emptyList()) }
     var sourceCount by remember { mutableStateOf(0) }
+    // v1.2.20：流式进度——已回分组数 / 目标源数，搜完前就显示，不再干等全量。
+    var searchedCount by remember { mutableStateOf(0) }
+    var targetCount by remember { mutableStateOf(0) }
     // v0.217.0（F13）：搜索世代号——换演员时旧搜索的迟到结果直接丢弃
     var searchGen by remember { mutableIntStateOf(0) }
+    // v1.2.20：上一轮搜索任务——新一轮起搜时直接取消旧流，不再让两轮并行写状态。
+    var searchJob by remember { mutableStateOf<Job?>(null) }
 
     fun doSearch() {
+        searchJob?.cancel()
         searchGen += 1
         val myGen = searchGen
-        scope.launch {
+        searchJob = scope.launch {
             searching = true
             failed = false
             allFailed = false
+            works = emptyList()
+            sourceCount = 0
+            searchedCount = 0
+            targetCount = 0
             // 目标站表必须在 loadFromConfig 之后算，否则比的是旧站表，
-            // 全失败判定会对不上 searchAll 实际跑的那批源。
+            // 全失败判定会对不上 searchAllFlow 实际跑的那批源。
             var targets: List<Site> = emptyList()
-            val groups = runCatching {
-                // v0.270.0（T27）：同搜索页，拼配置走 IO。
+            // v1.2.20：流式去重——先到者胜（不再等全量按配置顺序取首个），
+            // 键口径与旧 distinctBy 一致：有年份按“片名|年份”跨源去重，
+            // 年份为空时按“片名|源”并列展示，宁可多留不误删。
+            val seenKeys = mutableSetOf<String>()
+            var nonEmptyGroups = 0
+            try {
                 repo.loadFromConfig(withContext(Dispatchers.IO) { buildSearchConfigJson(context) })
                 targets = repo.searchTargetSites()
-                repo.searchAll(actorName)
-            }.getOrNull()
-            // 世代已过：新一轮搜索已起，本单不再动任何状态（包括转圈）
-            if (myGen != searchGen) return@launch
-            if (groups == null) {
+                targetCount = targets.size
+                repo.searchAllFlow(actorName).collect { group ->
+                    if (myGen != searchGen) return@collect
+                    searchedCount += 1
+                    if (group.vods.isEmpty()) return@collect
+                    nonEmptyGroups += 1
+                    val fresh = group.vods
+                        .map { vod -> group.site to vod }
+                        .filter { (site, vod) -> seenKeys.add(actorDedupKey(site, vod)) }
+                    if (fresh.isNotEmpty()) works = works + fresh
+                }
+            } catch (e: CancellationException) {
+                // 新一轮已起、旧流被取消：不是失败，直接透传取消。
+                throw e
+            } catch (e: Exception) {
+                if (myGen != searchGen) return@launch
                 failed = true
                 works = emptyList()
-            } else {
-                sourceCount = groups.size
-                // v0.217.0（F14）：空结果分两种——目标源全失败走失败态（带重试），
-                // 否则才是真没找到。失败数读 searchAll 刚记的本轮汇总。
-                allFailed = groups.isEmpty() && targets.isNotEmpty() &&
-                    SiteRepository.lastSearchFailedCount >= targets.size
-                // 跨源按"片名+年份"去重，同一部剧只留一张海报
-                // v0.217.0（F15）：年份为空时不再仅凭片名去重（同名同年不同片、
-                // 或同名片年份缺失时会被误删），此时按源区分、宁可并列展示。
-                works = groups
-                    .flatMap { g -> g.vods.map { vod -> g.site to vod } }
-                    .distinctBy { (site, vod) ->
-                        val year = vod.vodYear.trim()
-                        if (year.isEmpty()) {
-                            vod.vodName.trim().lowercase() + "|site:" + site.key
-                        } else {
-                            (vod.vodName.trim() + "|" + year).lowercase()
-                        }
-                    }
+                searching = false
+                return@launch
             }
+            // 世代已过：新一轮搜索已起，本单不再动任何状态（包括转圈）
+            if (myGen != searchGen) return@launch
+            sourceCount = nonEmptyGroups
+            // v0.217.0（F14）：空结果分两种——目标源全失败走失败态（带重试），
+            // 否则才是真没找到。失败数读 searchAllFlow 刚记的本轮汇总
+            // （collect 返回时 joinAll 已完成，计数已落定）。
+            allFailed = works.isEmpty() && targets.isNotEmpty() &&
+                SiteRepository.lastSearchFailedCount >= targets.size
             searching = false
         }
     }
@@ -126,7 +148,24 @@ fun ActorWorksScreen(
     Column(modifier = Modifier.fillMaxSize()) {
         TabTopBar(title = actorName, onBack = onBack)
         when {
-            searching -> {
+            failed || allFailed -> {
+                Box(
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    EmptyState(
+                        kind = EmptyKind.Error,
+                        icon = Icons.Filled.Warning,
+                        title = if (allFailed) "全部源搜索失败，请检查网络后重试"
+                            else "加载失败，请检查网络后重试",
+                        actionText = "重试",
+                        onAction = { doSearch() },
+                    )
+                }
+            }
+            // v1.2.20：流式——有结果就直接出墙，不再等全部源跑完才从骨架屏切过来；
+            // 只有“还在搜且一张没回”时才放骨架屏。
+            works.isEmpty() && searching -> {
                 Column(
                     modifier = Modifier
                         .fillMaxSize()
@@ -147,21 +186,6 @@ fun ActorWorksScreen(
                     }
                 }
             }
-            failed || allFailed -> {
-                Box(
-                    modifier = Modifier.fillMaxSize(),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    EmptyState(
-                        kind = EmptyKind.Error,
-                        icon = Icons.Filled.Warning,
-                        title = if (allFailed) "全部源搜索失败，请检查网络后重试"
-                            else "加载失败，请检查网络后重试",
-                        actionText = "重试",
-                        onAction = { doSearch() },
-                    )
-                }
-            }
             works.isEmpty() -> {
                 Box(
                     modifier = Modifier.fillMaxSize(),
@@ -176,7 +200,8 @@ fun ActorWorksScreen(
             }
             else -> {
                 Text(
-                    text = "共 ${works.size} 部作品 · $sourceCount 个源",
+                    text = if (searching) "共 ${works.size} 部作品 · 正在搜索…已搜 ${searchedCount}/${targetCount} 个源"
+                        else "共 ${works.size} 部作品 · $sourceCount 个源",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(
@@ -213,5 +238,19 @@ fun ActorWorksScreen(
                 }
             }
         }
+    }
+}
+
+/**
+ * v1.2.20：演员页流式增量去重的键（纯函数，单测见 ActorWorksDedupTest）。
+ * 口径与旧 distinctBy 一致：有年份按“片名|年份”跨源去重，同一部剧只留一张；
+ * 年份为空时按“片名|源”并列展示（同名同年不同片、或年份缺失时宁可多留不误删）。
+ */
+internal fun actorDedupKey(site: Site, vod: ModelVod): String {
+    val year = vod.vodYear.trim()
+    return if (year.isEmpty()) {
+        vod.vodName.trim().lowercase() + "|site:" + site.key
+    } else {
+        (vod.vodName.trim() + "|" + year).lowercase()
     }
 }
