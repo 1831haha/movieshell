@@ -451,7 +451,7 @@ fun DetailScreen(
     // v1.1.19：选集视图——网格（3 列）/列表、正序/倒序，按效果图。
     var epViewGrid by rememberSaveable(vodId) { mutableStateOf(true) }
     var epDesc by rememberSaveable(vodId) { mutableStateOf(false) }
-    // v1.1.19：胶囊共享状态——倍速与弹幕开关与播放器内同一条流/同一个开关，
+    // v1.1.19：Tab 栏共享状态——倍速与弹幕开关与播放器内同一条流/同一个开关，
     // 任一处改，另一处立即跟上；追更提醒读 FollowStore 的更新检测总开关。
     val currentSpeed by PlayerSettings.speedFlow(context).collectAsState()
     val danmakuEnabled by com.movieshell.player.danmaku.DanmakuSettings.enabled.collectAsState()
@@ -521,7 +521,7 @@ fun DetailScreen(
             loadReviews()
         }
     }
-    // v1.1.19：减动效——跟系统设置走，Tab 胶囊、背景淡化、简介展开全关动画。
+    // v1.1.19：减动效——跟系统设置走，Tab 下划线、背景淡化、简介展开全关动画。
     val reducedMotion = rememberReducedMotion()
 
     // v0.71.0：带已看角标的选集 chip（追剧且看到该集时右上角标记）
@@ -745,7 +745,7 @@ fun DetailScreen(
     }
 
     /**
-     * v1.1.19：追/取消追剧唯一入口——Tab 胶囊爱心与追更 Tab 的按钮共用，
+     * v1.1.19：追/取消追剧唯一入口——Tab 栏爱心与追更 Tab 的按钮共用，
      * 与播放器顶栏追剧开关读写同一条 FollowStore 记录（id = followId）。
      */
     fun toggleFollow() {
@@ -778,7 +778,7 @@ fun DetailScreen(
         }
     }
 
-    // v1.1.19：倍速——详情页（Tab 胶囊）改速的唯一入口，与播放器齿轮页同一条路：
+    // v1.1.19：倍速——详情页（Tab 栏倍速）改速的唯一入口，与播放器齿轮页同一条路：
     // PlayerSettings.setSpeed 落盘＋推 speedFlow，播放器里读流的一侧自动跟上。
     fun applySpeed(v: Float) {
         PlayerSettings.setSpeed(context, v)
@@ -1031,7 +1031,7 @@ fun DetailScreen(
                     }
     
                     // v1.1.19：Tab 栏——吸顶（随列表滚到顶后钉住）；五 Tab 各一个专属色，
-                    // 选中胶囊底＋加粗、滑块 0.38 秒平滑移动；右边胶囊：收藏、弹幕、倍速。
+                    // 选中深绿粗字＋下划线 0.38 秒平滑移动；右边三钮：收藏、弹幕、倍速。
                     stickyHeader {
                         DetailTabBar(
                             selectedTab = selectedTab,
@@ -1063,7 +1063,7 @@ fun DetailScreen(
                     // v1.1.19：信息卡——全宽贴边、上下 20dp 渐变带；海报 134dp 宽、2:3、
                     // 与文字栏上下等高（点按续播）；标题 22sp 粗体＋标签 chips＋绿色更新行＋
                     // 简介两行截断＋“详情 >”展开＋源名行（源名 · 动态清晰度）；下载图标
-                    // （全页唯一入口）留在标题行右端，追剧按钮已删（由 Tab 胶囊爱心接替）；
+                    // （全页唯一入口）留在标题行右端，追剧按钮已删（由 Tab 栏爱心接替）；
                     // 播放线路单独成段放简介下方；主演 chip（点按仍走演员搜索）。
                     item {
                         val v = MaterialTheme.colorScheme
@@ -1120,7 +1120,7 @@ fun DetailScreen(
                                         .fillMaxHeight(),
                                 ) {
                                     // v1.1.19：标题行——片名（点按仍进标题弹窗）＋下载（全页唯一入口，
-                                    // 逻辑与可用条件不动）；标题行里的追剧按钮已删，由 Tab 胶囊爱心接替。
+                                    // 逻辑与可用条件不动）；标题行里的追剧按钮已删，由 Tab 栏爱心接替。
                                     Row(verticalAlignment = Alignment.CenterVertically) {
                                         Text(
                                             text = detailTitle(detail, vodId),
@@ -2409,13 +2409,12 @@ private enum class DetailTab(val label: String, val color: Color) {
     SEARCH("快搜", Color(0xFFEC4899)),
 }
 
-// v1.1.19：Tab 栏——五 Tab 等宽占满整行、一行不换行；选中胶囊底（该色 15% 透明度）＋
-// 该色加粗 17sp、滑块 0.38 秒平滑移动且颜色同步过渡，未选中灰字；行底一条细分隔线。
-// v1.1.20：字号各降一档（选中 16sp、未选中 15sp）；选中胶囊底加深到 30% 透明度；
-// 未选中也有边框和各自颜色（描边与文字都用该 Tab 色）；右边胶囊与 Tab 行同高 48dp，
-// 倍速文字 15sp 与 Tab 字同大小。
-// 右边胶囊：收藏（爱心，实心粉色＝已追剧）、弹幕开关（开时绿色）、倍速（文字按钮，
-// 点一下弹六档选单，当前档高亮打勾）。减动效时滑块与颜色过渡 0ms。
+// v1.2.17：Tab 栏扁平版（用户 2026-11-16 点选效果图）——两胶囊全拆：五 Tab 等宽
+// 占满整行、一行不换行，纯文字贴页面底；选中深绿粗字 16sp＋24dp 短下划线（#15803D，
+// 与旧绿圆同色、对比度 5.02:1），下划线随切 Tab 滑动，0.38 秒；未选中灰字 15sp。
+// 右边三钮（收藏爱心实心粉色＝已追剧、弹幕开关开时绿色、倍速文字按钮点一下弹六档
+// 选单，当前档高亮打勾）也是裸按钮，无底无描边；行高仍 40dp，行底一条细分隔线。
+// 减动效时下划线滑动 0ms。
 @Composable
 private fun DetailTabBar(
     selectedTab: DetailTab,
@@ -2441,68 +2440,55 @@ private fun DetailTabBar(
                 .fillMaxWidth()
                 .padding(start = V5.Gutter, end = 8.dp, top = 0.dp, bottom = 0.dp),
         ) {
-            // 五 Tab 一个整胶囊（用户 2026-11-13 截图定版）：选中是实底绿圆＋白字，
-            // 其余纯文字、无描边；绿圆随切 Tab 滑动，0.38 秒；行高仍 40dp。
-            Box(
+            // v1.2.17：扁平版——Tab 纯文字，无胶囊底无描边；选中深绿粗字＋短下划线，
+            // 下划线随切 Tab 滑动，0.38 秒；行高仍 40dp。
+            BoxWithConstraints(
                 Modifier
                     .weight(1f)
-                    .height(40.dp)
-                    .clip(RoundedCornerShape(50))
-                    .background(cs.surface.copy(alpha = 0.65f))
-                    .border(1.dp, cs.outline, RoundedCornerShape(50)), // v1.2.14 E片：Tab 胶囊描边 outlineVariant 只有 1.62:1（浅）/1.98:1（深），改 outline（4.27/5.86）
+                    .height(40.dp),
             ) {
-                BoxWithConstraints(Modifier.fillMaxSize()) {
-                    val tabWidth = maxWidth / 5
-                    val circleSize = minOf(tabWidth, 40.dp)
-                    val circleOffset by animateDpAsState(
-                        targetValue = tabWidth * selectedTab.ordinal + (tabWidth - circleSize) / 2,
-                        animationSpec = tween(durationMillis = if (reducedMotion) 0 else 380),
-                        label = "tabCircleOffset",
-                    )
-                    Box(
-                        Modifier
-                            .align(Alignment.CenterStart)
-                            .offset(x = circleOffset)
-                            .size(circleSize)
-                            .clip(CircleShape)
-                            .background(Color(0xFF15803D)), // v1.2.14 E片：选中 Tab 绿圆白字压 #22C55E 只有 2.28:1，改 #15803D（5.02:1）
-                    )
-                    Row(Modifier.fillMaxSize()) {
-                        DetailTab.values().forEach { tab ->
-                            val selected = tab == selectedTab
-                            Box(
-                                Modifier
-                                    .weight(1f)
-                                    .fillMaxHeight()
-                                    .clip(CircleShape)
-                                    .clickable { onSelect(tab) },
-                                contentAlignment = Alignment.Center,
-                            ) {
-                                Text(
-                                    text = tab.label,
-                                    color = if (selected) Color.White else cs.onSurfaceVariant,
-                                    fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
-                                    fontSize = if (selected) 16.sp else 15.sp,
-                                    maxLines = 1,
-                                )
-                            }
+                val tabWidth = maxWidth / 5
+                val barWidth = 24.dp
+                val barOffset by animateDpAsState(
+                    targetValue = tabWidth * selectedTab.ordinal + (tabWidth - barWidth) / 2,
+                    animationSpec = tween(durationMillis = if (reducedMotion) 0 else 380),
+                    label = "tabBarOffset",
+                )
+                Box(
+                    Modifier
+                        .align(Alignment.BottomStart)
+                        .offset(x = barOffset)
+                        .width(barWidth)
+                        .height(3.dp)
+                        .clip(RoundedCornerShape(50))
+                        .background(Color(0xFF15803D)),
+                )
+                Row(Modifier.fillMaxSize()) {
+                    DetailTab.values().forEach { tab ->
+                        val selected = tab == selectedTab
+                        Box(
+                            Modifier
+                                .weight(1f)
+                                .fillMaxHeight()
+                                .clickable { onSelect(tab) },
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Text(
+                                text = tab.label,
+                                color = if (selected) Color(0xFF15803D) else cs.onSurfaceVariant,
+                                fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
+                                fontSize = if (selected) 16.sp else 15.sp,
+                                maxLines = 1,
+                            )
                         }
                     }
                 }
             }
             Spacer(Modifier.width(8.dp))
-            // 右边胶囊：收藏、弹幕、倍速
-            // v1.1.22：上下内边距 4dp→0dp——胶囊高 48dp→40dp，与 Tab 胶囊（40dp）对齐。
-            // v1.1.22：底色改半透明 surface——Tab 栏底色跟海报走后，原先暖灰实底在蓝色行底上
-            // 像一块补丁；半透明让它透出一点海报色，跟整行融在一起。
+            // v1.2.17：右边三钮也是裸按钮，无底无描边；倍速选单仍挂在这里。
             Box {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(50))
-                        .background(cs.surface.copy(alpha = 0.65f))
-                        .border(1.dp, cs.outline, RoundedCornerShape(50)) // v1.2.14 E片：右侧胶囊描边 outlineVariant 只有 1.62:1（浅）/1.98:1（深），改 outline（4.27/5.86）
-                        .padding(horizontal = 4.dp, vertical = 0.dp),
                 ) {
                     IconButton(
                         onClick = onToggleFollow,
@@ -2525,7 +2511,6 @@ private fun DetailTabBar(
                         Modifier
                             .sizeIn(minWidth = 48.dp)
                             .height(40.dp)
-                            .clip(CircleShape)
                             .clickable { onRateMenuChange(true) },
                         contentAlignment = Alignment.Center,
                     ) {
