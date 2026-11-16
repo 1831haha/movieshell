@@ -448,7 +448,7 @@ private fun ChartCard(
             .height(52.dp)
             .clip(shape)
             .background(v.surfaceContainer)
-            .border(1.dp, v.outlineVariant, shape)
+            .border(1.dp, v.outline, shape) // v1.2.14 E片：榜单卡描边 outlineVariant 只有 1.62:1（浅）/1.98:1（深），改 outline（4.27/5.86）
             .clickable(
                 interactionSource = interaction,
                 indication = LocalIndication.current,
@@ -520,7 +520,7 @@ private fun v5FilterChipColors() = FilterChipDefaults.filterChipColors(
     selectedContainerColor = MaterialTheme.colorScheme.secondaryContainer,
     selectedLabelColor = MaterialTheme.colorScheme.primary,
     disabledContainerColor = MaterialTheme.colorScheme.surfaceContainer.copy(alpha = 0.5f),
-    disabledLabelColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.6f),
+    disabledLabelColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f), // v1.2.14 E片：禁用 Chip 字 outline 0.6 只有约 2.3:1，改 onSurface 0.65（5.21/6.59）
 )
 
 // v0.89.0：本地音乐分组维度

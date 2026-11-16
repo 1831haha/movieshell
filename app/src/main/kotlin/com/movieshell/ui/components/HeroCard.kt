@@ -75,7 +75,8 @@ fun HeroCard(
             ) {
                 Text(
                     text = title.firstOrNull()?.toString() ?: "",
-                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f),
+                    // v1.2.14 E片：无图占位首字 onSurfaceVariant 0.35 只有约 1.5:1，改 0.8（5.14:1）。
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
                     fontSize = 64.sp,
                     fontWeight = FontWeight.SemiBold,
                 )

@@ -112,7 +112,7 @@ fun ContinuousReaderFlow(
                     ) {
                         Text(
                             text = "段评",
-                            color = fg.copy(alpha = 0.55f),
+                            color = fg.copy(alpha = 0.75f), // v1.2.14 E片：段评标题 0.55 浅底只有约 3.3:1，改 0.75（5.94:1）
                             fontSize = 12.sp,
                         )
                         paraGroups.forEach { group ->

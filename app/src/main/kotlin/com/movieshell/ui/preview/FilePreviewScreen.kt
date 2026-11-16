@@ -332,7 +332,7 @@ fun FilePreviewScreen(
                 // 对整段文本跑一遍正则高亮；文本已在 v0.246.0 限流到 200KB，
                 // 这里只补缓存，文本/配色不变不重算（配色进 key，换主题重算）。
                 val keywordColor = MaterialTheme.colorScheme.primary
-                val commentColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                val commentColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f) // v1.2.14 E片：注释字 0.7 浅色只有 3.98:1，改 0.8（5.14:1）
                 val highlighted = remember(shownText, kind, keywordColor, commentColor) {
                     highlightCode(shownText, kind, keywordColor, commentColor)
                 }

@@ -9,6 +9,7 @@ import com.movieshell.util.safeIndex
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.shadow
 import com.movieshell.ui.theme.ok
+import com.movieshell.ui.theme.isDark
 
 import com.movieshell.data.store.FollowItem
 
@@ -537,7 +538,7 @@ fun DetailScreen(
                 .height(34.dp)
                 .then(if (selected) Modifier.shadow(6.dp, RoundedCornerShape(V5.CornerMd), spotColor = Color(0xFFA855F7)) else Modifier)
                 .clip(RoundedCornerShape(V5.CornerMd))
-                .background(if (selected) Color(0xFFA855F7) else v.surfaceContainerHigh.copy(alpha = 0.6f))
+                .background(if (selected) Color(0xFF7B2C9C) else v.surfaceContainerHigh.copy(alpha = 0.6f)) // v1.2.14 E片：选中集白字压 #A855F7 只有 3.96:1，改 #7B2C9C（7.83:1）
                 .border(1.dp, if (selected) Color(0xFFA855F7) else Color.White.copy(alpha = 0.08f), RoundedCornerShape(V5.CornerMd))
                 .clickable(onClick = onClick)
                 .padding(horizontal = 6.dp),
@@ -1187,7 +1188,7 @@ fun DetailScreen(
                                         Text(
                                             text = updateLine,
                                             style = MaterialTheme.typography.bodyMedium,
-                                            color = Color(0xFF22C55E),
+                                            color = successGreenText(v.isDark), // v1.2.14 E片：更新行绿字 #22C55E 浅色只有 2.17:1，改 #146C2E（6.22:1）/#3DD68C（9.88:1）
                                             maxLines = 1,
                                             overflow = TextOverflow.Ellipsis,
                                             modifier = Modifier.padding(top = 4.dp),
@@ -1236,7 +1237,7 @@ fun DetailScreen(
                                             Modifier
                                                 .size(6.dp)
                                                 .clip(CircleShape)
-                                                .background(Color(0xFF22C55E)),
+                                                .background(Color(0xFF15803D)), // v1.2.14 E片：状态点 #22C55E 浅色 2.17:1（< 3:1），改 #15803D（4.78/3.69）
                                         )
                                         Spacer(Modifier.width(6.dp))
                                         Text(
@@ -1670,13 +1671,13 @@ fun DetailScreen(
                                                     ),
                                                 ),
                                             )
-                                            .border(1.dp, Color(0xFF22C55E).copy(alpha = 0.30f), CircleShape),
+                                            .border(1.dp, successGreenText(MaterialTheme.colorScheme.isDark).copy(alpha = 0.30f), CircleShape),
                                         contentAlignment = Alignment.Center,
                                     ) {
                                         Icon(
                                             Icons.Filled.Movie,
                                             contentDescription = null,
-                                            tint = Color(0xFF22C55E),
+                                            tint = successGreenText(MaterialTheme.colorScheme.isDark), // v1.2.14 E片：空态图标 #22C55E 浅色 2.17:1，改 #146C2E（6.22:1）/#3DD68C（9.88:1）
                                             modifier = Modifier.size(38.dp),
                                         )
                                     }
@@ -1710,7 +1711,7 @@ fun DetailScreen(
                                             Modifier
                                                 .background(
                                                     Brush.horizontalGradient(
-                                                        listOf(Color(0xFF22C55E), Color(0xFF16A34A)),
+                                                        listOf(Color(0xFF15803D), Color(0xFF166534)), // v1.2.14 E片：白字压绿渐变左端只有 2.28:1，改 #15803D（5.02:1）/#166534（7.13:1）
                                                     ),
                                                 )
                                                 .padding(horizontal = 26.dp, vertical = 12.dp),
@@ -2394,6 +2395,11 @@ private fun episodeKey(ep: Episode): String = "${ep.flag}|${ep.name}|${ep.url}"
 private fun detailTitle(detail: VodDetail?, vodId: String): String =
     detail?.vodName?.takeIf { it.isNotBlank() } ?: displayTitle(vodId)
 
+// v1.2.14 E片：成功绿按深浅取色——原 #22C55E 作文字浅色底只有 2.17:1；
+// 浅色 #146C2E（6.22:1）、深色 #3DD68C（9.88:1）。白字压绿底另用 #15803D（5.02:1），见各调用处。
+private fun successGreenText(isDark: Boolean): Color =
+    if (isDark) Color(0xFF3DD68C) else Color(0xFF146C2E)
+
 // v1.1.19：详情页 Tab——五 Tab 各一个专属色（效果图口径）。
 private enum class DetailTab(val label: String, val color: Color) {
     INTRO("简介", Color(0xFF22C55E)),
@@ -2443,7 +2449,7 @@ private fun DetailTabBar(
                     .height(40.dp)
                     .clip(RoundedCornerShape(50))
                     .background(cs.surface.copy(alpha = 0.65f))
-                    .border(1.dp, cs.outlineVariant, RoundedCornerShape(50)),
+                    .border(1.dp, cs.outline, RoundedCornerShape(50)), // v1.2.14 E片：Tab 胶囊描边 outlineVariant 只有 1.62:1（浅）/1.98:1（深），改 outline（4.27/5.86）
             ) {
                 BoxWithConstraints(Modifier.fillMaxSize()) {
                     val tabWidth = maxWidth / 5
@@ -2459,7 +2465,7 @@ private fun DetailTabBar(
                             .offset(x = circleOffset)
                             .size(circleSize)
                             .clip(CircleShape)
-                            .background(Color(0xFF22C55E)),
+                            .background(Color(0xFF15803D)), // v1.2.14 E片：选中 Tab 绿圆白字压 #22C55E 只有 2.28:1，改 #15803D（5.02:1）
                     )
                     Row(Modifier.fillMaxSize()) {
                         DetailTab.values().forEach { tab ->
@@ -2495,7 +2501,7 @@ private fun DetailTabBar(
                     modifier = Modifier
                         .clip(RoundedCornerShape(50))
                         .background(cs.surface.copy(alpha = 0.65f))
-                        .border(1.dp, cs.outlineVariant, RoundedCornerShape(50))
+                        .border(1.dp, cs.outline, RoundedCornerShape(50)) // v1.2.14 E片：右侧胶囊描边 outlineVariant 只有 1.62:1（浅）/1.98:1（深），改 outline（4.27/5.86）
                         .padding(horizontal = 4.dp, vertical = 0.dp),
                 ) {
                     IconButton(
@@ -2577,7 +2583,7 @@ private fun DetailTabBar(
 // v1.1.19：弹幕图标——圆角框＋两横线（效果图胶囊里的弹幕开关）；开时绿色、关时灰。
 @Composable
 private fun DanmakuIcon(enabled: Boolean, modifier: Modifier = Modifier) {
-    val color = if (enabled) Color(0xFF22C55E) else MaterialTheme.colorScheme.onSurfaceVariant
+    val color = if (enabled) successGreenText(MaterialTheme.colorScheme.isDark) else MaterialTheme.colorScheme.onSurfaceVariant // v1.2.14 E片：弹幕开态绿 #22C55E 浅色 2.17:1，改 #146C2E（6.22:1）/#3DD68C（9.88:1）
     Canvas(modifier.size(22.dp)) {
         val stroke = 2.dp.toPx()
         drawRoundRect(
@@ -2622,10 +2628,10 @@ private fun LineChip(text: String, selected: Boolean, onClick: () -> Unit) {
         Modifier
             .then(if (selected) Modifier.shadow(6.dp, RoundedCornerShape(50), spotColor = Color(0xFF22C55E)) else Modifier)
             .clip(RoundedCornerShape(50))
-            .background(if (selected) Color(0xFF22C55E) else cs.surfaceContainer.copy(alpha = 0.6f))
+            .background(if (selected) Color(0xFF15803D) else cs.surfaceContainer.copy(alpha = 0.6f)) // v1.2.14 E片：选中线路 Chip 白字压 #22C55E 只有 2.28:1，改 #15803D（5.02:1）
             .border(
                 1.dp,
-                if (selected) Color(0xFF22C55E) else Color.White.copy(alpha = 0.10f),
+                if (selected) Color(0xFF15803D) else Color.White.copy(alpha = 0.10f),
                 RoundedCornerShape(50),
             )
             .clickable(onClick = onClick)
@@ -2708,7 +2714,7 @@ private fun SameNameCard(vod: Vod, siteName: String, onClick: () -> Unit) {
                 Modifier
                     .size(6.dp)
                     .clip(CircleShape)
-                    .background(Color(0xFF22C55E)),
+                    .background(Color(0xFF15803D)), // v1.2.14 E片：状态点 #22C55E 浅色 2.17:1（< 3:1），改 #15803D（4.78/3.69）
             )
             Spacer(Modifier.width(4.dp))
             Text(
@@ -2781,7 +2787,7 @@ private fun FollowPanel(
                 Box(
                     Modifier
                         .clip(RoundedCornerShape(50))
-                        .background(if (following) Color(0xFF3B82F6) else cs.surfaceContainerHigh)
+                        .background(if (following) Color(0xFF0B57D0) else cs.surfaceContainerHigh) // v1.2.14 E片：已追更角标白字压 #3B82F6 只有 3.68:1，改 #0B57D0（6.39:1）
                         .padding(horizontal = 10.dp, vertical = 4.dp),
                 ) {
                     Text(
@@ -2862,7 +2868,7 @@ private fun FollowPanel(
                             .fillMaxWidth()
                             .background(
                                 Brush.horizontalGradient(
-                                    listOf(Color(0xFF3B82F6), Color(0xFF2563EB)),
+                                    listOf(Color(0xFF1D4ED8), Color(0xFF2563EB)), // v1.2.14 E片：追更按钮白字压蓝渐变左端只有 3.68:1，改 #1D4ED8（6.70:1）
                                 ),
                             )
                             .padding(vertical = 12.dp),
@@ -2921,7 +2927,7 @@ private fun FollowPanel(
                         Box(
                             Modifier
                                 .clip(RoundedCornerShape(4.dp))
-                                .background(Color(0xFF22C55E))
+                                .background(Color(0xFF15803D)) // v1.2.14 E片：NEW 角标白字压 #22C55E 只有 2.28:1，改 #15803D（5.02:1）
                                 .padding(horizontal = 6.dp, vertical = 2.dp),
                         ) {
                             Text(
@@ -3058,7 +3064,7 @@ private fun ReviewCard(review: DoubanReview) {
                     modifier = Modifier
                         .size(36.dp)
                         .clip(CircleShape)
-                        .border(1.dp, cs.outlineVariant, CircleShape),
+                        .border(1.dp, cs.outline, CircleShape), // v1.2.14 E片：头像圆框描边 outlineVariant 只有 1.62:1（浅）/1.98:1（深），改 outline（4.27/5.86）
                     contentScale = ContentScale.Crop,
                 )
             } else {
@@ -3067,7 +3073,7 @@ private fun ReviewCard(review: DoubanReview) {
                         .size(36.dp)
                         .clip(CircleShape)
                         .background(cs.surfaceContainerHigh)
-                        .border(1.dp, cs.outlineVariant, CircleShape),
+                        .border(1.dp, cs.outline, CircleShape), // v1.2.14 E片：头像占位圆框描边 outlineVariant 只有 1.62:1（浅）/1.98:1（深），改 outline（4.27/5.86）
                     contentAlignment = Alignment.Center,
                 ) {
                     Text(
@@ -3091,13 +3097,13 @@ private fun ReviewCard(review: DoubanReview) {
                     Text(
                         text = "★".repeat(filled),
                         style = MaterialTheme.typography.bodySmall,
-                        color = DetailTab.RECS.color,
+                        color = if (cs.isDark) DetailTab.RECS.color else Color(0xFF8B5E00), // v1.2.14 E片：实心星 #F59E0B 浅色只有 2.05:1，改 #8B5E00（5.41:1）；深色 8.63:1 不动
                         maxLines = 1,
                     )
                     Text(
                         text = "☆".repeat(5 - filled),
                         style = MaterialTheme.typography.bodySmall,
-                        color = cs.onSurfaceVariant.copy(alpha = 0.4f),
+                        color = cs.onSurfaceVariant.copy(alpha = 0.8f), // v1.2.14 E片：空心星 0.4 只有约 2.0:1，改 0.8（5.14:1）
                         maxLines = 1,
                     )
                 }
@@ -3368,7 +3374,7 @@ private fun QuickSearchPanel(
                             Modifier
                                 .size(6.dp)
                                 .clip(CircleShape)
-                                .background(Color(0xFF22C55E)),
+                                .background(Color(0xFF15803D)), // v1.2.14 E片：状态点 #22C55E 浅色 2.17:1（< 3:1），改 #15803D（4.78/3.69）
                         )
                         Spacer(Modifier.width(4.dp))
                         Text(

@@ -1054,7 +1054,7 @@ fun ReaderScreen(
             surfaceVariant = Color(0xFF2E3342),
             onSurface = Color(0xFFE8EAF0),
             onSurfaceVariant = Color(0xFFB0B7C3),
-            outline = Color(0xFF454B56),
+            outline = Color(0xFF7A8290), // v1.2.14 E片：深色阅读配色描边 #454B56 只有约 1.7:1，改 #7A8290（3.78:1）
             primary = Color(0xFF7AA7F7),
             onPrimary = Color(0xFF18243A),
         )
@@ -1065,7 +1065,7 @@ fun ReaderScreen(
             surfaceVariant = Color(0xFFF0F0F0),
             onSurface = Color(0xFF242424),
             onSurfaceVariant = Color(0xFF666666),
-            outline = Color(0xFFE0E0E0),
+            outline = Color(0xFF757575), // v1.2.14 E片：浅色阅读配色描边 #E0E0E0 只有 1.43:1，改 #757575（4.61:1）
         )
     }
 
@@ -1098,7 +1098,7 @@ fun ReaderScreen(
                     Text(
                         // v0.61.0：章节名后跟阅读进度百分比
                         "${chapter?.title ?: ""}  $progressPct%",
-                        color = fg.copy(alpha = 0.6f),
+                        color = fg.copy(alpha = 0.75f), // v1.2.14 E片：章节名 0.6 浅底只有 3.81:1，改 0.75（5.94:1）
                         fontSize = 12.sp,
                         maxLines = 1,
                     )
@@ -1106,7 +1106,7 @@ fun ReaderScreen(
                     if (readerSourceName.isNotBlank()) {
                         Text(
                             readerSourceName,
-                            color = fg.copy(alpha = 0.45f),
+                            color = fg.copy(alpha = 0.75f), // v1.2.14 E片：来源名 0.45 浅底只有约 2.6:1，改 0.75（5.94:1）
                             fontSize = 11.sp,
                             maxLines = 1,
                         )
@@ -1303,18 +1303,18 @@ fun ReaderScreen(
         ) {
             if (!loaded) {
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Text("载入中…", color = fg.copy(alpha = 0.6f))
+                    Text("载入中…", color = fg.copy(alpha = 0.75f)) // v1.2.14 E片：加载提示 0.6 浅底只有 3.81:1，改 0.75（5.94:1）
                 }
             } else if (chapter == null) {
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Text("没有章节内容", color = fg.copy(alpha = 0.6f))
+                    Text("没有章节内容", color = fg.copy(alpha = 0.75f)) // v1.2.14 E片：空态提示 0.6 浅底只有 3.81:1，改 0.75（5.94:1）
                 }
             } else if (contentLoading && chapter.content.isBlank()) {
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        CircularProgressIndicator(color = fg.copy(alpha = 0.6f))
+                        CircularProgressIndicator(color = fg.copy(alpha = 0.75f)) // v1.2.14 E片：加载圈 0.6 改 0.75，与提示字同口径
                         Spacer(Modifier.height(8.dp))
-                        Text("正文加载中…", color = fg.copy(alpha = 0.6f), fontSize = 13.sp)
+                        Text("正文加载中…", color = fg.copy(alpha = 0.75f), fontSize = 13.sp) // v1.2.14 E片：加载提示 0.6 浅底只有 3.81:1，改 0.75（5.94:1）
                     }
                 }
             // v0.109.0 A7：正文拉取失败——可见错误态 + 点任意处重试，不许静默空白页
@@ -1443,7 +1443,7 @@ fun ReaderScreen(
                             if (landing != null || gpages.isEmpty()) {
                                 Text(
                                     text = "正文加载中…",
-                                    color = fg.copy(alpha = 0.6f),
+                                    color = fg.copy(alpha = 0.75f), // v1.2.14 E片：加载提示 0.6 浅底只有 3.81:1，改 0.75（5.94:1）
                                     fontSize = 13.sp,
                                 )
                             } else {
@@ -1505,14 +1505,14 @@ fun ReaderScreen(
                 val (clockText, batteryPct) = rememberClockAndBattery()
                 Text(
                     if (batteryPct >= 0) "$clockText  $batteryPct%" else clockText,
-                    color = fg.copy(alpha = 0.6f),
+                    color = fg.copy(alpha = 0.75f), // v1.2.14 E片：页脚小字 0.6 浅底只有 3.81:1，改 0.75（5.94:1）
                     fontSize = 12.sp,
                     maxLines = 1,
                     modifier = Modifier.padding(end = 12.dp),
                 )
                 Text(
                     chapter?.title ?: "",
-                    color = fg.copy(alpha = 0.6f),
+                    color = fg.copy(alpha = 0.75f), // v1.2.14 E片：页脚小字 0.6 浅底只有 3.81:1，改 0.75（5.94:1）
                     fontSize = 12.sp,
                     maxLines = 1,
                     modifier = Modifier.weight(1f),
@@ -1526,7 +1526,7 @@ fun ReaderScreen(
                     } else {
                         "${pagerState.currentPage + 1}/计算中  $progressPct%"
                     },
-                    color = fg.copy(alpha = 0.6f),
+                    color = fg.copy(alpha = 0.75f), // v1.2.14 E片：页脚小字 0.6 浅底只有 3.81:1，改 0.75（5.94:1）
                     fontSize = 12.sp,
                     maxLines = 1,
                 )
@@ -2233,7 +2233,7 @@ private fun ReaderBottomBar(
         if (chapterCount > 0) {
             Text(
                 "第 ${chapterIndex + 1} / $chapterCount 章 · 本章 ${(sliderValue * 100).toInt()}%",
-                color = fg.copy(alpha = 0.55f),
+                color = fg.copy(alpha = 0.75f), // v1.2.14 E片：章节位置小字 0.55 浅底只有约 3.3:1，改 0.75（5.94:1）
                 fontSize = 11.sp,
                 maxLines = 1,
                 modifier = Modifier
@@ -2270,7 +2270,7 @@ private fun ReaderBottomBar(
                 colors = SliderDefaults.colors(
                     thumbColor = MaterialTheme.colorScheme.primary,
                     activeTrackColor = MaterialTheme.colorScheme.primary,
-                    inactiveTrackColor = fg.copy(alpha = 0.15f),
+                    inactiveTrackColor = fg.copy(alpha = 0.55f), // v1.2.14 E片：章节滑块未播轨 0.15 浅底只有约 1.6:1，改 0.55（3.32/4.68）
                 ),
                 thumb = {
                     Box(

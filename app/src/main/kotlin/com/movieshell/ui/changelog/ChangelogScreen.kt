@@ -87,7 +87,7 @@ private fun ChangelogItem(entry: ChangelogEntry) {
                         Text(
                             text = entry.date,
                             style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f), // v1.2.14 E片：日期小字 0.7 浅色只有 3.98:1，改 0.8（5.14:1）
                         )
                     }
                 }

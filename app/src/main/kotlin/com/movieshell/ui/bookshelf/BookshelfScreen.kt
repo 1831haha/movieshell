@@ -1286,7 +1286,8 @@ private fun GroupChip(
                 else Modifier.border(
                     BorderStroke(
                         1.dp,
-                        MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.25f),
+                        // v1.2.14 E片：未选分组 Chip 描边 onSurfaceVariant 0.25 只有约 1.5:1，改 outline（4.27/5.86）。
+                        MaterialTheme.colorScheme.outline,
                     ),
                     RoundedCornerShape(16.dp),
                 ),
@@ -1312,7 +1313,7 @@ private fun GroupChip(
                 "$count",
                 fontSize = 11.sp,
                 color = if (selected) MaterialTheme.colorScheme.onSurface.copy(alpha = 0.8f)
-                else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f), // v1.2.14 E片：分组计数 0.7 浅色只有 3.98:1，改 0.8（5.14:1）
             )
         }
     }

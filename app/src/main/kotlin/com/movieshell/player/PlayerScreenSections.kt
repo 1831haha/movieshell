@@ -211,7 +211,7 @@ internal fun PlayerSeekBar(
             colors = SliderDefaults.colors(
                 thumbColor = Color.White,
                 activeTrackColor = MaterialTheme.colorScheme.primary,
-                inactiveTrackColor = Color.White.copy(alpha = 0.3f),
+                inactiveTrackColor = Color.White.copy(alpha = 0.5f), // v1.2.14 E片：未播轨 0.3 黑底只有约 2.6:1，改 0.5（约 5.3:1）
             ),
             track = { sliderState ->
                 val fraction = sliderState.valueRange.let { r ->
@@ -236,7 +236,7 @@ internal fun PlayerSeekBar(
                         val y = size.height / 2f
                         val w = 3.dp.toPx()
                         drawLine(
-                            color = Color.White.copy(alpha = 0.25f),
+                            color = Color.White.copy(alpha = 0.5f), // v1.2.14 E片：未播轨 0.25 黑底只有约 2.3:1，改 0.5（约 5.3:1）
                             start = Offset(0f, y),
                             end = Offset(size.width, y),
                             strokeWidth = w,
@@ -568,7 +568,7 @@ internal fun PlayerDialogCard(
                 .align(Alignment.Center)
                 .fillMaxWidth(0.86f)
                 .widthIn(max = maxWidth)
-                .border(1.dp, MaterialTheme.colorScheme.outlineVariant, cardShape),
+                .border(1.dp, MaterialTheme.colorScheme.outline, cardShape), // v1.2.14 E片：弹窗卡描边 outlineVariant 只有 1.62:1（浅）/1.98:1（深），改 outline（4.27/5.86）
             shape = cardShape,
             color = MaterialTheme.colorScheme.surfaceContainerHigh,
             tonalElevation = 0.dp,

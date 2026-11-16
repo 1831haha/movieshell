@@ -447,7 +447,7 @@ fun MusicPlayerScreen(
                                         )
                                         Text(
                                             "当前源未返回，跨平台也未匹配到",
-                                            color = Color.White.copy(alpha = 0.35f),
+                                            color = Color.White.copy(alpha = 0.6f), // v1.2.14 E片：歌词空态副行白字 0.35 黑底只有 3.11:1，改 0.6（7.33:1）
                                             style = MaterialTheme.typography.bodySmall,
                                         )
                                     }
@@ -472,8 +472,8 @@ fun MusicPlayerScreen(
                                             color = if (i == curIdx) {
                                                 lyricBase ?: MaterialTheme.colorScheme.primary
                                             } else {
-                                                lyricBase?.copy(alpha = 0.45f)
-                                                    ?: Color.White.copy(alpha = 0.55f)
+                                                lyricBase?.copy(alpha = 0.65f) // v1.2.14 E片：非当前行歌词 0.45 黑底只有约 3.05:1，改 0.65（5.29:1 起）
+                                                    ?: Color.White.copy(alpha = 0.65f) // v1.2.14 E片：非当前行歌词 0.55 改 0.65（8.46:1），仍明显暗于当前行
                                             },
                                         )
                                     }
@@ -498,7 +498,7 @@ fun MusicPlayerScreen(
                                             .background(MaterialTheme.colorScheme.surfaceContainer)
                                             .border(
                                                 1.dp,
-                                                MaterialTheme.colorScheme.outlineVariant,
+                                                MaterialTheme.colorScheme.outline, // v1.2.14 E片：歌词取色面板描边 outlineVariant 只有 1.62:1（浅）/1.98:1（深），改 outline（4.27/5.86）
                                                 RoundedCornerShape(20.dp),
                                             )
                                             .padding(horizontal = 10.dp, vertical = 8.dp),
@@ -522,7 +522,7 @@ fun MusicPlayerScreen(
                                                         color = if (selected) {
                                                             MaterialTheme.colorScheme.primary
                                                         } else {
-                                                            Color.Gray.copy(alpha = 0.45f)
+                                                            Color.Gray.copy(alpha = 0.8f) // v1.2.14 E片：未选歌词色点描边 0.45 太淡看不清，改 0.8
                                                         },
                                                         shape = CircleShape,
                                                     )
@@ -1144,7 +1144,7 @@ private fun MusicSeekBar(
                         val y = size.height / 2f
                         val w = 3.dp.toPx()
                         drawLine(
-                            color = Color.White.copy(alpha = 0.25f),
+                            color = Color.White.copy(alpha = 0.5f), // v1.2.14 E片：迷你进度未播轨 0.25 黑底只有约 2.3:1，改 0.5（约 5.3:1）
                             start = Offset(0f, y),
                             end = Offset(size.width, y),
                             strokeWidth = w,
@@ -1547,17 +1547,19 @@ private fun ResolvedBadge(
 }
 
 /** v0.121.0：音质文本 → 徽标色（与 MusicScreen.kt qualityChipColor 同口径，明度自适应） */
-@Composable
+// v1.2.14 E片：播放页底恒为近黑 #07070D，与 App 主题深浅无关——原来按 App 主题
+// 取色，浅色主题下 onSurface（#221A14）/ onSurfaceVariant（#51443B）压在黑底上
+// 只有 1.3:1/1.9:1，音质徽标直接看不见；改恒用亮色：无损白字、其他白字 0.75、
+// 高清亮蓝 #93C5FD（11.14:1）。
 private fun musicQualityTint(quality: String): Color {
-    val lightBg = MaterialTheme.colorScheme.background.luminance() > 0.5f
     return when {
         quality.contains("无损") || quality.contains("母带") || quality.contains("超高清") ||
             listOf("flac", "hires", "atmos", "master").any {
                 quality.contains(it, ignoreCase = true)
-            } -> MaterialTheme.colorScheme.onSurface
+            } -> Color.White
         quality.contains("高清") || quality.contains("320k") ->
-            if (lightBg) Color(0xFF1D4ED8) else Color(0xFF60A5FA)
-        else -> MaterialTheme.colorScheme.onSurfaceVariant
+            Color(0xFF93C5FD)
+        else -> Color.White.copy(alpha = 0.75f)
     }
 }
 
