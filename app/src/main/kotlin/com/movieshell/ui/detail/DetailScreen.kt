@@ -53,6 +53,7 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -958,6 +959,23 @@ fun DetailScreen(
                     derivedStateOf { listState.firstVisibleItemIndex > 0 }
                 }
                 val showMiniPlayer = !playerFullscreen && playerOffScreen && embeddedUrl.isNotBlank()
+                // v1.2.21：点海报播放入口（接旧“继续播放”按钮的逻辑原样，与简介卡海报共用）——
+                // 已在播 → 回到顶部播放器；未播 → 从断点集续播。顶部 16:9 海报区与简介卡海报
+                // 点按都走这里；海报放大改走长按（顶部区与简介卡海报皆可），点按不再弹大图——
+                // 用户原话“播放器点一下就是一幅海报，我想要的是播放器不是海报”：未开播前
+                // 顶部那块就是播放器的位置，点按必须进播放器，不能弹海报。
+                fun playFromPoster() {
+                    if (embeddedUrl.isNotBlank()) {
+                        scope.launch { listState.animateScrollToItem(0) }
+                    } else {
+                        val list = if (lineEpisodes.isNotEmpty()) lineEpisodes else episodes
+                        val i = highlightEp.coerceIn(0, (list.size - 1).coerceAtLeast(0))
+                        list.getOrNull(i)?.let { ep ->
+                            playEpisode(ep, safeLine, i)
+                            scope.launch { listState.animateScrollToItem(0) }
+                        }
+                    }
+                }
                 Box(
                     // v0.261.0：播放器贴边——只取上下内边距，左右内边距忽略，
                     // 否则 Detail Scaffold 的左右 inset + MainActivity 的左右 inset
@@ -1018,9 +1036,13 @@ fun DetailScreen(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .aspectRatio(16f / 9f)
-                                    .clickable(
-                                        enabled = coverUrl.isNotBlank(),
-                                        onClick = { showCoverDialog = true },
+                                    // v1.2.21：点按 = 播放（走 playFromPoster），长按 = 看海报大图；
+                                    // 原来点按直接弹大图，未开播前顶部这块就是播放器的位置，
+                                    // 用户点它要的是播放器不是海报。无海报时点按照常播放，
+                                    // 长按无图可看故只在有图时开。
+                                    .combinedClickable(
+                                        onClick = { playFromPoster() },
+                                        onLongClick = { if (coverUrl.isNotBlank()) showCoverDialog = true },
                                     ),
                                 // v1.1.19：无封面时占位也不再是写死的灰块，跟当前剧的种子色走。
                                 backgroundColor = seedColor,
@@ -1099,27 +1121,18 @@ fun DetailScreen(
                                 if (coverUrl.isNotBlank()) {
                                     AsyncImage(
                                         model = coverUrl,
-                                        contentDescription = "海报，点按播放",
+                                        contentDescription = "海报，点按播放，长按看大图",
                                         modifier = Modifier
                                             .width(134.dp)
                                             .aspectRatio(2f / 3f)
                                             .clip(RoundedCornerShape(V5.CornerLg))
                                             .background(v.surfaceContainerHigh)
-                                            .clickable {
-                                                // v1.1.13：点海报播放入口，接旧“继续播放”按钮的逻辑原样——
-                                                // 已在播 → 回到顶部播放器；未播 → 从断点集续播。
-                                                // 海报放大改走顶部播放区点按（showCoverDialog 不动）。
-                                                if (embeddedUrl.isNotBlank()) {
-                                                    scope.launch { listState.animateScrollToItem(0) }
-                                                } else {
-                                                    val list = if (lineEpisodes.isNotEmpty()) lineEpisodes else episodes
-                                                    val i = highlightEp.coerceIn(0, (list.size - 1).coerceAtLeast(0))
-                                                    list.getOrNull(i)?.let { ep ->
-                                                        playEpisode(ep, safeLine, i)
-                                                        scope.launch { listState.animateScrollToItem(0) }
-                                                    }
-                                                }
-                                            },
+                                            .combinedClickable(
+                                                // v1.1.13：点海报播放入口，与顶部播放区共用 playFromPoster；
+                                                // v1.2.21：海报放大改走长按，点按不再弹大图。
+                                                onClick = { playFromPoster() },
+                                                onLongClick = { showCoverDialog = true },
+                                            ),
                                         contentScale = ContentScale.Crop,
                                     )
                                     Spacer(Modifier.width(20.dp))

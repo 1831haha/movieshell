@@ -33,9 +33,26 @@ data class HistoryEntry(
 )
 
 /**
+ * v1.2.21：历史去重身份——“源 + 剧 + 集”，不是播放地址。
+ * 短剧等源的播放地址每次拉取换签名 / 换线路，同一剧同一集会在盘里留下多条
+ * 不同 url 的记录（用户实证：同一源同一电影连占 3 张继续观看卡）；只按 url
+ * 去重拦不住。vodId 为空的老记录 / 直播退回按 url 去重。
+ * 键里带源：不同源的同名 vodId（如两个 CMS 站都用数字 id）不会误并。
+ * （纯函数，单测见 HistoryDedupTest。）
+ */
+internal fun historyIdentityKey(
+    sourceType: String,
+    sourceKey: String,
+    vodId: String,
+    episodeIndex: Int,
+    url: String,
+): String =
+    if (vodId.isNotBlank()) "vod|$sourceType|$sourceKey|$vodId|$episodeIndex" else "url|$url"
+
+/**
  * 播放历史记录，SharedPreferences 持久化。
  *
- * 按 url 去重、最新记录排在最前面，最多保留 [MAX_SIZE] 条。
+ * 按身份去重（见 [historyIdentityKey]）、最新记录排在最前面，最多保留 [MAX_SIZE] 条。
  */
 object HistoryStore {
 
@@ -66,7 +83,7 @@ object HistoryStore {
     fun isCorruptLoaded(): Boolean = corruptLoaded
 
     /**
-     * v1.2.13：备份恢复整表写回（去重按 url 取第一条，最多 MAX_SIZE 条）。
+     * v1.2.13：备份恢复整表写回（去重按身份取第一条，最多 MAX_SIZE 条）。
      *
      * 读坏守卫与 saveProgress/deleteEntries 同款：本地历史已损坏时拒绝写盘，
      * 返回 false，调用方明确报错、不静默丢数据（用户须先在历史页处理损坏数据）。
@@ -77,7 +94,9 @@ object HistoryStore {
             Log.w(TAG, "历史记录读坏未处理，拒绝恢复写盘（请先在历史页处理损坏数据）")
             return false
         }
-        val deduped = entries.filter { it.url.isNotBlank() }.distinctBy { it.url }.take(MAX_SIZE)
+        val deduped = entries.filter { it.url.isNotBlank() }
+            .distinctBy { historyIdentityKey(it.sourceType, it.sourceKey, it.vodId, it.episodeIndex, it.url) }
+            .take(MAX_SIZE)
         return prefs(context).edit()
             .putString(KEY_LIST, json.encodeToString(deduped))
             .commit()
@@ -116,7 +135,13 @@ object HistoryStore {
             Log.w(TAG, "历史记录读坏未处理，拒绝写盘覆盖（请先在历史页处理损坏数据）")
             return
         }
-        list.removeAll { it.url == url }
+        list.removeAll { existing ->
+            existing.url == url ||
+                historyIdentityKey(
+                    existing.sourceType, existing.sourceKey, existing.vodId,
+                    existing.episodeIndex, existing.url,
+                ) == historyIdentityKey(sourceType, sourceKey, vodId, episodeIndex, url)
+        }
         list.add(
             0,
             HistoryEntry(
@@ -151,6 +176,11 @@ object HistoryStore {
                 corruptLoaded = true
             }
             .getOrDefault(emptyList())
+            // v1.2.21：读时按身份去重（只留最新一条）——盘里已有的重复卡立刻并成一张，
+            // 不必等下次播放才收敛；写回路径（save/delete）读到的已是去重后的表。
+            .distinctBy {
+                historyIdentityKey(it.sourceType, it.sourceKey, it.vodId, it.episodeIndex, it.url)
+            }
     }
 
     /** 取某 url 的上次进度，不存在返回 0 */
