@@ -17,6 +17,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 import java.net.URI
+import java.util.concurrent.TimeUnit
 
 /**
  * v0.113.0：洛雪（LX）音乐脚本的 URL 解析引擎（androidx.javascriptengine V8）。
@@ -43,6 +44,10 @@ import java.net.URI
  * 不确定性在 V8 上不复存在。
  *
  * 所有网络/JS 异常吞掉记 LogBus，返回 null/false，不抛异常。
+ *
+ * v1.2.18：直链验活——[resolveMusicUrl] 返回前先验链接（见伴生对象
+ * [verifyAudioUrl]），死链按解析失败返回 null，调用方逐档/逐源回落链继续
+ * 试；带明确媒体后缀的直链不验（v0.294.9 一次性地址保护）。
  */
 class LxMusicSourceEngine(context: Context) {
 
@@ -179,7 +184,17 @@ class LxMusicSourceEngine(context: Context) {
                 return null
             }
             val url = result.takeIf { it.isNotBlank() && it.startsWith("http") }
-            if (url == null) lastFailureReason = "脚本返回空结果"
+            if (url == null) {
+                lastFailureReason = "脚本返回空结果"
+                return null
+            }
+            // v1.2.18：直链验活——死链当解析失败，调用方逐档/逐源回落链继续试，
+            // 不再把死链交给播放器 5 秒后才报错。
+            if (!verifyAudioUrl(url)) {
+                lastFailureReason = "直链验活失败"
+                LogBus.w(TAG, "直链验活失败，换下一档/源")
+                return null
+            }
             url
         } catch (e: CancellationException) {
             // v0.294.17：调用方取消（切歌）时 Kotlin 侧不再等，但 JS 里的 Promise 链照跑——
@@ -530,6 +545,107 @@ class LxMusicSourceEngine(context: Context) {
                 compareByDescending<String> { qualityRank(it) < 5 }
                     .thenByDescending { qualityRank(it) },
             )
+
+        /**
+         * v1.2.18：直链验活——脚本"解析成功"只代表拿到链接字符串，死链要到播放器
+         * 拉流才报错（《天龙八部之宿敌》实证：oiapi 404 链接进播放器，5 秒后才报
+         * ERROR_CODE_IO_BAD_HTTP_STATUS；重解析一次还是同一条死链）。解析到链接
+         * 后先验一下，死链当解析失败，调用方现有的逐档/逐源回落链继续往下试，
+         * 不再把死链交给播放器。验活只发 headers、不读 body；最坏 8 秒。
+         *
+         * 口径跟嗅探结算保持一致（SniffEngine）：
+         * - 带明确媒体后缀的直链（.mp3/.flac/.m4a…）不验——v0.294.9 一次性
+         *   地址保护：部分签名地址访问一次即失效，探测会把真正起播的那次请求作废。
+         * - 其余（API 式地址，如 oiapi/vkeys/星海）用 Range 首字节验：2xx 且不是
+         *   错误页（见 [isAliveMusicResponse]）才算活；Range 被拒（400/403/405/416）
+         *   时退一步用普通 GET 只取响应头再判一次，防误杀不支持 Range 的站。
+         * - 验活本身失败（超时/断连）按死链处理：调用方还有下一档/下一源/GD 兜底，
+         *   误杀一档只降档、不静默。链接可能带 key，日志里一律不记 URL 本身。
+         */
+        internal suspend fun verifyAudioUrl(url: String): Boolean {
+            if (SniffEngine.hasClearMediaSuffix(url)) return true
+            return try {
+                withTimeoutOrNull(VERIFY_TIMEOUT_MS) {
+                    withContext(Dispatchers.IO) { probeAudioUrl(url) }
+                } ?: false
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                LogBus.d(TAG, "直链验活异常: ${e.message}")
+                false
+            }
+        }
+
+        /** 验活单次探测（IO 线程）：Range 首字节，Range 被拒时退普通 GET 只取头。 */
+        private fun probeAudioUrl(url: String): Boolean {
+            val rangeReq = Request.Builder().url(url).header("Range", "bytes=0-1").get().build()
+            probeOnce(rangeReq)?.let { return it }
+            val getReq = Request.Builder().url(url).get().build()
+            return probeOnce(getReq) ?: false
+        }
+
+        /**
+         * 单次探测：返回判定结果；Range 被拒（400/403/405/416）返回 null 让调用方
+         * 换普通 GET；网络异常也返回 null（调用方再试一次普通 GET，不行即死链）。
+         */
+        private fun probeOnce(req: Request): Boolean? {
+            return runCatching {
+                verifyClient.newCall(req).execute().use { resp ->
+                    if (resp.code in setOf(400, 403, 405, 416)) return null
+                    isAliveMusicResponse(
+                        resp.code,
+                        resp.header("Content-Type"),
+                        resp.header("Content-Range"),
+                        resp.header("Content-Length"),
+                    )
+                }
+            }.getOrNull()
+        }
+
+        /**
+         * v1.2.18：直链验活判定（纯函数，可单元测试）。
+         * 活 = 2xx，且 Content-Type 不是错误页（text/html、application/json、
+         * text/plain、JS/CSS、图片——错误接口常以 200 回 JSON/文字报错，如 xcvts
+         * "接口已下架或不存在"），且总量/长度不为 0。Content-Type 缺失按活处理
+         * （fail-open：部分 CDN 不回 CT）；Range 响应的 Content-Length 是区间
+         * 长度、不是总量，总量只看 Content-Range 的 "/" 后面。
+         */
+        internal fun isAliveMusicResponse(
+            code: Int,
+            contentType: String?,
+            contentRange: String?,
+            contentLength: String?,
+        ): Boolean {
+            if (code !in 200..299) return false
+            val ct = contentType?.substringBefore(';')?.trim()?.lowercase().orEmpty()
+            if (ct.isNotEmpty() && (ct in DENY_CT || ct.startsWith("image/"))) return false
+            contentRange?.substringAfter("/", "")?.toLongOrNull()?.let { total ->
+                if (total <= 0) return false
+            } ?: contentLength?.toLongOrNull()?.let { len ->
+                if (len <= 0) return false
+            }
+            return true
+        }
+
+        /** 验活拒绝的 Content-Type：错误页与非音频内容（在结算拒绝集上加 text/plain）。 */
+        private val DENY_CT = setOf(
+            "text/html", "application/xhtml+xml",
+            "application/json", "text/plain", "text/xml",
+            "application/javascript", "text/javascript", "text/css",
+        )
+
+        /** 验活整单上限（毫秒）：Range 与普通 GET 两次尝试共用，超了按死链处理。 */
+        private const val VERIFY_TIMEOUT_MS = 8_000L
+
+        /** 验活专用 client：紧超时（3/3/5 秒）、零重试；从默认 client 派生，保留 UA/cookie/日志拦截器。 */
+        private val verifyClient: OkHttpClient by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
+            CmsApi.defaultClient().newBuilder()
+                .connectTimeout(3, TimeUnit.SECONDS)
+                .readTimeout(3, TimeUnit.SECONDS)
+                .callTimeout(5, TimeUnit.SECONDS)
+                .retryOnConnectionFailure(false)
+                .build()
+        }
     }
 }
 
@@ -551,7 +667,7 @@ suspend fun resolveBuiltinHuibq(source: String, songId: String, quality: String)
             "192k" -> "192k"
             else -> "128k"
         }
-        runCatching {
+        val url = runCatching {
             val req = Request.Builder()
                 .url("https://lxmusicapi.onrender.com/url/$src/$songId/$q")
                 .header("X-Request-Key", "share-v3")
@@ -568,5 +684,11 @@ suspend fun resolveBuiltinHuibq(source: String, songId: String, quality: String)
             }
         }.onFailure {
             LogBus.w("LxMusic", "内置 huibq 解析失败: $src/$songId ${it.message}")
-        }.getOrNull()
+        }.getOrNull() ?: return@withContext null
+        // v1.2.18：直链验活（与脚本源同口径），死链返回 null 让调用方继续回落。
+        if (!LxMusicSourceEngine.verifyAudioUrl(url)) {
+            LogBus.w("LxMusic", "内置 huibq 直链验活失败")
+            return@withContext null
+        }
+        url
     }
