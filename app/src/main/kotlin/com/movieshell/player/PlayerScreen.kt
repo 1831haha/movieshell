@@ -42,6 +42,7 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.basicMarquee
@@ -126,6 +127,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.takeWhile
@@ -160,7 +162,8 @@ import kotlinx.coroutines.withTimeout
 private val SPEEDS = PlayerGestureMath.SPEED_CHOICES
 
 // v0.65：循环模式（对标目标界面"顺序播放"按钮）
-private val PLAY_MODES = listOf("顺序播放", "单集循环", "列表循环")
+// v1.2.14 B片（8）：加“播完停止”——播完停住，不切下一集、不循环
+private val PLAY_MODES = listOf("顺序播放", "单集循环", "列表循环", "播完停止")
 
 // v0.125.0：下标即持久化档位（PlayerSettings.resizeMode），顺序与菜单文案一致——
 // 0=适应 FIT / 1=裁剪 ZOOM / 2=拉伸 FILL；libmpv 的 setAspectMode 同下标同语义
@@ -296,6 +299,9 @@ fun PlayerScreen(
     // v0.109.0 A10：切集代际 guard 的持有量（声明前置：switchEpisode 里引用）
     var resolveGen by remember { mutableIntStateOf(0) }
     var resolveJob by remember { mutableStateOf<Job?>(null) }
+    // v1.2.14 B片（2）：下一集预解析结果（声明前置：switchEpisode 里命中即用，
+    // 预解析 effect 里写入；切集/换源/退出时由 effect 取消或缓存失效兜底）
+    var prefetched by remember { mutableStateOf<EpisodePrefetch.PrefetchedEpisode?>(null) }
     // v0.65：嵌入模式下外部换地址（如详情页点选集）→ 跟随切过去，走已有 LaunchedEffect(playUrl) 起播
     LaunchedEffect(url) {
         if (url.isNotBlank() && url != playUrl) {
@@ -344,6 +350,12 @@ fun PlayerScreen(
     val engineSetting by PlayerSettings.engine.collectAsState()
     val engineOverride by EngineHost.engineOverride.collectAsState()
     val engine = engineOverride ?: engineSetting
+    // v1.2.14 B片（3）：音轨——Media3 当前流的音频轨道；libmpv 为空。
+    // 手动选过音轨的地址 / 已自动按偏好选过的地址（切集后比对失效，旧选择不串到新集）。
+    val audioTracks by EngineHost.audioTracks.collectAsState()
+    val preferredAudioLang by PlayerSettings.audioLanguage.collectAsState()
+    var manualAudioTrackUrl by remember { mutableStateOf<String?>(null) }
+    var audioAutoPickUrl by remember { mutableStateOf<String?>(null) }
     // v0.21.0：定时关闭状态
     val sleepRemaining by VideoSleepTimer.remainingMs.collectAsState()
     val sleepArmed by VideoSleepTimer.afterEpisodeArmed.collectAsState()
@@ -494,6 +506,25 @@ fun PlayerScreen(
         } else {
             LogBus.i("Player", "重力感应：切竖屏")
             ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+        }
+    }
+
+    // v1.2.14 B片（9）：默认播放方向——进播放器时按设置锁方向（只锁一次，
+    // 之后顶栏切屏按钮与重力感应按既有规则接管；嵌入模式不碰方向）。
+    // 跟随重力感应时什么都不做，沿用上面的 sensor 逻辑。
+    val defaultOrientation by PlayerSettings.defaultOrientation.collectAsState()
+    LaunchedEffect(defaultOrientation, embedded) {
+        if (embedded) return@LaunchedEffect
+        val activity = context as? Activity ?: return@LaunchedEffect
+        when (defaultOrientation) {
+            PlayerSettings.ORIENTATION_LANDSCAPE -> {
+                OrientationSensor.manualLocked = true
+                activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
+            }
+            PlayerSettings.ORIENTATION_PORTRAIT -> {
+                OrientationSensor.manualLocked = true
+                activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+            }
         }
     }
 
@@ -818,7 +849,7 @@ fun PlayerScreen(
                     val ep = line.episodes.getOrNull(epIdx)
                     // 磁力不参与自动重试（走 MagnetPlayer 分支，无播放器错误可重试）
                     if (ep != null && !MagnetPlayer.isMagnet(ep.url)) {
-                        val resolved = resolver(context, ep)
+                        val resolved = resolver(context, ep, false)
                         if (resolved.isNotBlank() && resolved != playUrl) {
                             link = resolved
                             targetLine = next
@@ -845,7 +876,7 @@ fun PlayerScreen(
                 // 不会在死解析线之间来回空转。
                 val curEp = lines.getOrNull(curLine)?.episodes?.getOrNull(PlaySession.episodeIndex)
                 val relink = if (curEp != null && !MagnetPlayer.isMagnet(curEp.url)) {
-                    resolver(context, curEp)
+                    resolver(context, curEp, false)
                 } else ""
                 if (relink.isNotBlank() && relink != playUrl) {
                     LogBus.i("Player", "播放失败，同线路换解析线路重试")
@@ -1098,15 +1129,27 @@ fun PlayerScreen(
      * 解析失败由 resolvePlayUrl 内部 Toast，不切。
      */
     fun switchEpisode(lineIdx: Int, epIdx: Int) {
-        val resolver = PlaySession.resolver ?: return
         val ep = PlaySession.lines.getOrNull(lineIdx)?.episodes?.getOrNull(epIdx) ?: return
+        // v1.2.14 B片（2）：预解析命中直接用（地址新鲜才算命中，见 EpisodePrefetch），
+        // 不再走一次解析；命中后清掉缓存，同一地址不重复用。
+        if (EpisodePrefetch.isPrefetchUsable(prefetched, lineIdx, epIdx, System.currentTimeMillis())) {
+            val link = prefetched!!.url
+            prefetched = null
+            PlaySession.moveTo(lineIdx, epIdx)
+            triedLines.clear()
+            playUrl = link
+            // v0.65：通知外部（嵌入时详情页高亮跟随）
+            onEpisodeChange(lineIdx, epIdx)
+            return
+        }
+        val resolver = PlaySession.resolver ?: return
         // v0.109.0 A10：切集代际 guard——快速连点不同选集，慢的旧解析后完成会覆盖新选择。
         // 先 cancel 旧 Job；不合作的解析器再靠代际计数兜底，过期结果直接丢弃（v0.106.0 的
         // 应用级 scope 本意是"切页不中断解析"，切集时旧解析该停——cancel 只针对上一次切集）
         resolveJob?.cancel()
         val myGen = ++resolveGen
         resolveJob = PlayResolveScope.launch {
-            val link = resolver(context, ep)
+            val link = resolver(context, ep, false)
             if (myGen != resolveGen) return@launch // 已被更新的切集取代，丢弃
             if (link.isNotBlank()) {
                 PlaySession.moveTo(lineIdx, epIdx)
@@ -1116,6 +1159,56 @@ fun PlayerScreen(
                 onEpisodeChange(lineIdx, epIdx)
             }
         }
+    }
+
+    // v1.2.14 B片（2）：当前集播放时后台预解析下一集——解析结果缓存起来，
+    // 切集时直接用。effect 跟 playUrl 走：切集/换源时旧预解析自动取消；
+    // 退出播放器时 composition 离开，effect 一并取消，不留后台任务。
+    // 静默解析（quiet=true）：失败只记日志，不弹 Toast、不开嗅探、不报失败。
+    LaunchedEffect(playUrl) {
+        if (isLive || playUrl.isBlank()) return@LaunchedEffect
+        val target = EpisodePrefetch.nextEpisodeToPrefetch(
+            PlaySession.lineIndex, PlaySession.episodeIndex,
+            PlaySession.currentLine()?.episodes?.size ?: 0, isLive,
+        ) ?: return@LaunchedEffect
+        // 起播后等 2 秒再动手，让当前集先出画面，不跟起播抢资源。
+        delay(EpisodePrefetch.START_DELAY_MS)
+        val resolver = PlaySession.resolver ?: return@LaunchedEffect
+        val ep = PlaySession.lines.getOrNull(target.first)?.episodes?.getOrNull(target.second)
+            ?: return@LaunchedEffect
+        val link = try {
+            resolver(context, ep, true)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (t: Throwable) {
+            LogBus.w("Player", "下一集预解析失败（不影响当前播放）：${t.message}")
+            ""
+        }
+        if (link.isBlank()) return@LaunchedEffect
+        // 切集发生在预解析期间时，目标已不是当初那一集——过期结果直接丢弃。
+        if (PlaySession.lineIndex != target.first ||
+            PlaySession.episodeIndex != target.second - 1
+        ) return@LaunchedEffect
+        prefetched = EpisodePrefetch.PrefetchedEpisode(
+            target.first, target.second, link, System.currentTimeMillis(),
+        )
+        LogBus.i("Player", "下一集预解析完成：第 ${target.second + 1} 集")
+    }
+
+    // v1.2.14 B片（3）：多音轨时按首选语言自动选轨——只在轨道刚到、用户没手动
+    // 选过、本地址没自动选过时跑一次；单音轨/无偏好/无匹配时什么都不做。
+    LaunchedEffect(playUrl, audioTracks) {
+        if (isLive || engine != PlayerEngine.MEDIA3) return@LaunchedEffect
+        if (audioTracks.size <= 1) return@LaunchedEffect
+        if (manualAudioTrackUrl == playUrl || audioAutoPickUrl == playUrl) return@LaunchedEffect
+        val picked = TrackLanguage.pickPreferredAudioTrack(audioTracks, preferredAudioLang)
+            ?: return@LaunchedEffect
+        if (audioTracks.any { it.selected && it.id == picked.id }) {
+            audioAutoPickUrl = playUrl
+            return@LaunchedEffect
+        }
+        EngineHost.selectAudioTrack(picked.id)
+        audioAutoPickUrl = playUrl
     }
 
     /**
@@ -1430,30 +1523,23 @@ fun PlayerScreen(
             // 有片尾跳过时提前触发，否则自然播完（留 1 秒余量，防时长抖动）才触发
             val endAt = if (skipOutro > 0) dur - skipOutro * 1000L else dur - 1000L
             if (pos < endAt) continue
-            val nextIdx = PlaySession.episodeIndex + 1
-            val hasNext = PlaySession.currentLine()?.episodes?.getOrNull(nextIdx) != null
-            when (playModeIndex) {
-                1 -> {
+            // v1.2.14 B片（8）：播完行为走 PlayEndMode 纯决策——3=播完停止，停住不切集；
+            // 定时关闭优先级最高（上面已先处理，任何模式都不越过它）。
+            val count = PlaySession.currentLine()?.episodes?.size ?: 0
+            when (val action = PlayEndMode.action(playModeIndex, PlaySession.episodeIndex, count)) {
+                PlayEndMode.PlayEndAction.ReplayCurrent -> {
                     // 单集循环：回到开头继续播，不切集、不 break——下次到结尾会再触发
                     EngineHost.seekTo(0L)
                     EngineHost.resume()
                     LogBus.i("Player", "单集循环：回到开头重播")
                     delay(2000)
                 }
-                2 -> {
-                    // 列表循环：有下一集就切，没有就回到第一集
-                    if (hasNext) switchEpisode(PlaySession.lineIndex, nextIdx)
-                    else if (PlaySession.currentLine()?.episodes?.isNotEmpty() == true) {
-                        switchEpisode(PlaySession.lineIndex, 0)
-                    } else {
-                        EngineHost.pause()
-                    }
+                is PlayEndMode.PlayEndAction.PlayNext -> {
+                    switchEpisode(PlaySession.lineIndex, action.episodeIndex)
                     break
                 }
-                else -> {
-                    // 顺序播放：有下一集就切，没有就暂停
-                    if (hasNext) switchEpisode(PlaySession.lineIndex, nextIdx)
-                    else EngineHost.pause()
+                PlayEndMode.PlayEndAction.Pause -> {
+                    EngineHost.pause()
                     break
                 }
             }
@@ -2042,8 +2128,9 @@ fun PlayerScreen(
                 }
                 // v0.259.0：三个点菜单整体删除，改成信息 + 追剧开关 + 齿轮；
                 // 追剧开关紧邻齿轮左侧，齿轮点开底部页（六组），信息点开简介弹窗。
-                // 音轨/视轨无现有选择能力，不做假按钮；片头/片尾在齿轮播放组里
-                // 用跳过设置管理，不在顶栏单独造开关。
+                // 音轨选择在齿轮页轨道组里（Media3 多音轨时出选项，单音轨明示，
+                // libmpv 暂不支持）；片头/片尾在齿轮播放组里用跳过设置管理，
+                // 不在顶栏单独造开关。
                 RoundControlButton(
                     icon = Icons.Filled.Info,
                     desc = "简介",
@@ -2540,7 +2627,8 @@ fun PlayerScreen(
         }
 
         // v0.259.0：齿轮底部页（六组），替代三个点菜单，是播放器唯一设置入口；
-        // 音轨/视轨无现有选择能力，不做假按钮，只在轨道组里明示；
+        // v1.2.14 B片（3）：音轨选择已实现（Media3 多音轨时出选项，单音轨明示，
+        // libmpv 暂不支持）；视轨仍无选择能力，不做假按钮。
         // 时间/标题/进度已在顶栏与进度条显示，屏显组只留真实画中画开关。
         // v0.262.0：齿轮页必须落在屏幕下半部分（参考图2）——原来是 PlayerScreen
         // 内部的内联 Box，嵌入详情页时它的 fillMaxSize 只是顶部 16:9 播放盒子，
@@ -2656,11 +2744,61 @@ fun PlayerScreen(
                                 variant = AppButtonVariant.Ghost,
                             )
                         }
-                        Text(
-                            text = "当前片源暂无可切换的音轨 / 视轨",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
+                        // v1.2.14 B片（3）：音轨选择（Media3 多音轨时才出选项；
+                        // 单音轨只明示，libmpv 暂不支持、不做假按钮）。
+                        // 手动选轨只对当前地址生效，切集后按首选语言重新自动选。
+                        if (engine == PlayerEngine.MEDIA3) {
+                            when {
+                                audioTracks.size > 1 -> {
+                                    Spacer(Modifier.height(8.dp))
+                                    FlowRow(
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                                        modifier = Modifier.fillMaxWidth(),
+                                    ) {
+                                        V5Chip(
+                                            text = "自动",
+                                            selected = manualAudioTrackUrl != playUrl,
+                                            onClick = {
+                                                manualAudioTrackUrl = null
+                                                audioAutoPickUrl = null
+                                                EngineHost.selectAudioTrack(null)
+                                            },
+                                        )
+                                        audioTracks.forEach { track ->
+                                            V5Chip(
+                                                text = TrackLanguage.displayName(track),
+                                                selected = manualAudioTrackUrl == playUrl && track.selected,
+                                                onClick = {
+                                                    manualAudioTrackUrl = playUrl
+                                                    EngineHost.selectAudioTrack(track.id)
+                                                },
+                                            )
+                                        }
+                                    }
+                                }
+                                audioTracks.size == 1 -> {
+                                    Text(
+                                        text = "仅 1 条音轨（${TrackLanguage.displayName(audioTracks[0])}）",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                }
+                                else -> {
+                                    Text(
+                                        text = "当前片源暂无可切换的音轨",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                }
+                            }
+                        } else {
+                            Text(
+                                text = "libmpv 内核暂不支持音轨切换",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
                         Spacer(Modifier.height(12.dp))
                         Text("屏显", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface)
                         Spacer(Modifier.height(4.dp))
@@ -2902,6 +3040,47 @@ fun PlayerScreen(
         }
 
         } // if (!uiVm.pipMode)：画中画时只留播放画面
+
+        // v1.2.14 B片（9）：转场动画“海报碎片”——进场碎片拼贴揭示（仅独立播放页，
+        // 嵌入小窗不做）。单进度驱动 5×8 碎片依次淡出+缩小，约 550ms 后撤掉；
+        // 覆盖层不消费触摸，退场仍走导航淡出。Activity 重建（如旋转）时会重播
+        // 一次，是已知的小瑕疵，不影响播放。
+        val transitionMode by PlayerSettings.transitionMode.collectAsState()
+        var showShards by remember {
+            mutableStateOf(transitionMode == PlayerSettings.TRANSITION_SHARDS && !embedded)
+        }
+        if (showShards) {
+            val shardProgress by animateFloatAsState(
+                targetValue = 1f,
+                animationSpec = tween(550),
+                label = "shards",
+            )
+            LaunchedEffect(shardProgress) {
+                if (shardProgress >= 1f) showShards = false
+            }
+            Box(Modifier.fillMaxSize().zIndex(10f)) {
+                Column(Modifier.fillMaxSize()) {
+                    repeat(8) { row ->
+                        Row(Modifier.weight(1f).fillMaxWidth()) {
+                            repeat(5) { col ->
+                                val index = row * 5 + col
+                                val start = index * 0.012f
+                                val t = ((shardProgress - start) / 0.3f).coerceIn(0f, 1f)
+                                Box(
+                                    Modifier.weight(1f).fillMaxHeight()
+                                        .graphicsLayer {
+                                            alpha = 1f - t
+                                            scaleX = 1f - 0.12f * t
+                                            scaleY = 1f - 0.12f * t
+                                        }
+                                        .background(Color.Black),
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
 
         // v0.294.23：磁力转播不可用提示（自动拉起失败后的中文说明，去掉 DsPlayer 字样）
         if (uiVm.showServiceMissingDialog) {

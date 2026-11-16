@@ -35,6 +35,14 @@ object PlayerSettings {
     private const val KEY_SUB_OFFSET = "subtitle_style_offset"
     /** v0.27.7：重力感应自动横屏 */
     private const val KEY_GRAVITY_ROTATE = "gravity_rotate"
+    /** v1.2.14 B片（9）：默认播放方向（0=跟随重力感应 1=横屏 2=竖屏） */
+    private const val KEY_DEFAULT_ORIENTATION = "player_default_orientation"
+    /** v1.2.14 B片（9）：播放器转场动画（0=系统默认 1=淡入 2=缩放 3=海报碎片） */
+    private const val KEY_PLAYER_TRANSITION = "player_transition"
+    /** v1.2.14 B片（3）：首选音频语言（空=不指定；zh/yue/en/ja/ko） */
+    private const val KEY_AUDIO_LANG = "pref_audio_lang"
+    /** v1.2.14 B片（3）：首选字幕语言（空=不指定；zh-Hans/zh-Hant/zh/en/ja/ko） */
+    private const val KEY_SUBTITLE_LANG = "pref_subtitle_lang"
     /** v0.74.0：倍速记忆 */
     private const val KEY_SPEED = "player_speed"
     /** v0.125.0：全屏画面比例档位（0=适应 1=裁剪 2=拉伸） */
@@ -53,6 +61,46 @@ object PlayerSettings {
     /** v0.27.7：重力感应自动横屏（默认开） */
     private val _gravityRotate = MutableStateFlow(true)
     val gravityRotate: StateFlow<Boolean> = _gravityRotate
+
+    /**
+     * v1.2.14 B片（9）：默认播放方向——进播放器时锁定的方向。
+     * 0=跟随系统/重力感应（默认，保持现有行为）1=横屏 2=竖屏。
+     * 横屏/竖屏只在进页时锁一次，用户仍可用顶栏切屏按钮手动改；
+     * 嵌入模式（详情页小窗）不碰方向。
+     */
+    const val ORIENTATION_FOLLOW = 0
+    const val ORIENTATION_LANDSCAPE = 1
+    const val ORIENTATION_PORTRAIT = 2
+    private val _defaultOrientation = MutableStateFlow(ORIENTATION_FOLLOW)
+    val defaultOrientation: StateFlow<Int> = _defaultOrientation
+
+    /**
+     * v1.2.14 B片（9）：播放器打开/关闭的转场动画。
+     * 0=系统默认（默认，保持现有淡入+位移）1=淡入 2=缩放 3=海报碎片
+     * （碎片是进场时的碎片拼贴揭示，退场仍走淡出）。
+     */
+    const val TRANSITION_SYSTEM = 0
+    const val TRANSITION_FADE = 1
+    const val TRANSITION_SCALE = 2
+    const val TRANSITION_SHARDS = 3
+    private val _transitionMode = MutableStateFlow(TRANSITION_SYSTEM)
+    val transitionMode: StateFlow<Int> = _transitionMode
+
+    /**
+     * v1.2.14 B片（3）：首选音频语言（空=不指定）。
+     * 起播时喂给 Media3 的首选语言 + 轨道变化后按码匹配兜底；
+     * 多音轨时也可在播放器齿轮页手动选，手动选择优先于本偏好。
+     */
+    private val _audioLanguage = MutableStateFlow("")
+    val audioLanguage: StateFlow<String> = _audioLanguage
+
+    /**
+     * v1.2.14 B片（3）：首选字幕语言（空=不指定）。
+     * 只影响在线字幕搜索结果的排序（匹配的排前面），不自动下载；
+     * 起播时不自动重搜——没点过就是没选过。
+     */
+    private val _subtitleLanguage = MutableStateFlow("")
+    val subtitleLanguage: StateFlow<String> = _subtitleLanguage
 
     /**
      * v0.294.5：直播自动播放——进直播页时是否自动起播上次/首个频道。
@@ -101,6 +149,10 @@ object PlayerSettings {
             offsetMs = prefs.getLong(KEY_SUB_OFFSET, 0L).coerceIn(-10_000L, 10_000L),
         )
         _gravityRotate.value = prefs.getBoolean(KEY_GRAVITY_ROTATE, true)
+        _defaultOrientation.value = prefs.getInt(KEY_DEFAULT_ORIENTATION, ORIENTATION_FOLLOW).coerceIn(0, 2)
+        _transitionMode.value = prefs.getInt(KEY_PLAYER_TRANSITION, TRANSITION_SYSTEM).coerceIn(0, 3)
+        _audioLanguage.value = prefs.getString(KEY_AUDIO_LANG, "").orEmpty()
+        _subtitleLanguage.value = prefs.getString(KEY_SUBTITLE_LANG, "").orEmpty()
         _liveAutoplay.value = prefs.getInt(KEY_LIVE_AUTOPLAY, LIVE_AUTOPLAY_ALWAYS).coerceIn(0, 2)
     }
 
@@ -284,6 +336,38 @@ object PlayerSettings {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             .edit().putBoolean(KEY_GRAVITY_ROTATE, on).apply()
         _gravityRotate.value = on
+    }
+
+    /** v1.2.14 B片（9）：默认播放方向（0 跟随 / 1 横屏 / 2 竖屏）。 */
+    fun setDefaultOrientation(context: Context, mode: Int) {
+        val m = mode.coerceIn(0, 2)
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .edit().putInt(KEY_DEFAULT_ORIENTATION, m).apply()
+        _defaultOrientation.value = m
+    }
+
+    /** v1.2.14 B片（9）：播放器转场动画（0 系统默认 / 1 淡入 / 2 缩放 / 3 海报碎片）。 */
+    fun setTransitionMode(context: Context, mode: Int) {
+        val m = mode.coerceIn(0, 3)
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .edit().putInt(KEY_PLAYER_TRANSITION, m).apply()
+        _transitionMode.value = m
+    }
+
+    /** v1.2.14 B片（3）：首选音频语言（空=不指定）。 */
+    fun setAudioLanguage(context: Context, code: String) {
+        val v = code.trim()
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .edit().putString(KEY_AUDIO_LANG, v).apply()
+        _audioLanguage.value = v
+    }
+
+    /** v1.2.14 B片（3）：首选字幕语言（空=不指定）。 */
+    fun setSubtitleLanguage(context: Context, code: String) {
+        val v = code.trim()
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .edit().putString(KEY_SUBTITLE_LANG, v).apply()
+        _subtitleLanguage.value = v
     }
 
     /** v0.74.0：取记忆的倍速（默认 1.0x）。 */

@@ -270,6 +270,22 @@ object EngineHost {
         { MpvPlayerManager.setPlaybackSpeed(speed) },
     )
 
+    /**
+     * v1.2.14 B片（3）：当前流的音频轨道（Media3 才有；libmpv 读不到，为空）。
+     * 界面只跟 EngineHost 打交道，不直接碰 PlayerManager。
+     */
+    val audioTracks: StateFlow<List<TrackLanguage.AudioTrackInfo>>
+        get() = PlayerManager.audioTracks
+
+    /** v1.2.14 B片（3）：手动选音轨；libmpv 内核暂不支持（只记日志，不弹错）。 */
+    fun selectAudioTrack(trackId: String?) {
+        if (engine() == PlayerEngine.MEDIA3) {
+            PlayerManager.selectAudioTrack(trackId)
+        } else {
+            LogBus.i("Play", "libmpv 内核暂不支持音轨切换")
+        }
+    }
+
     fun currentPosition(): Long = route(
         { PlayerManager.player?.currentPosition ?: 0L },
         { MpvPlayerManager.currentPosition },

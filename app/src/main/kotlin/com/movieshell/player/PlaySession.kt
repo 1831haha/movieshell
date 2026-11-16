@@ -22,15 +22,17 @@ object PlaySession {
     /**
      * 详情页注入的解析器：给定一集返回可播地址（走完整解析链路）。
      * 磁力地址原样返回，由 PlayerScreen 的 magnet 分支处理。
+     * v1.2.14 B片（2）：quiet=true 为静默解析——不弹 Toast、不开网页嗅探、
+     * 不报解析失败，专供下一集后台预解析；切集时一律 quiet=false。
      */
-    var resolver: (suspend (Context, Episode) -> String)? = null
+    var resolver: (suspend (Context, Episode, Boolean) -> String)? = null
         private set
 
     fun start(
         lines: List<PlayLine>,
         lineIndex: Int,
         episodeIndex: Int,
-        resolver: suspend (Context, Episode) -> String,
+        resolver: suspend (Context, Episode, Boolean) -> String,
     ) {
         this.lines = lines
         this.lineIndex = lineIndex.coerceIn(0, (lines.size - 1).coerceAtLeast(0))

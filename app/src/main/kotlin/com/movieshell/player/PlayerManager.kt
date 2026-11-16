@@ -12,6 +12,7 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.MimeTypes
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
+import androidx.media3.common.TrackSelectionOverride
 import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.datasource.cache.CacheDataSource
@@ -33,6 +34,7 @@ import com.movieshell.core.util.StoragePaths
 import com.movieshell.domain.model.SubtitleStyle
 import com.movieshell.core.net.DEFAULT_UA
 import com.movieshell.data.source.SniffConfig
+import com.movieshell.data.store.PlayerSettings
 import java.io.File
 import java.io.FileOutputStream
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -74,6 +76,13 @@ object PlayerManager {
      */
     private val _bitrateEstimate = MutableStateFlow(0L)
     val bitrateEstimate: StateFlow<Long> = _bitrateEstimate.asStateFlow()
+
+    /**
+     * v1.2.14 B片（3）：当前流的音频轨道（onTracksChanged 推进；换流时清掉，
+     * 防旧轨道冒充新流）。libmpv 路不走这里，读不到时为空。
+     */
+    private val _audioTracks = MutableStateFlow<List<TrackLanguage.AudioTrackInfo>>(emptyList())
+    val audioTracks: StateFlow<List<TrackLanguage.AudioTrackInfo>> = _audioTracks.asStateFlow()
 
     /** v1.1.19：带宽表（init 里建；play() 里挂到 httpFactory 上测网速）。 */
     private var bandwidthMeter: androidx.media3.exoplayer.upstream.DefaultBandwidthMeter? = null
@@ -163,6 +172,8 @@ object PlayerManager {
         // v0.294.35：只有音轨没有视频轨（听书等）→ 通知详情页改用音乐播放器
         override fun onTracksChanged(tracks: androidx.media3.common.Tracks) {
             if (tracks.groups.isEmpty()) return
+            // v1.2.14 B片（3）：音频轨道推给 UI（齿轮页音轨选择用）
+            _audioTracks.value = AudioTracks.fromTracks(tracks)
             // v0.294.38：记录每条轨道（类型 / 编码 / 分辨率 / 设备是否支持 / 是否选中）
             tracks.groups.forEach { g ->
                 for (i in 0 until g.length) {
@@ -330,6 +341,16 @@ object PlayerManager {
         // v1.1.19：换流清掉旧的尺寸与码率，顶栏不拿上一条流的数据冒充这一条。
         _videoSize.value = null
         _bitrateEstimate.value = 0L
+        // v1.2.14 B片（3）：换流清掉旧音轨；首选音频语言喂给选择器，起播即按
+        // 偏好选轨（无偏好时传 null 走默认轨）。手动选轨的 override 由
+        // selectAudioTrack 写，偏好只在无 override 时生效。
+        _audioTracks.value = emptyList()
+        runCatching {
+            val pref = PlayerSettings.audioLanguage.value.ifBlank { null }
+            player.trackSelectionParameters = player.trackSelectionParameters.buildUpon()
+                .setPreferredAudioLanguage(pref)
+                .build()
+        }.onFailure { LogBus.w("Player", "首选音频语言应用失败：${it.message}") }
         if (url != decoderFallbackUrl) {
             decoderFallbackUrl = url
             decoderFallbackDone = false
@@ -448,6 +469,33 @@ object PlayerManager {
 
     fun seekTo(ms: Long) {
         exoPlayer?.seekTo(ms)
+    }
+
+    /**
+     * v1.2.14 B片（3）：手动选音轨（齿轮页音轨选择用）。
+     *
+     * @param trackId AudioTracks.fromTracks 给的 "组下标:轨下标"，null=回到自动
+     * （清掉本类型的 override，重新按首选语言/默认选轨）。
+     * id 对不上当前流的轨道时直接忽略，不报错、不乱切。
+     * 注意：override 只对含完全相同 TrackGroup 的媒体生效（Media3 规则），
+     * 切集后旧 override 自动失效，不会串到下一集。
+     */
+    fun selectAudioTrack(trackId: String?) {
+        val player = exoPlayer ?: return
+        runCatching {
+            val params = player.trackSelectionParameters.buildUpon()
+            if (trackId == null) {
+                params.clearOverridesOfType(C.TRACK_TYPE_AUDIO)
+            } else {
+                val groupIndex = trackId.substringBefore(":").toIntOrNull() ?: return
+                val trackIndex = trackId.substringAfter(":", "").toIntOrNull() ?: return
+                val group = player.currentTracks.groups.getOrNull(groupIndex) ?: return
+                if (group.type != C.TRACK_TYPE_AUDIO || trackIndex !in 0 until group.length) return
+                params.setOverrideForType(TrackSelectionOverride(group.mediaTrackGroup, trackIndex))
+            }
+            player.trackSelectionParameters = params.build()
+            LogBus.i("Player", "音轨切换：${trackId ?: "自动"}")
+        }.onFailure { LogBus.w("Player", "音轨切换失败：${it.message}") }
     }
 
     fun stop() {

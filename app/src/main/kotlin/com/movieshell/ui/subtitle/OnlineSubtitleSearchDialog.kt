@@ -31,7 +31,9 @@ import androidx.compose.ui.unit.dp
 import com.movieshell.core.log.LogBus
 import com.movieshell.data.source.subtitle.OnlineSubtitle
 import com.movieshell.data.source.subtitle.OnlineSubtitleKit
+import com.movieshell.data.source.subtitle.SubtitleLanguage
 import com.movieshell.data.source.subtitle.SubtitleSources
+import com.movieshell.data.store.PlayerSettings
 import com.movieshell.ui.components.AppButton
 import com.movieshell.ui.components.AppButtonVariant
 import com.movieshell.ui.components.AppTextField
@@ -80,13 +82,17 @@ fun OnlineSubtitleSearchDialog(
         searching = true
         searched = false
         scope.launch {
-            results = runCatching { source.search(k) }.onFailure {
+            val found = runCatching { source.search(k) }.onFailure {
                 // v0.247.0（F43）：搜索被取消（关对话框）时原样抛出，不当成
                 // 搜索失败弹 Toast、不翻成“没搜到”；取消后下面的两行不执行。
                 if (it is CancellationException) throw it
                 LogBus.w("Subtitle", "在线字幕搜索失败：${it.message}")
                 AppToast.show(context, "搜索失败：${it.message}", long = false)
             }.getOrDefault(emptyList())
+            // v1.2.14 B片（3）：按首选字幕语言排序（匹配的排前面，其余保持原顺序）
+            results = SubtitleLanguage.sortByPreferredLanguage(
+                found, PlayerSettings.subtitleLanguage.value,
+            )
             searching = false
             searched = true
         }
