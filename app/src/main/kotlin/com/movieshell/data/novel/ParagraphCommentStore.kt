@@ -35,9 +35,12 @@ object ParagraphCommentStore {
     private val mapSer = MapSerializer(String.serializer(), CachedChapterComments.serializer())
     private val mutex = Mutex()
 
+    /** v1.2.14：段评 sidecar 缓存文件名（纯函数）——只认这本书，不含别的书与 index.json。 */
+    fun cacheFileName(novelId: String): String = "$novelId.comments.json"
+
     private fun fileOf(context: Context, novelId: String): File {
         val dir = File(context.filesDir, DIR_NAME).also { it.mkdirs() }
-        return File(dir, "$novelId.comments.json")
+        return File(dir, cacheFileName(novelId))
     }
 
     /** 命中且未过期返回评论列表；未命中、过期或文件损坏返回 null（调用方重新拉取）。 */
