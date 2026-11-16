@@ -1,5 +1,6 @@
 package com.movieshell.ui.components
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -13,7 +14,6 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.style.TextOverflow
@@ -29,8 +29,8 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
@@ -126,7 +126,7 @@ fun TechDialog(
                 .background(dialogBg)
                 .padding(
                     horizontal = if (compact) 16.dp else if (landscape) 20.dp else 24.dp,
-                    vertical = if (compact) 12.dp else if (landscape) 16.dp else 24.dp,
+                    vertical = if (compact) 12.dp else if (landscape) 16.dp else 20.dp,
                 ),
         ) {
             Column {
@@ -144,7 +144,7 @@ fun TechDialog(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
-                Spacer(Modifier.height(if (compact) 6.dp else 12.dp))
+                Spacer(Modifier.height(if (compact) 6.dp else 10.dp))
                 // v0.194.0：内容区不再固定浅色，改跟主题——浅色主题下裸 Text
                 // 拿 onSurface 深色正好可读，深色主题下拿浅色也可读。
                 // v1.2.15：内容区占剩余高度、超长可滚；短内容不撑满，按钮紧贴其下。
@@ -157,31 +157,41 @@ fun TechDialog(
                         content()
                     }
                 }
-                Spacer(Modifier.height(if (compact) 6.dp else 16.dp))
+                Spacer(Modifier.height(if (compact) 6.dp else 12.dp))
+                // v1.2.15：底部按钮与效果图一致——取消/确认各占一半宽、同为胶囊；
+                // 取消是淡描边空心，确认是主题色实填；只有一个按钮时占满整行。
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.End,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     if (dismissText != null) {
-                        TextButton(
+                        OutlinedButton(
                             onClick = onDismissRequest,
-                            modifier = Modifier.height(if (compact) 36.dp else 40.dp),
+                            shape = RoundedCornerShape(50),
+                            border = BorderStroke(
+                                1.dp,
+                                MaterialTheme.colorScheme.outline.copy(alpha = 0.30f),
+                            ),
+                            colors = ButtonDefaults.outlinedButtonColors(
+                                contentColor = MaterialTheme.colorScheme.onSurface,
+                            ),
+                            modifier = Modifier.weight(1f).height(if (compact) 36.dp else 40.dp),
                         ) {
                             Text(
                                 dismissText,
-                                color = MaterialTheme.colorScheme.primary,
                                 style = MaterialTheme.typography.labelLarge,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
                             )
                         }
                     }
                     if (onConfirm != null) {
-                        Spacer(Modifier.width(8.dp))
                         Button(
                             onClick = onConfirm,
                             enabled = confirmEnabled,
                             shape = RoundedCornerShape(50),
-                            modifier = Modifier.height(if (compact) 36.dp else 40.dp),
+                            modifier = Modifier.weight(1f).height(if (compact) 36.dp else 40.dp),
                             colors = ButtonDefaults.buttonColors(
                                 containerColor = MaterialTheme.colorScheme.primary,
                                 contentColor = MaterialTheme.colorScheme.onPrimary,
@@ -191,7 +201,12 @@ fun TechDialog(
                                 disabledContentColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f),
                             ),
                         ) {
-                            Text(confirmText, style = MaterialTheme.typography.labelLarge)
+                            Text(
+                                confirmText,
+                                style = MaterialTheme.typography.labelLarge,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
                         }
                     }
                 }

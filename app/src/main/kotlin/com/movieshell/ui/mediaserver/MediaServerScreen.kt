@@ -746,7 +746,7 @@ fun MediaServerScreen(
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
                 )
                 Text(
-                    "三格拼成完整地址：协议://主机:端口/路径；不填端口与路径也行。",
+                    "拼成完整地址：协议://主机:端口/路径，不填也行。",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
