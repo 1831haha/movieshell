@@ -41,8 +41,9 @@ object PlaySession {
     fun currentLine(): PlayLine? = lines.getOrNull(lineIndex)
 
     /**
-     * 播放器界面是否在前台（PlayerScreen 进入/退出时维护），
-     * MainActivity.onUserLeaveHint 据此决定是否自动进画中画。
+     * 播放器界面是否在前台（PlayerScreen 进入/退出时维护）。
+     * v0.264.0 起按 Home 只暂停、不自动进画中画：MainActivity.onUserLeaveHint
+     * 用它判断是否在播放页内、正在播，才暂停（见 MainActivity.onUserLeaveHint）。
      */
     var playerVisible: Boolean = false
 

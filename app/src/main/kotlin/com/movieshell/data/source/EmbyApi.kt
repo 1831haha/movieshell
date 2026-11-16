@@ -14,6 +14,12 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import java.io.IOException
+import java.security.SecureRandom
+import java.security.cert.X509Certificate
+import java.util.concurrent.TimeUnit
+import javax.net.ssl.SSLContext
+import javax.net.ssl.TrustManager
+import javax.net.ssl.X509TrustManager
 import kotlin.coroutines.coroutineContext
 
 /**
@@ -116,6 +122,61 @@ object EmbyApi {
     fun apiBase(baseUrl: String, type: ServerType): String =
         normalizeBase(baseUrl) + if (type == ServerType.EMBY) "/emby" else ""
 
+    /**
+     * 拆分后的服务器地址（v1.2.14：表单主机 / 路径 / 端口三格用，纯函数，可单测）。
+     * port 为空表示地址里没写端口；path 为空表示无反代路径；尾部 /emby 由
+     * [normalizeBase] 剥掉（类型前缀由 [apiBase] 再补，不由用户地址带）。
+     */
+    data class SplitAddress(
+        val scheme: String,
+        val host: String,
+        val port: String,
+        val path: String,
+    )
+
+    /** 整 URL 拆回四格：先走 [normalizeBase]（补协议、去尾斜杠与 /emby 后缀）再拆。 */
+    fun splitBaseUrl(raw: String): SplitAddress {
+        val u = normalizeBase(raw)
+        val scheme = u.substringBefore("://", "http")
+        val rest = u.substringAfter("://", "")
+        val authority = rest.substringBefore("/")
+        val pathRaw = rest.substringAfter("/", "").removeSuffix("/")
+        val path = if (pathRaw.isBlank()) "" else "/$pathRaw"
+        val (host, port) = if (authority.startsWith("[")) {
+            val end = authority.indexOf("]")
+            if (end < 0) {
+                authority to ""
+            } else {
+                val h = authority.substring(0, end + 1)
+                val p = authority.substring(end + 1).removePrefix(":")
+                h to if (p.all { it.isDigit() }) p else ""
+            }
+        } else if (":" in authority && authority.substringAfterLast(":").all { it.isDigit() }) {
+            authority.substringBeforeLast(":") to authority.substringAfterLast(":")
+        } else {
+            authority to ""
+        }
+        return SplitAddress(scheme, host, port, path)
+    }
+
+    /**
+     * 四格拼回整 URL（纯函数，可单测）：端口只认数字、路径自动补前导斜杠去尾斜杠。
+     * 拼完由调用方再过一次 [normalizeBase]（与旧的整 URL 保存口径一致）。
+     */
+    fun joinAddress(scheme: String, host: String, port: String, path: String): String {
+        val s = scheme.trim().ifBlank { "http" }
+        val h = host.trim()
+        if (h.isBlank()) return ""
+        val p = port.trim().filter { it.isDigit() }
+        val pathRaw = path.trim().removeSuffix("/")
+        val pa = when {
+            pathRaw.isBlank() -> ""
+            pathRaw.startsWith("/") -> pathRaw
+            else -> "/$pathRaw"
+        }
+        return "$s://$h" + (if (p.isBlank()) "" else ":$p") + pa
+    }
+
     /** Emby/Jellyfin 用 100 纳秒 tick 计时长：1ms = 10_000 tick。 */
     fun ticksToMs(ticks: Long): Long = (ticks / 10_000L).coerceAtLeast(0L)
 
@@ -179,15 +240,41 @@ object EmbyApi {
         "MediaBrowser Client=\"$CLIENT_NAME\", Device=\"Android\", DeviceId=\"$deviceId\", " +
             "Version=\"$CLIENT_VERSION\"" + if (token != null) ", Token=\"$token\"" else ""
 
-    private fun client(): OkHttpClient = HttpClient.defaultClient()
+    private fun client(ignoreCert: Boolean = false): OkHttpClient =
+        if (ignoreCert) insecureClient else HttpClient.defaultClient()
 
-    private suspend fun getText(url: String, deviceId: String, token: String?): String? {
+    /**
+     * v1.2.14：忽略证书验证的专属 client——只供某台服务器开了 ignoreCert 时走，
+     * 全局 HttpClient 不动，其它服务器与全 App 请求仍走默认校验。
+     * 信任放行只认这一台服务器的请求：调用方每次按该服务器的 ignoreCert 选
+     * client，不存在“开一次全局放行”的路径。自签 / 过期证书的自建服务器可用，
+     * 公网服务器不要开（中间人可冒充）。超时与默认 client 同口径（15/15/15/60 秒）。
+     */
+    private val insecureClient: OkHttpClient by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
+        val trustManager = object : X509TrustManager {
+            override fun checkClientTrusted(chain: Array<X509Certificate>, authType: String) {}
+            override fun checkServerTrusted(chain: Array<X509Certificate>, authType: String) {}
+            override fun getAcceptedIssuers(): Array<X509Certificate> = emptyArray()
+        }
+        val sslContext = SSLContext.getInstance("TLS")
+        sslContext.init(null, arrayOf<TrustManager>(trustManager), SecureRandom())
+        OkHttpClient.Builder()
+            .connectTimeout(15, TimeUnit.SECONDS)
+            .readTimeout(15, TimeUnit.SECONDS)
+            .writeTimeout(15, TimeUnit.SECONDS)
+            .callTimeout(60, TimeUnit.SECONDS)
+            .sslSocketFactory(sslContext.socketFactory, trustManager)
+            .hostnameVerifier { _, _ -> true }
+            .build()
+    }
+
+    private suspend fun getText(url: String, deviceId: String, token: String?, ignoreCert: Boolean = false): String? {
         coroutineContext.ensureActive()
         val req = Request.Builder().url(url)
             .header("X-Emby-Authorization", authHeader(deviceId, token))
             .apply { if (token != null) header("X-Emby-Token", token) }
             .build()
-        client().newCall(req).execute().use { resp ->
+        client(ignoreCert).newCall(req).execute().use { resp ->
             if (!resp.isSuccessful) {
                 LogBus.w(TAG, "GET ${resp.code} $url")
                 return null
@@ -196,13 +283,15 @@ object EmbyApi {
         }
     }
 
-    private suspend fun postJson(url: String, deviceId: String, body: String, token: String? = null): String? {
+    private suspend fun postJson(
+        url: String, deviceId: String, body: String, token: String? = null, ignoreCert: Boolean = false,
+    ): String? {
         coroutineContext.ensureActive()
         val req = Request.Builder().url(url)
             .header("X-Emby-Authorization", authHeader(deviceId, token))
             .post(body.toRequestBody("application/json".toMediaType()))
             .build()
-        client().newCall(req).execute().use { resp ->
+        client(ignoreCert).newCall(req).execute().use { resp ->
             if (!resp.isSuccessful) {
                 LogBus.w(TAG, "POST ${resp.code} $url")
                 return null
@@ -214,13 +303,14 @@ object EmbyApi {
     /** 用户名密码登录 → token + userId。失败返回 null（密码错/地址错都一样，调用方只报“登录失败”）。 */
     suspend fun loginByPassword(
         baseUrl: String, type: ServerType, deviceId: String, username: String, password: String,
+        ignoreCert: Boolean = false,
     ): Auth? = ioSafe(TAG, null) {
         val url = "${apiBase(baseUrl, type)}/Users/AuthenticateByName"
         val body = buildJsonObject {
             put("Username", username)
             put("Pw", password)
         }.toString()
-        val text = postJson(url, deviceId, body) ?: return@ioSafe null
+        val text = postJson(url, deviceId, body, ignoreCert = ignoreCert) ?: return@ioSafe null
         val result = jsonLenient.decodeFromString<EmbyAuthResult>(text)
         val token = result.AccessToken
         val userId = result.User?.Id.orEmpty()
@@ -228,25 +318,34 @@ object EmbyApi {
     }
 
     /** API Key 登录：Key 本身当 token，再用 /Users/Me 换 userId。 */
-    suspend fun loginByApiKey(baseUrl: String, type: ServerType, deviceId: String, apiKey: String): Auth? =
+    suspend fun loginByApiKey(
+        baseUrl: String, type: ServerType, deviceId: String, apiKey: String, ignoreCert: Boolean = false,
+    ): Auth? =
         ioSafe(TAG, null) {
             val url = "${apiBase(baseUrl, type)}/Users/Me"
-            val text = getText(url, deviceId, apiKey) ?: return@ioSafe null
+            val text = getText(url, deviceId, apiKey, ignoreCert = ignoreCert) ?: return@ioSafe null
             val user = jsonLenient.decodeFromString<EmbyUser>(text)
             if (user.Id.isBlank()) null else Auth(apiKey, user.Id)
         }
 
     /** token 是否还有效（GET /Users/{id} 200 即有效）。 */
-    suspend fun testAuth(baseUrl: String, type: ServerType, deviceId: String, auth: Auth): Boolean =
+    suspend fun testAuth(
+        baseUrl: String, type: ServerType, deviceId: String, auth: Auth, ignoreCert: Boolean = false,
+    ): Boolean =
         ioSafe(TAG, false) {
-            getText("${apiBase(baseUrl, type)}/Users/${auth.userId}", deviceId, auth.token) != null
+            getText(
+                "${apiBase(baseUrl, type)}/Users/${auth.userId}", deviceId, auth.token,
+                ignoreCert = ignoreCert,
+            ) != null
         }
 
     /** 媒体库（电影库/剧集库等顶层视图）。 */
-    suspend fun views(baseUrl: String, type: ServerType, deviceId: String, auth: Auth): List<EmbyItem> =
+    suspend fun views(
+        baseUrl: String, type: ServerType, deviceId: String, auth: Auth, ignoreCert: Boolean = false,
+    ): List<EmbyItem> =
         ioSafe(TAG, emptyList()) {
             val url = "${apiBase(baseUrl, type)}/Users/${auth.userId}/Views"
-            val text = getText(url, deviceId, auth.token) ?: return@ioSafe emptyList()
+            val text = getText(url, deviceId, auth.token, ignoreCert = ignoreCert) ?: return@ioSafe emptyList()
             jsonLenient.decodeFromString<EmbyItemsResponse>(text).Items
         }
 
@@ -258,6 +357,7 @@ object EmbyApi {
         baseUrl: String, type: ServerType, deviceId: String, auth: Auth,
         parentId: String? = null, types: String = "Movie,Series,Episode",
         search: String? = null, resuming: Boolean = false, limit: Int = 200,
+        ignoreCert: Boolean = false,
     ): List<EmbyItem> = ioSafe(TAG, emptyList()) {
         val builder = "${apiBase(baseUrl, type)}/Users/${auth.userId}/Items".toHttpUrlOrNull()?.newBuilder()
             ?: return@ioSafe emptyList()
@@ -269,22 +369,27 @@ object EmbyApi {
         if (!parentId.isNullOrBlank()) builder.addQueryParameter("ParentId", parentId)
         if (!search.isNullOrBlank()) builder.addQueryParameter("SearchTerm", search)
         if (resuming) builder.addQueryParameter("Filters", "IsResuming")
-        val text = getText(builder.build().toString(), deviceId, auth.token) ?: return@ioSafe emptyList()
+        val text = getText(builder.build().toString(), deviceId, auth.token, ignoreCert = ignoreCert)
+            ?: return@ioSafe emptyList()
         jsonLenient.decodeFromString<EmbyItemsResponse>(text).Items
     }
 
     /** 某剧的季列表。 */
-    suspend fun seasons(baseUrl: String, type: ServerType, deviceId: String, auth: Auth, seriesId: String): List<EmbyItem> =
+    suspend fun seasons(
+        baseUrl: String, type: ServerType, deviceId: String, auth: Auth, seriesId: String,
+        ignoreCert: Boolean = false,
+    ): List<EmbyItem> =
         ioSafe(TAG, emptyList()) {
             val url = "${apiBase(baseUrl, type)}/Shows/$seriesId/Seasons?UserId=${auth.userId}" +
                 "&Fields=Overview,ProductionYear,RunTimeTicks,UserData,ChildCount"
-            val text = getText(url, deviceId, auth.token) ?: return@ioSafe emptyList()
+            val text = getText(url, deviceId, auth.token, ignoreCert = ignoreCert) ?: return@ioSafe emptyList()
             jsonLenient.decodeFromString<EmbyItemsResponse>(text).Items
         }
 
     /** 某季的分集（按集号排）。 */
     suspend fun episodes(
         baseUrl: String, type: ServerType, deviceId: String, auth: Auth, seriesId: String, seasonId: String? = null,
+        ignoreCert: Boolean = false,
     ): List<EmbyItem> = ioSafe(TAG, emptyList()) {
         val builder = "${apiBase(baseUrl, type)}/Shows/$seriesId/Episodes".toHttpUrlOrNull()?.newBuilder()
             ?: return@ioSafe emptyList()
@@ -292,7 +397,8 @@ object EmbyApi {
             .addQueryParameter("Fields", "Overview,ProductionYear,RunTimeTicks,UserData")
             .addQueryParameter("SortBy", "IndexNumber")
         if (!seasonId.isNullOrBlank()) builder.addQueryParameter("SeasonId", seasonId)
-        val text = getText(builder.build().toString(), deviceId, auth.token) ?: return@ioSafe emptyList()
+        val text = getText(builder.build().toString(), deviceId, auth.token, ignoreCert = ignoreCert)
+            ?: return@ioSafe emptyList()
         jsonLenient.decodeFromString<EmbyItemsResponse>(text).Items
     }
 
@@ -304,11 +410,12 @@ object EmbyApi {
      */
     suspend fun item(
         baseUrl: String, type: ServerType, deviceId: String, auth: Auth, itemId: String,
+        ignoreCert: Boolean = false,
     ): EmbyItem? = ioSafe(TAG, null) {
         val url = "${apiBase(baseUrl, type)}/Users/${auth.userId}/Items/$itemId".toHttpUrlOrNull()?.newBuilder()
             ?.addQueryParameter("Fields", "Chapters,Overview,ProductionYear,RunTimeTicks,UserData")
             ?.build() ?: return@ioSafe null
-        val text = getText(url.toString(), deviceId, auth.token) ?: return@ioSafe null
+        val text = getText(url.toString(), deviceId, auth.token, ignoreCert = ignoreCert) ?: return@ioSafe null
         jsonLenient.decodeFromString<EmbyItem>(text)
     }
 }

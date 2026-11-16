@@ -25,6 +25,14 @@ data class EmbyServer(
     val authMode: String = "password", // password | apikey
     val token: String = "",
     val userId: String = "",
+    /** v1.2.14：备注（多服时列表里一眼区分，如“家里群晖 / 宿舍小主机”）。 */
+    val remark: String = "",
+    /**
+     * v1.2.14：忽略证书验证（默认关）。只对这台服务器的 Emby 请求生效
+     * （EmbyApi 里这台服务器走放行证书的专属 client），自签证书可用；
+     * 开关旁已写明仅在信任该服务器时开启。
+     */
+    val ignoreCert: Boolean = false,
 )
 
 object EmbyStore {

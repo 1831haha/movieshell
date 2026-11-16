@@ -125,6 +125,8 @@ import com.movieshell.data.store.EmbyStore
 import com.movieshell.data.store.FollowStore
 import com.movieshell.data.store.SubRefreshStore
 import com.movieshell.data.source.JsRuntime
+import com.movieshell.data.source.SniffConfig
+import com.movieshell.data.store.DownloadStore
 import com.movieshell.core.log.CrashHandler
 import com.movieshell.core.log.LogBus
 import com.movieshell.data.ai.LlmClient
@@ -132,7 +134,9 @@ import com.movieshell.data.store.LogStore
 import com.movieshell.core.util.StoragePaths
 import com.movieshell.ui.preview.fileProviderAuthority
 import com.movieshell.data.store.PlayerSettings
+import com.movieshell.domain.model.PlayerEngine
 import com.movieshell.player.PlayerManager
+import com.movieshell.ui.changelog.CHANGELOG
 import com.movieshell.data.source.PluginMarket
 import com.movieshell.data.store.PluginStore
 import com.movieshell.data.store.SettingsLayoutStore
@@ -185,6 +189,8 @@ fun SettingsScreen(
     onParseSettingsClick: () -> Unit = {}, // v0.78.2：解析接口子页面入口
     onThemeCollectionClick: () -> Unit = {}, // v1.2.5：主题收藏夹子页面入口
     onPlaybackSettingsClick: () -> Unit = {}, // v1.2.6：播放设置子页面入口
+    // v1.2.14：TMDB 独立设置页入口（播放设置页 TMDB Key 行点进）
+    onTmdbSettingsClick: () -> Unit = {},
     onPluginCenterClick: () -> Unit = {}, // v0.127.0：插件中心（插件/服务/市场三页签，原两入口合并）
     // v1.1.31：内核选 libmpv 但插件未安装时，直接跳市场页签装插件
     onOpenMarketClick: () -> Unit = onPluginCenterClick,
@@ -223,6 +229,28 @@ fun SettingsScreen(
     // v1.1.31：媒体服务器入口副标题（已添加台数）
     val embyServers by EmbyStore.servers.collectAsState()
     val embySubtitle = if (embyServers.isEmpty()) "未添加 · 支持 Emby / Jellyfin" else "已添加 ${embyServers.size} 台"
+    // v1.2.14：播放设置组头行副标题写实时值。内核与自动播放走 StateFlow，
+    // 改动立即反映；去广告与并行数没有 Flow，读进设置页时的快照，
+    // 在行里改完后回设置页重组时刷新（行本身实时显示，不会误导）。
+    val playbackEngine by PlayerSettings.engine.collectAsState()
+    val playbackAutoplay by PlayerSettings.liveAutoplay.collectAsState()
+    var playbackAdFilter by remember { mutableStateOf(SniffConfig.adFilterEnabled) }
+    var playbackMaxParallel by remember { mutableStateOf(DownloadStore.maxParallel(context)) }
+    LaunchedEffect(Unit) {
+        SniffConfig.ensureLoaded(context)
+        playbackAdFilter = SniffConfig.adFilterEnabled
+        playbackMaxParallel = DownloadStore.maxParallel(context)
+    }
+    val playbackHeaderSubtitle = run {
+        val engineText = if (playbackEngine == PlayerEngine.MEDIA3) "Media3" else "libmpv"
+        val adText = if (playbackAdFilter) "去广告开" else "去广告关"
+        val autoplayText = when (playbackAutoplay) {
+            PlayerSettings.LIVE_AUTOPLAY_WIFI -> "自动播放仅 Wi-Fi"
+            PlayerSettings.LIVE_AUTOPLAY_OFF -> "自动播放关"
+            else -> "自动播放始终"
+        }
+        "$engineText · $adText · $autoplayText · 并行 ${playbackMaxParallel} 个"
+    }
     var cacheSize by remember { mutableStateOf("计算中…") }
     var showClearCacheDialog by remember { mutableStateOf(false) }
     var magnetSize by remember { mutableStateOf("计算中…") }
@@ -524,7 +552,7 @@ fun SettingsScreen(
                         position = SegPos.First,
                         icon = Icons.Outlined.SmartDisplay,
                         title = "播放设置",
-                        subtitle = if (entryHovered) "松手放进来" else "内核 · 去广告 · 自动播放 · 下载数",
+                        subtitle = if (entryHovered) "松手放进来" else playbackHeaderSubtitle,
                         onClick = onPlaybackSettingsClick,
                     )
                 }
@@ -543,6 +571,7 @@ fun SettingsScreen(
                             cardPosition = SegPos.Middle,
                             divider = true,
                             onOpenMarketClick = onOpenMarketClick,
+                            onTmdbSettingsClick = onTmdbSettingsClick,
                         )
                     }
                 }
@@ -742,11 +771,12 @@ fun SettingsScreen(
                     },
                 )
                 // v0.188.0：旧字幕 key 清理入口——点开先说明条数，确认后才删
+                // v1.2.14：副标题写实时值——点过一次行后就显示已统计的条数，清理完归零。
                 SegItem(
                     position = SegPos.Last,
                     icon = Icons.Outlined.Subtitles,
                     title = "清理旧字幕记忆",
-                    subtitle = "只删旧格式按剧记忆，需手动确认",
+                    subtitle = if (legacySubtitleCount >= 0) "共 ${legacySubtitleCount} 条旧记忆 · 点按清理" else "只删旧格式按剧记忆，需手动确认",
                     onClick = {
                         legacySubtitleCount = countLegacyPerShowKeys(context)
                         showClearLegacySubtitleDialog = true
@@ -815,11 +845,12 @@ fun SettingsScreen(
                     },
                 )
                 // v0.30.0：更新日志独立入口
+                // v1.2.14：副标题写实时值——静态日志里记了多少版。
                 SegItem(
                     position = SegPos.Last,
                     icon = Icons.Outlined.NewReleases,
                     title = "更新日志",
-                    subtitle = "每一版的更新内容",
+                    subtitle = "共 ${CHANGELOG.size} 版更新记录",
                     onClick = onChangelogClick,
                 )
                     }
@@ -894,7 +925,7 @@ fun SettingsScreen(
             onConfirm = {
                 showClearLegacySubtitleDialog = false
                 val n = PlayerSettings.clearLegacyPerShowKeys(context)
-                legacySubtitleCount = -1
+                legacySubtitleCount = 0
                 AppToast.show(context, if (n > 0) "已清理旧字幕记忆 $n 条" else "没有旧字幕记忆可清理", long = false)
             },
         ) {

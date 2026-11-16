@@ -17,20 +17,26 @@ import okhttp3.Request
 
 /**
  * v1.2.13：TMDB 海报匹配（本地文件夹海报墙用）。
+ * v1.2.14：API 地址与图片地址可改（设置页 TMDB 独立页存，留空恢复默认）；
+ * 测试连接调 /configuration 真测 Key 是否有效。
  *
  * 只做三件事：文件名解析成片名加年份、调 TMDB 搜索取第一条海报、按文件名缓存匹配结果。
  * 不做：剧集分集匹配（同一剧多集只按剧名取一张海报）、海报图本地落盘（Coil 自己缓存）。
  * 搜索不到、key 为空、断网都只返回空结果，不抛错、不弹错，调用方直接显示占位。
+ * Key 默认空、用户自填，绝不内置、不写死任何 Key。
  */
 object TmdbClient {
 
     private const val TAG = "TmdbClient"
 
-    private const val SEARCH_BASE = "https://api.themoviedb.org/3"
-    private const val IMAGE_BASE = "https://image.tmdb.org/t/p/w500"
+    /** 默认 API 地址 / 图片地址：用户在 TMDB 设置页改后生效，留空恢复默认。 */
+    const val DEFAULT_SEARCH_BASE = "https://api.themoviedb.org/3"
+    const val DEFAULT_IMAGE_BASE = "https://image.tmdb.org/t/p/w500"
 
     private const val PREFS = "tmdb_prefs"
     private const val KEY_API_KEY = "tmdb_api_key"
+    private const val KEY_SEARCH_BASE = "tmdb_search_base"
+    private const val KEY_IMAGE_BASE = "tmdb_image_base"
     private const val KEY_POSTER_VIEW = "openlist_poster_view"
     private const val CACHE_PREFS = "tmdb_cache_prefs"
     private const val KEY_CACHE = "cache_json"
@@ -98,8 +104,89 @@ object TmdbClient {
             .putBoolean(KEY_POSTER_VIEW, poster).apply()
     }
 
-    /** 海报地址（w500 宽，列表与海报墙共用）。 */
-    fun posterUrl(posterPath: String): String = "$IMAGE_BASE$posterPath"
+    // ---------------- API 地址与图片地址（v1.2.14：TMDB 设置页可改，留空恢复默认） ----------------
+
+    /** 当前生效的 API 地址（没改过返回默认）。 */
+    fun searchBase(context: Context): String =
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .getString(KEY_SEARCH_BASE, null)?.takeIf { it.isNotBlank() } ?: DEFAULT_SEARCH_BASE
+
+    /** 当前生效的图片地址（没改过返回默认）。 */
+    fun imageBase(context: Context): String =
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .getString(KEY_IMAGE_BASE, null)?.takeIf { it.isNotBlank() } ?: DEFAULT_IMAGE_BASE
+
+    /** 留空表示恢复默认（删掉存的值）。 */
+    fun setSearchBase(context: Context, base: String) {
+        val v = base.trim().removeSuffix("/")
+        val edit = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+        if (v.isBlank()) edit.remove(KEY_SEARCH_BASE) else edit.putString(KEY_SEARCH_BASE, v)
+        edit.apply()
+    }
+
+    /** 留空表示恢复默认（删掉存的值）。 */
+    fun setImageBase(context: Context, base: String) {
+        val v = base.trim().removeSuffix("/")
+        val edit = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+        if (v.isBlank()) edit.remove(KEY_IMAGE_BASE) else edit.putString(KEY_IMAGE_BASE, v)
+        edit.apply()
+    }
+
+    /**
+     * 地址归一化（纯函数，可单测）：去空白/尾斜杠，空串返回默认地址。
+     * 只做格式归一，不校验地址能不能通——通不通由 [testConnection] 真测。
+     */
+    fun normalizeBaseUrl(raw: String, default: String): String {
+        val v = raw.trim().removeSuffix("/")
+        return if (v.isBlank()) default else v
+    }
+
+    /** 测试连接用的 URL（纯函数，可单测）：调 /configuration，200 即 Key 有效。 */
+    fun configurationUrl(searchBase: String, apiKey: String): String {
+        val url = "$searchBase/configuration".toHttpUrlOrNull()?.newBuilder()
+            ?.addQueryParameter("api_key", apiKey)
+            ?.build() ?: return ""
+        return url.toString()
+    }
+
+    /** 测试连接结果：Ok = Key 有效；Failed 带给用户看的原因。 */
+    sealed interface TestResult {
+        data object Ok : TestResult
+        data class Failed(val reason: String) : TestResult
+    }
+
+    /**
+     * 真测连通（v1.2.14：TMDB 设置页“测试连接”用）：拿填的 Key 调一次
+     * /configuration。200 = Key 有效；401 = Key 无效；其它状态码与断网
+     * 各自给原因，不抛错。
+     */
+    suspend fun testConnection(apiKey: String, searchBase: String = DEFAULT_SEARCH_BASE): TestResult {
+        if (apiKey.isBlank()) return TestResult.Failed("请先填写 Key")
+        val url = configurationUrl(searchBase, apiKey)
+        if (url.isBlank()) return TestResult.Failed("API 地址格式不对，请检查")
+        return try {
+            val req = Request.Builder().url(url).get().build()
+            val code = withContext(Dispatchers.IO) {
+                HttpClient.defaultClient().newCall(req).execute().use { resp ->
+                    resp.body?.close()
+                    resp.code
+                }
+            }
+            when (code) {
+                200 -> TestResult.Ok
+                401 -> TestResult.Failed("Key 无效（401），请检查 Key 是否填错")
+                else -> TestResult.Failed("TMDB 返回 HTTP $code，请稍后再试")
+            }
+        } catch (e: java.io.IOException) {
+            TestResult.Failed("网络不通，请检查网络后重试")
+        } catch (e: Exception) {
+            TestResult.Failed("连接失败：${e.message.orEmpty()}")
+        }
+    }
+
+    /** 海报地址（w500 宽，列表与海报墙共用；imageBase 为空时用默认地址）。 */
+    fun posterUrl(posterPath: String, imageBase: String = DEFAULT_IMAGE_BASE): String =
+        "${normalizeBaseUrl(imageBase, DEFAULT_IMAGE_BASE)}$posterPath"
 
     // ---------------- 文件名解析（纯函数，可单测） ----------------
 
@@ -159,15 +246,21 @@ object TmdbClient {
     // ---------------- 搜索 ----------------
 
     /** 先搜电影，无结果再搜剧；取第一条带海报的结果，没有带海报的取第一条。 */
-    suspend fun searchMatch(title: String, year: Int?, apiKey: String): TmdbMatch? {
+    suspend fun searchMatch(
+        title: String, year: Int?, apiKey: String,
+        searchBase: String = DEFAULT_SEARCH_BASE,
+    ): TmdbMatch? {
         if (apiKey.isBlank() || title.isBlank()) return null
-        searchOne("movie", title, year, apiKey)?.let { return it }
-        return searchOne("tv", title, year, apiKey)
+        searchOne("movie", title, year, apiKey, searchBase)?.let { return it }
+        return searchOne("tv", title, year, apiKey, searchBase)
     }
 
-    private suspend fun searchOne(kind: String, title: String, year: Int?, apiKey: String): TmdbMatch? =
+    private suspend fun searchOne(
+        kind: String, title: String, year: Int?, apiKey: String,
+        searchBase: String,
+    ): TmdbMatch? =
         ioSafe(TAG, null) {
-            val url = "$SEARCH_BASE/search/$kind".toHttpUrlOrNull()?.newBuilder()
+            val url = "$searchBase/search/$kind".toHttpUrlOrNull()?.newBuilder()
                 ?.addQueryParameter("api_key", apiKey)
                 ?.addQueryParameter("language", "zh-CN")
                 ?.addQueryParameter("query", title)

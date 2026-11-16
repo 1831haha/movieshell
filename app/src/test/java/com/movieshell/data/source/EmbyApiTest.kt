@@ -155,6 +155,79 @@ class EmbyApiTest {
     }
 
     @Test
+    fun `splitBaseUrl splits host port and proxy path`() {
+        val plain = EmbyApi.splitBaseUrl("http://192.168.1.10:8096")
+        assertEquals("http", plain.scheme)
+        assertEquals("192.168.1.10", plain.host)
+        assertEquals("8096", plain.port)
+        assertEquals("", plain.path)
+        val proxy = EmbyApi.splitBaseUrl("https://emby.example.com/proxy")
+        assertEquals("https", proxy.scheme)
+        assertEquals("emby.example.com", proxy.host)
+        assertEquals("", proxy.port)
+        assertEquals("/proxy", proxy.path)
+        val proxyPort = EmbyApi.splitBaseUrl("https://emby.example.com:443/a/b/")
+        assertEquals("443", proxyPort.port)
+        assertEquals("/a/b", proxyPort.path)
+    }
+
+    @Test
+    fun `splitBaseUrl fills scheme and strips emby suffix`() {
+        val bare = EmbyApi.splitBaseUrl("192.168.1.10:8096")
+        assertEquals("http", bare.scheme)
+        assertEquals("192.168.1.10", bare.host)
+        assertEquals("8096", bare.port)
+        val emby = EmbyApi.splitBaseUrl("http://192.168.1.10:8096/emby")
+        assertEquals("", emby.path)
+        val embyProxy = EmbyApi.splitBaseUrl("https://x.example.com/proxy/emby")
+        assertEquals("/proxy", embyProxy.path)
+    }
+
+    @Test
+    fun `splitBaseUrl keeps ipv6 host with brackets`() {
+        val v6 = EmbyApi.splitBaseUrl("http://[::1]:8096")
+        assertEquals("[::1]", v6.host)
+        assertEquals("8096", v6.port)
+        assertEquals("", v6.path)
+    }
+
+    @Test
+    fun `joinAddress builds url and sanitizes parts`() {
+        assertEquals(
+            "http://192.168.1.10:8096",
+            EmbyApi.joinAddress("http", "192.168.1.10", "8096", ""),
+        )
+        assertEquals(
+            "https://emby.example.com/proxy",
+            EmbyApi.joinAddress("https", "emby.example.com", "", "/proxy"),
+        )
+        assertEquals(
+            "https://emby.example.com:443/a/b",
+            EmbyApi.joinAddress("https", "emby.example.com", "443", "a/b/"),
+        )
+        // 非数字端口丢掉、空协议默认 http、空主机拼不出地址。
+        assertEquals(
+            "http://192.168.1.10",
+            EmbyApi.joinAddress("", " 192.168.1.10 ", "abc", ""),
+        )
+        assertEquals("", EmbyApi.joinAddress("http", "  ", "8096", ""))
+    }
+
+    @Test
+    fun `split and join round trip`() {
+        val urls = listOf(
+            "http://192.168.1.10:8096",
+            "https://emby.example.com/proxy",
+            "https://emby.example.com:443/a/b",
+            "http://[::1]:8096",
+        )
+        for (url in urls) {
+            val s = EmbyApi.splitBaseUrl(url)
+            assertEquals(url, EmbyApi.joinAddress(s.scheme, s.host, s.port, s.path))
+        }
+    }
+
+    @Test
     fun `findSkipTarget is case insensitive and ignores unknown duration`() {
         val target = EmbyApi.findSkipTarget(
             chapters("INTRODUCTION" to 0L, "Main" to 900_000_000L),

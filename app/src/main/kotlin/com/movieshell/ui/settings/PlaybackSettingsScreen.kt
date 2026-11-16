@@ -42,6 +42,8 @@ import com.movieshell.ui.theme.V5
 fun PlaybackSettingsScreen(
     onBack: () -> Unit,
     onOpenMarketClick: () -> Unit,
+    // v1.2.14：TMDB 行点进独立页
+    onTmdbSettingsClick: () -> Unit = {},
 ) {
     val context = LocalContext.current
     val cs = MaterialTheme.colorScheme
@@ -125,6 +127,7 @@ fun PlaybackSettingsScreen(
                                         cardPosition = SegPos.Single,
                                         divider = index < rows.size - 1,
                                         onOpenMarketClick = onOpenMarketClick,
+                                        onTmdbSettingsClick = onTmdbSettingsClick,
                                     )
                                 }
                             }
