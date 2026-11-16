@@ -1052,7 +1052,7 @@ fun BookshelfScreen(
                 deleteNovels(listOf(target))
             },
         ) {
-            Text("将从书架移除，阅读进度、书签与追更标记也会清除。")
+            Text("将从书架移除，阅读进度、书签与追更标记也会清除，本书已缓存的章节正文与段评缓存也会一并清除。")
         }
     }
 
@@ -1067,7 +1067,7 @@ fun BookshelfScreen(
                 deleteNovels(books.filter { selectedIds.contains(it.id) })
             },
         ) {
-            Text("将从书架移除，阅读进度、书签与追更标记也会清除。")
+            Text("将从书架移除，阅读进度、书签与追更标记也会清除，所选书本已缓存的章节正文与段评缓存也会一并清除。")
         }
     }
 

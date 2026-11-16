@@ -145,6 +145,18 @@ private val readerIoScope = kotlinx.coroutines.CoroutineScope(
     kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.IO,
 )
 
+/** v1.2.14：小说向前预载章数——从当前章起往后预载这么多章（不含当前章）。 */
+const val PRELOAD_AHEAD_COUNT = 10
+
+/** v1.2.14：向前预载窗口（纯函数）：只往后、不往前、不含当前章；越界截断。 */
+fun preloadIndices(center: Int, total: Int, ahead: Int = PRELOAD_AHEAD_COUNT): List<Int> {
+    if (total <= 0 || ahead <= 0) return emptyList()
+    val start = (center + 1).coerceAtLeast(0)
+    val end = minOf(center + ahead, total - 1)
+    if (start > end) return emptyList()
+    return (start..end).toList()
+}
+
 /** v0.211.0 审计修复：详情目录点某章要直达该章——路由只带
  *  书 id、不带章节参数，原来目录点击只能按旧进度打开。书架点
  *  目录时先把目标章写进这个一次性请求，阅读器载入时消费它
@@ -231,6 +243,13 @@ fun ReaderScreen(
     // 旧章的 finally 会把新章的 contentLoading 提前灭掉；现在只认最新一单。
     var contentJob by remember { mutableStateOf<Job?>(null) }
     var contentLoadGen by remember { mutableIntStateOf(0) }
+    // v1.2.14：预载任务集——切书/退出时取消未完成的预载（正文主任务 contentJob 不在此列，
+    // 当前章优先：主任务照常跑，预载只在主任务成功后才启动，不抢当前章）。
+    val preloadJobs = remember { mutableSetOf<Job>() }
+    fun cancelPreloads() {
+        preloadJobs.toList().forEach { it.cancel() }
+        preloadJobs.clear()
+    }
     // v0.109.0 A7：正文拉取失败给可见反馈——Toast + 正文区重试入口，不许静默空白页
     var contentLoadError by remember { mutableStateOf(false) }
     // v0.250.0：失败原因与错误态同进退，错误区标题与 Toast 用同一套短提示。
@@ -417,35 +436,40 @@ fun ReaderScreen(
         if (c.content.isNotBlank() || c.url.isBlank()) return
         if (failedChapters.containsKey(index)) return
         if (!loadingChapters.add(index)) return
-        scope.launch {
+        // v1.2.14：Job 在 launch 返回后同步登记——登记与启动之间没有挂起点，
+        // 切书取消不可能漏掉刚启动的预载；finally 里摘掉自己，跑完与取消都不残留。
+        var job: Job? = null
+        job = scope.launch {
             try {
                 val fail = fetchChapter(index, allowGate = false)
                 if (fail != null) failedChapters[index] = fail else failedChapters.remove(index)
             } finally {
                 loadingChapters.remove(index)
+                job?.let { preloadJobs.remove(it) }
             }
         }
+        preloadJobs.add(job)
     }
 
-    /** v0.251.0：邻章静默预载（失败章、已加载章、加载中章自动跳过）。 */
-    fun preloadWindow(center: Int, radius: Int = 2) {
-        for (i in (center - radius)..(center + radius)) {
-            if (i != center) loadChapterSilent(i)
-        }
+    /** v1.2.14：向前静默预载——只往后 PRELOAD_AHEAD_COUNT 章，不含当前章；
+     * 失败章、已加载章、加载中章自动跳过（见 loadChapterSilent）。 */
+    fun preloadWindow(center: Int) {
+        for (i in preloadIndices(center, chapters.size)) loadChapterSilent(i)
     }
 
-    /** v0.244.0：窗口加载——当前章走 ensureContent（带失败反馈），前后各 2 章静默预载。
-     * v0.251.0：当前章优先——当前章没好之前不启动新的预加载，当前章成功后再预载邻章；
-     * 当前章已加载则直接预载邻章；失败章本次会话不再自动重试。 */
-    fun ensureContentWindow(center: Int, radius: Int = 2) {
+    /** v0.244.0：窗口加载——当前章走 ensureContent（带失败反馈），往后 10 章静默预载。
+     * v0.251.0：当前章优先——当前章没好之前不启动新的预加载，当前章成功后再预载；
+     * 当前章已加载则直接预载；失败章本次会话不再自动重试。
+     * v1.2.14：窗口由前后各 2 章改成只往后 10 章（PRELOAD_AHEAD_COUNT）。 */
+    fun ensureContentWindow(center: Int) {
         val c = chapters.getOrNull(center)
         if (c != null && c.content.isNotBlank()) {
-            preloadWindow(center, radius)
+            preloadWindow(center)
         } else {
             ensureContent(center) {
-                preloadWindow(center, radius)
+                preloadWindow(center)
                 // v0.251.0：加载中窗口又变了时，成功后也按最新视口补预载，不依赖过期窗口。
-                if (chapterIndex != center) preloadWindow(chapterIndex, radius)
+                if (chapterIndex != center) preloadWindow(chapterIndex)
             }
         }
     }
@@ -467,6 +491,10 @@ fun ReaderScreen(
 
     // 载入书 + 章节 + 进度（v0.84.0：换源后 sourceVersion 递增触发重载）
     LaunchedEffect(novelId, sourceVersion) {
+        // v1.2.14：切书/换源先取消旧书未完成的预载，旧书的失败记忆也清掉——
+        // 失败记忆按章下标记，留着会让新书同下标的章被误判为失败章而跳过预载。
+        cancelPreloads()
+        failedChapters.clear()
         val n = withContext(Dispatchers.IO) { NovelStore.get(context, novelId) }
         val cs = withContext(Dispatchers.IO) { NovelStore.chapters(context, novelId) }
         val p = withContext(Dispatchers.IO) { ReadingProgressStore.load(context, novelId) }
@@ -731,8 +759,8 @@ fun ReaderScreen(
         chapterIndex = ch
     }
 
-    // v0.244.0：视口章节一切换就保证前后 2 章正文在手（滚动模式跟随手指，
-    // 翻页模式跟随页码；定位目标章由 locate 另外保证）。
+    // v0.244.0：视口章节一切换就保证往后 10 章正文在手（滚动模式跟随手指，
+    // 翻页模式跟随页码；定位目标章由 locate 另外保证）。v1.2.14：窗口由前后各 2 章改成只往后 10 章。
     LaunchedEffect(chapterIndex, loaded) {
         if (!loaded) return@LaunchedEffect
         ensureContentWindow(chapterIndex)
@@ -812,6 +840,8 @@ fun ReaderScreen(
     val latestChapter by rememberUpdatedState(chapter)
     DisposableEffect(novelId) {
         onDispose {
+            // v1.2.14：退出/切书时取消未完成的预载任务，不让旧书的拉取继续跑。
+            cancelPreloads()
             val len = latestLen
             // v0.98.0：阅读统计（时长按天切分，章节记去重后的看过数）
             val statStart = sessionStartMs

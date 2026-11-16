@@ -3,6 +3,7 @@ package com.movieshell.data.store
 import android.content.Context
 import android.util.Log
 import com.movieshell.core.util.AtomicFile
+import com.movieshell.data.novel.ParagraphCommentStore
 import com.movieshell.domain.model.Chapter
 import com.movieshell.domain.model.Novel
 import com.movieshell.domain.model.ReadingProgress
@@ -511,6 +512,28 @@ object NovelStore {
         }
     }
 
+    /** v1.2.14：单本小说的缓存文件键范围（纯函数）——只认这本书的 4 个文件：
+     * 章节文件（正文缓存）、备份、事务日志、段评 sidecar；绝不含 index.json，绝不碰别的书。 */
+    fun bookCacheFileNames(novelId: String): List<String> = listOf(
+        "$novelId.json",
+        "$novelId.json.bak",
+        "$novelId.journal",
+        ParagraphCommentStore.cacheFileName(novelId),
+    )
+
+    /** v1.2.14：按 bookCacheFileNames 删单本小说残留的缓存文件（best-effort，只记日志）。 */
+    private fun clearBookCacheFiles(context: Context, novelId: String) {
+        for (name in bookCacheFileNames(novelId)) {
+            runCatching { File(dirOf(context), name).delete() }
+                .onFailure { Log.w(TAG, "小说缓存文件删除失败：$name", it) }
+        }
+    }
+
+    /** v1.2.14：清掉章节列表里的已缓存正文（纯函数）——只把 content 置空，
+     * 目录、标题、下标、所属书一律不动；空列表原样返回。 */
+    fun stripCachedContents(chapters: List<Chapter>): List<Chapter> =
+        chapters.map { it.copy(content = "") }
+
     /** v0.215.0：清除已缓存章节正文（目录保留）——净化规则改动后，
      * 已缓存的旧正文不会自己变新，须清掉、下次打开重拉并走新规则。返回清掉的书本数。 */
     suspend fun clearCachedContents(context: Context): Int = withContext(Dispatchers.IO) {
@@ -525,7 +548,7 @@ object NovelStore {
                 if (chapters.none { it.content.isNotBlank() }) continue
                 if (AtomicFile.writeText(
                         cf,
-                        json.encodeToString(ListSerializer(Chapter.serializer()), chapters.map { it.copy(content = "") }),
+                        json.encodeToString(ListSerializer(Chapter.serializer()), stripCachedContents(chapters)),
                     )
                 ) n++
             }
@@ -579,13 +602,19 @@ object NovelStore {
 
     /**
      * v0.186.0 第 9 组：删书唯一入口——书架页与搜索页两条删除路径共用，
-     * 清理范围一致：本体章节 + 阅读进度 + 逐条书签 + 全部分组 + 追更角标。
+     * 清理范围一致：本体章节 + 阅读进度 + 逐条书签 + 全部分组 + 追更角标
+     * + 本书缓存（章节正文缓存随章节文件删，段评 sidecar 缓存另删，见下）。
      * 本体删除失败时直接返回 false，不动其余清理项，避免书还在、进度先没了。
      * 同包内直接调用各 Store 的已有公开函数，不改那些文件。
      */
     suspend fun deleteNovelCascade(context: Context, id: String): Boolean =
         withContext(Dispatchers.IO) {
             if (!removeNovel(context, id)) return@withContext false
+            // v1.2.14：删书同时清该书缓存——章节正文缓存就存在章节文件里，
+            // removeNovel 删文件时已一并删掉；段评 sidecar 缓存文件不在
+            // removeNovel 的清理范围，删书后一直残留，这里按
+            // bookCacheFileNames 的键范围逐个删，只删这本书的文件。
+            clearBookCacheFiles(context, id)
             ReadingProgressStore.clear(context, id)
             // BookmarkStore 无整书 clear，用 list 加 remove 逐条删（书架页原有写法）
             BookmarkStore.list(context, id).forEach { bm ->
