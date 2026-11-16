@@ -32,7 +32,7 @@ class SettingsLayoutStoreTest {
         assertEquals(
             listOf(
                 "max_parallel", "engine", "autoplay", "adfilter", "gravity", "tmdb_key",
-                "def_orientation", "transition", "audio_lang", "subtitle_lang",
+                "def_orientation", "player_transition", "audio_lang", "subtitle_lang",
             ),
             got[page],
         )
@@ -46,7 +46,7 @@ class SettingsLayoutStoreTest {
         assertEquals(
             listOf(
                 "engine", "autoplay", "adfilter", "max_parallel", "tmdb_key",
-                "def_orientation", "transition", "audio_lang", "subtitle_lang",
+                "def_orientation", "player_transition", "audio_lang", "subtitle_lang",
             ),
             got[page],
         )
@@ -60,7 +60,7 @@ class SettingsLayoutStoreTest {
         assertEquals(
             listOf(
                 "engine", "autoplay", "adfilter", "max_parallel", "tmdb_key",
-                "def_orientation", "transition", "audio_lang", "subtitle_lang",
+                "def_orientation", "player_transition", "audio_lang", "subtitle_lang",
             ),
             got[page],
         )
@@ -71,7 +71,7 @@ class SettingsLayoutStoreTest {
         assertEquals(
             listOf(
                 "adfilter", "engine", "autoplay", "max_parallel", "tmdb_key",
-                "def_orientation", "transition", "audio_lang", "subtitle_lang",
+                "def_orientation", "player_transition", "audio_lang", "subtitle_lang",
             ),
             moved[page],
         )
@@ -84,7 +84,7 @@ class SettingsLayoutStoreTest {
         assertEquals(
             listOf(
                 "engine", "autoplay", "adfilter", "max_parallel", "tmdb_key",
-                "def_orientation", "transition", "audio_lang", "subtitle_lang", "gravity",
+                "def_orientation", "player_transition", "audio_lang", "subtitle_lang", "gravity",
             ),
             moved[page],
         )
@@ -95,7 +95,7 @@ class SettingsLayoutStoreTest {
         assertEquals(
             listOf(
                 "engine", "gravity", "autoplay", "adfilter", "max_parallel", "tmdb_key",
-                "def_orientation", "transition", "audio_lang", "subtitle_lang",
+                "def_orientation", "player_transition", "audio_lang", "subtitle_lang",
             ),
             moved[page],
         )
@@ -108,7 +108,7 @@ class SettingsLayoutStoreTest {
         assertEquals(
             listOf(
                 "gravity", "autoplay", "adfilter", "max_parallel", "tmdb_key",
-                "def_orientation", "transition", "audio_lang", "subtitle_lang",
+                "def_orientation", "player_transition", "audio_lang", "subtitle_lang",
             ),
             back[page],
         )
@@ -125,7 +125,7 @@ class SettingsLayoutStoreTest {
         assertEquals(
             listOf(
                 "engine", "autoplay", "adfilter", "max_parallel", "tmdb_key",
-                "def_orientation", "transition", "audio_lang", "subtitle_lang",
+                "def_orientation", "player_transition", "audio_lang", "subtitle_lang",
             ),
             before,
         )

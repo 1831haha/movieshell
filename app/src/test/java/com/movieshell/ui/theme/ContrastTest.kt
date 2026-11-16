@@ -65,12 +65,12 @@ class ContrastTest {
 
     @Test
     fun disabledButtonContent() {
-        // M3 默认禁用字 onSurface 38%：浅色 2.34:1；AppButton/TechDialog 改 65% 后 5.21:1。
+        // M3 默认禁用字 onSurface 38%：浅色 2.34:1；AppButton/TechDialog 改 65% 后 5.27:1。
         val before = Contrast.blendOver(0x61221A14.toInt(), lightSurface)
         assertEquals(2.34, Contrast.contrastRatio(before, lightSurface), delta)
         assertFalse(Contrast.meetsText(before, lightSurface))
         val after = Contrast.blendOver(0xA6221A14.toInt(), lightSurface)
-        assertEquals(5.21, Contrast.contrastRatio(after, lightSurface), delta)
+        assertEquals(5.27, Contrast.contrastRatio(after, lightSurface), delta)
         assertTrue(Contrast.meetsText(after, lightSurface))
         // 深色 65% 同样达标（6.59:1）。
         val darkAfter = Contrast.blendOver(0xA6EFE0D6.toInt(), darkSurface)

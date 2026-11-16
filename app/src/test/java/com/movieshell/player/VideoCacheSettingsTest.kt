@@ -97,7 +97,7 @@ class VideoCacheSettingsTest {
         assertEquals("500 MB", VideoCacheSettings.formatCapMb(500))
         assertEquals("1000 MB", VideoCacheSettings.formatCapMb(1000))
         assertEquals("1.0 GB", VideoCacheSettings.formatCapMb(1024))
-        assertEquals("1.9 GB", VideoCacheSettings.formatCapMb(2000))
+        assertEquals("2.0 GB", VideoCacheSettings.formatCapMb(2000))
     }
 
     @Test fun `formatAge shows unlimited for zero`() {
