@@ -33,4 +33,24 @@ class EmbyServerTest {
         assertTrue(server.ignoreCert)
         assertEquals("jellyfin", server.type)
     }
+
+    @Test
+    fun `ignoreCertForVodId returns server flag for emby vodId`() {
+        val servers = listOf(
+            EmbyServer(id = "s1", ignoreCert = true),
+            EmbyServer(id = "s2", ignoreCert = false),
+        )
+        assertTrue(EmbyStore.ignoreCertForVodId("emby:s1:item-1", servers))
+        assertFalse(EmbyStore.ignoreCertForVodId("emby:s2:item-1", servers))
+    }
+
+    @Test
+    fun `ignoreCertForVodId returns false for unknown server or bad format`() {
+        val servers = listOf(EmbyServer(id = "s1", ignoreCert = true))
+        assertFalse(EmbyStore.ignoreCertForVodId("emby:gone:item-1", servers))
+        assertFalse(EmbyStore.ignoreCertForVodId("", servers))
+        assertFalse(EmbyStore.ignoreCertForVodId("vod-123", servers))
+        assertFalse(EmbyStore.ignoreCertForVodId("emby:s1", servers))
+        assertFalse(EmbyStore.ignoreCertForVodId("emby:s1:item-1", emptyList()))
+    }
 }

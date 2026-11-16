@@ -79,6 +79,17 @@ object EmbyStore {
         return list.firstOrNull { it.id == id } ?: list.firstOrNull()
     }
 
+    /**
+     * v1.2.14：历史续播用的 ignoreCert 判定（纯函数）：历史记录的 vodId 是
+     * "emby:{serverId}:{itemId}"（MediaServerScreen.playItem 写盘），按 serverId
+     * 找到对应服务器、取它的 ignoreCert；格式不对、服务器已删、开关关着一律 false。
+     */
+    fun ignoreCertForVodId(vodId: String, servers: List<EmbyServer>): Boolean {
+        val parts = vodId.split(":", limit = 3)
+        if (parts.size != 3 || parts[0] != "emby") return false
+        return servers.firstOrNull { it.id == parts[1] }?.ignoreCert ?: false
+    }
+
     fun setActive(context: Context, id: String) {
         prefs(context).edit().putString(KEY_ACTIVE, id).apply()
     }

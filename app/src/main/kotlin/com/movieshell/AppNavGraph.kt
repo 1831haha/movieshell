@@ -13,6 +13,9 @@ package com.movieshell
 
 import kotlinx.coroutines.CoroutineScope
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.platform.LocalDensity
 import com.movieshell.ui.theme.LocalUnscaledDensity
 import com.movieshell.ui.music.closeMusicPlayer
@@ -41,6 +44,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.navArgument
 import com.movieshell.domain.model.NovelSearchResult
 import com.movieshell.data.source_mgr.DrpySourceManager
+import com.movieshell.data.store.EmbyStore
 import com.movieshell.data.store.FollowStore
 import com.movieshell.data.source_mgr.PhpSourceManager
 import com.movieshell.data.source_mgr.WebParseSourceManager
@@ -300,7 +304,11 @@ fun NavGraphBuilder.appDestinations(
                             )
                         }
                         // v0.24.0：播放历史独立页
-                        composable("history") {                            HistoryScreen(
+                        composable("history") {
+                            // v1.2.14：历史续播也要带上 Emby 服务器的 ignoreCert（vodId 里有 serverId）
+                            LaunchedEffect(Unit) { EmbyStore.ensureLoaded(context) }
+                            val embyServers by EmbyStore.servers.collectAsState()
+                            HistoryScreen(
                                 onBack = { navController.popBackStack() },
                                 onPlay = { entry ->
                                     if (entry.kind == "live") {
@@ -313,6 +321,7 @@ fun NavGraphBuilder.appDestinations(
                                         navController.navigateToPlayer(
                                             url = entry.url,
                                             title = entry.title,
+                                            ignoreCert = EmbyStore.ignoreCertForVodId(entry.vodId, embyServers),
                                         )
                                     }
                                 },
