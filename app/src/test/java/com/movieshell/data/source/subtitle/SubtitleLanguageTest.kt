@@ -1,5 +1,6 @@
 package com.movieshell.data.source.subtitle
 
+import com.movieshell.data.source.subtitle.OnlineSubtitle
 import org.junit.Assert.*
 import org.junit.Test
 
