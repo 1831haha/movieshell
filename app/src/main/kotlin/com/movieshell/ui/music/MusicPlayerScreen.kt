@@ -177,8 +177,9 @@ fun MusicPlayerScreen(
     // 1.3.2 的教训：coil 的 AsyncImagePainter 没画出来时一直等画布尺寸
     // （drawSize 恒为 0），state 永远到不了 Success，取色等于没跑，
     // 状态栏永远是氛围底色。改走带明确尺寸的 ImageRequest，不等画布。
+    val ctx = LocalContext.current
     val artRequest = remember(shownArt) {
-        ImageRequest.Builder(LocalContext.current)
+        ImageRequest.Builder(ctx)
             .data(shownArt)
             .size(Size.ORIGINAL)
             .build()
