@@ -21,6 +21,7 @@ import android.os.Bundle
 import android.content.Intent
 import android.content.res.Configuration
 import android.view.KeyEvent
+import com.movieshell.ui.music.PlayerSystemBars
 import com.movieshell.ui.reader.ReaderSystemBars
 import com.movieshell.ui.reader.VolumeKeyRouter
 import androidx.activity.ComponentActivity
@@ -441,15 +442,20 @@ class MainActivity : ComponentActivity() {
                 // 视频播放页自己管沉浸式（隐藏系统栏），这里只改颜色不改可见性。
                 // v1.3.1：阅读路由跟阅读页底色走（ReaderSystemBars 发布，离页清掉）——
                 // 对标阅读 APP：系统栏底色与页面同色；其它路由仍按 M3 色板走。
+                // v1.3.2：播放路由跟播放页整体色走（PlayerSystemBars 发布，离页清掉）——
+                // 按当前封面取平均色压暗，换歌跟着变。
                 val sysScheme = MaterialTheme.colorScheme
                 val readerBarBg = ReaderSystemBars.barColor
+                val playerBarBg = PlayerSystemBars.barColor
                 val statusBg = when {
                     curRoute == "reader/{novelId}" && readerBarBg != null -> readerBarBg
+                    curRoute == "music_player" && playerBarBg != null -> playerBarBg
                     curRoute == "settings" -> sysScheme.surfaceContainer
                     else -> sysScheme.background
                 }
                 val navBg = when {
                     curRoute == "reader/{novelId}" && readerBarBg != null -> readerBarBg
+                    curRoute == "music_player" && playerBarBg != null -> playerBarBg
                     showBottomBar -> sysScheme.surfaceContainer
                     else -> sysScheme.background
                 }

@@ -21,11 +21,16 @@ object MusicSettings {
     private const val PREFS = "music_settings"
     private const val OLD_PREFS = "movieshell_prefs"
     private const val KEY_LYRIC_COLOR = "lyric_color"
+    private const val KEY_LYRIC_FONT_SCALE = "lyric_font_scale"
     private const val KEY_MUSIC_PLATFORM = "music_search_platform"
     private const val KEY_PLAYER_LAYOUT = "player_layout"
 
     private val _lyricColor = MutableStateFlow(0)
     val lyricColor: StateFlow<Int> = _lyricColor
+
+    // v1.3.2：歌词字号缩放（1.0=标准；与歌词颜色同一个调色板入口调）。
+    private val _lyricFontScale = MutableStateFlow(1.0f)
+    val lyricFontScale: StateFlow<Float> = _lyricFontScale
 
     private val _musicPlatform = MutableStateFlow("wy")
     val musicPlatform: StateFlow<String> = _musicPlatform
@@ -49,6 +54,9 @@ object MusicSettings {
         }
         if (needMigrate) migrate.apply()
         _lyricColor.value = prefs.getInt(KEY_LYRIC_COLOR, 0)
+        // v1.3.2：歌词字号缩放（新 key，无旧值可迁，缺省 1.0 标准）。
+        _lyricFontScale.value = prefs.getFloat(KEY_LYRIC_FONT_SCALE, 1.0f)
+            .takeIf { it > 0f } ?: 1.0f
         // v0.180.0 口径（原 PlayerSettings.init）：别名先归一，认不出的
         // code 原样保留（小写）——音源以后报出新平台时，已选平台不能被
         // normalize 的“认不出”打回 wy。
@@ -78,6 +86,14 @@ object MusicSettings {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             .edit().putInt(KEY_LYRIC_COLOR, color).apply()
         _lyricColor.value = color
+    }
+
+    /** v1.3.2：记忆歌词字号缩放（1.0=标准）。 */
+    fun setLyricFontScale(context: Context, scale: Float) {
+        val safe = scale.takeIf { it > 0f } ?: 1.0f
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .edit().putFloat(KEY_LYRIC_FONT_SCALE, safe).apply()
+        _lyricFontScale.value = safe
     }
 
     /** v0.294.12：记忆正在播放页布局 / 动态效果。 */

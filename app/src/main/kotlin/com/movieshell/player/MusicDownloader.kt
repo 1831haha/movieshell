@@ -3,6 +3,7 @@ package com.movieshell.player
 import android.content.Context
 import android.net.Uri
 import com.movieshell.core.log.LogBus
+import com.movieshell.core.util.StoragePaths
 import com.movieshell.data.source.MusicApi
 import com.movieshell.data.store.MusicStore
 import com.movieshell.ui.components.AppToast
@@ -24,11 +25,14 @@ import java.util.concurrent.TimeUnit
  * （不断点续传、不排队、不显示进度条，只给下载中/已下载状态 + 成败提示）。
  *
  * 直链复用 [MusicPlayer.resolvePlayUrl]（播放同一条解析链，不另写第二套）；
- * 文件落 App 私有目录 music_downloads，下完以 Track 形式记进本地音乐表
- * （id 沿用原曲 id，localUri 为 file://，本地 tab 直接播、删歌时连文件一起删）；
- * 离页/切页不取消——scope 与页面无关，进程在就下完。
+ * 文件落公开 Download 文件夹（v1.3.2 用户定：根目录 Download，文件管理器
+ * 里能看见；无存储权限回落 App 私有目录 music_downloads），下完以 Track
+ * 形式记进本地音乐表（id 沿用原曲 id，localUri 为 file://，本地 tab 直接
+ * 播、删歌时连文件一起删）；离页/切页不取消——scope 与页面无关，进程在就下完。
+ * v1.3.2 之前下的歌在私有目录，isDownloadedFile 两边都认，不丢。
  */
 object MusicDownloader {
+    /** v1.3.2 之前的私有下载目录名——只作旧歌识别，不再写新文件。 */
     private const val DIR_NAME = "music_downloads"
 
     // v0.112.0 B1 同款例外：大文件下载不得加 callTimeout，也不并入 60 秒共享单例。
@@ -61,10 +65,13 @@ object MusicDownloader {
         val uri = track.localUri
         if (uri.isBlank()) return false
         val path = runCatching { Uri.parse(uri).path }.getOrNull() ?: return false
-        return path.startsWith(File(context.filesDir, DIR_NAME).absolutePath + File.separator)
+        // v1.3.2：新歌在公开 Download，旧歌在私有 music_downloads，两边都认。
+        val downloadDir = StoragePaths.musicDownloadDir(context).absolutePath + File.separator
+        val legacyDir = File(context.filesDir, DIR_NAME).absolutePath + File.separator
+        return path.startsWith(downloadDir) || path.startsWith(legacyDir)
     }
 
-    /** 删本地歌时顺带删下载文件——只删 music_downloads 里的 file://，用户导入的歌不动。 */
+    /** 删本地歌时顺带删下载文件——只删下载目录里的 file://，用户导入的歌不动。 */
     fun deleteDownloadedFile(context: Context, track: MusicApi.Track) {
         if (!isDownloadedFile(context, track)) return
         val path = runCatching { Uri.parse(track.localUri).path }.getOrNull() ?: return
@@ -87,7 +94,7 @@ object MusicDownloader {
                 val url = MusicPlayer.resolvePlayUrl(appContext, track)
                     ?.takeIf { it.isNotBlank() }
                     ?: throw IllegalStateException("取不到播放地址")
-                val dir = File(appContext.filesDir, DIR_NAME).apply { mkdirs() }
+                val dir = StoragePaths.musicDownloadDir(appContext)
                 // 文件名带曲 id hash——同名同歌手在不同平台是两条记录，文件名不能撞
                 val fileKey = track.id.hashCode().toString().replace("-", "n")
                 val base = sanitizeFileName("${track.artist} - ${track.name}") + "_$fileKey"
@@ -131,7 +138,9 @@ object MusicDownloader {
             result.onSuccess {
                 _downloaded.value = _downloaded.value + track.id
                 LogBus.i("Music", "已下载：${track.name}")
-                AppToast.show(appContext, "已下载《${track.name}》，去本地 tab 听", long = false)
+                // v1.3.2：下到哪说清楚——公开 Download 还是回落的私有目录。
+                val where = if (StoragePaths.hasAccess(appContext)) "Download 文件夹" else "本地"
+                AppToast.show(appContext, "已下载《${track.name}》到${where}，去本地 tab 听", long = false)
             }.onFailure {
                 LogBus.w("Music", "下载失败：${track.name} ${it.message}")
                 AppToast.show(

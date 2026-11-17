@@ -106,6 +106,16 @@ object StoragePaths {
     fun backupDir(context: Context): File = File(baseDir(context), "backup").also { it.mkdirs() }
     fun logDir(context: Context): File = File(baseDir(context), "log").also { it.mkdirs() }
 
+    /** v1.3.2：音乐下载目录——用户定：手机存储根目录的 Download 文件夹；
+     * 无权限回落私有目录（App 照常用，不崩）。 */
+    fun musicDownloadDir(context: Context): File =
+        if (hasAccess(context)) {
+            Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+                .also { it.mkdirs() }
+        } else {
+            File(context.filesDir, "music_downloads").also { it.mkdirs() }
+        }
+
     /** v0.21.0：播放器截图保存位置 */
     fun screenshotsDir(context: Context): File =
         File(baseDir(context), "Screenshots").also { it.mkdirs() }

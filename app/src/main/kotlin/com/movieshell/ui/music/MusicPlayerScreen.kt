@@ -101,7 +101,10 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
+import androidx.core.graphics.drawable.toBitmap
 import coil.compose.AsyncImage
+import coil.compose.AsyncImagePainter
+import coil.compose.rememberAsyncImagePainter
 import com.movieshell.core.log.LogBus
 import com.movieshell.data.source.MusicApi
 import com.movieshell.data.store.MusicSource
@@ -124,7 +127,9 @@ import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.ModalBottomSheet
 import com.movieshell.ui.components.sheetListScrollGuard
 import com.movieshell.ui.theme.V5
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /**
  * v0.83.0：全屏播放页——大封面 / 歌词滚动跟随 / 进度条拖动 / 播放模式。
@@ -154,6 +159,8 @@ fun MusicPlayerScreen(
     val matchedArtMap by MusicPlayer.matchedArt.collectAsState()
     // v0.125.0：歌词颜色（0=跟随主题，MusicSettings 持久化）
     val lyricColorInt by MusicSettings.lyricColor.collectAsState()
+    // v1.3.2：歌词字号缩放（与颜色同一个调色板入口，MusicSettings 持久化）
+    val lyricFontScale by MusicSettings.lyricFontScale.collectAsState()
     // v0.294.12：播放界面布局（经典/唱片/沉浸/频谱/卡片），持久化在 MusicSettings
     val playerLayout by MusicSettings.playerLayout.collectAsState()
     val track = playState.track
@@ -164,6 +171,18 @@ fun MusicPlayerScreen(
     val shownArt = artUrl.ifBlank {
         track?.let { matchedArtMap[it.id] }.orEmpty()
     }
+    // v1.3.2：系统栏跟随播放页整体色——另起一份画笔取封面平均色压暗发布
+    // （封面走内存缓存，与大封面同一份加载结果；无封面用氛围底色）。
+    val artPainter = rememberAsyncImagePainter(model = shownArt)
+    val artBitmap = (artPainter.state as? AsyncImagePainter.State.Success)
+        ?.result?.drawable?.toBitmap()
+    LaunchedEffect(artBitmap) {
+        val avg = artBitmap?.let {
+            withContext(Dispatchers.Default) { PlayerSystemBars.averageColor(it) }
+        }
+        PlayerSystemBars.publish(PlayerSystemBars.atmosphereBarColor(avg))
+    }
+    DisposableEffect(Unit) { onDispose { PlayerSystemBars.clear() } }
 
     var lyrics by remember { mutableStateOf<List<MusicApi.LyricLine>>(emptyList()) }
     var lyricLoading by remember { mutableStateOf(false) }
@@ -464,11 +483,14 @@ fun MusicPlayerScreen(
                                             modifier = Modifier.fillMaxWidth(),
                                             textAlign = TextAlign.Center,
                                             fontWeight = if (i == curIdx) FontWeight.Bold else null,
-                                            style = if (i == curIdx) {
-                                                MaterialTheme.typography.bodyLarge
-                                            } else {
-                                                MaterialTheme.typography.bodyMedium
-                                            },
+                                            style = scaledLyricFontSize(
+                                                if (i == curIdx) {
+                                                    MaterialTheme.typography.bodyLarge
+                                                } else {
+                                                    MaterialTheme.typography.bodyMedium
+                                                },
+                                                lyricFontScale,
+                                            ),
                                             color = if (i == curIdx) {
                                                 lyricBase ?: MaterialTheme.colorScheme.primary
                                             } else {
@@ -492,7 +514,9 @@ fun MusicPlayerScreen(
                                     )
                                 }
                                 if (showLyricColors) {
-                                    Row(
+                                    // v1.3.2：歌词颜色与字号同一个入口——色点行 + 字号行，
+                                    // 字号点按即换、不关面板，可连试。
+                                    Column(
                                         modifier = Modifier
                                             .clip(RoundedCornerShape(20.dp))
                                             .background(MaterialTheme.colorScheme.surfaceContainer)
@@ -502,10 +526,14 @@ fun MusicPlayerScreen(
                                                 RoundedCornerShape(20.dp),
                                             )
                                             .padding(horizontal = 10.dp, vertical = 8.dp),
-                                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                        verticalAlignment = Alignment.CenterVertically,
+                                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                                        horizontalAlignment = Alignment.CenterHorizontally,
                                     ) {
-                                        LYRIC_COLOR_PRESETS.forEach { preset ->
+                                        Row(
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                        ) {
+                                            LYRIC_COLOR_PRESETS.forEach { preset ->
                                             val selected = lyricColorInt == preset
                                             val dotColor = if (preset == 0) {
                                                 MaterialTheme.colorScheme.primary
@@ -551,6 +579,39 @@ fun MusicPlayerScreen(
                                                         color = MaterialTheme.colorScheme.onPrimary,
                                                     )
                                                 }
+                                            }
+                                        }
+                                        }
+                                        // v1.3.2：字号行——小/标准/大/特大，点按即换。
+                                        Row(
+                                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                        ) {
+                                            LYRIC_FONT_SCALE_OPTIONS.forEach { (scale, label) ->
+                                                val selected = lyricFontScale == scale
+                                                Text(
+                                                    text = label,
+                                                    modifier = Modifier
+                                                        .clip(RoundedCornerShape(12.dp))
+                                                        .background(
+                                                            if (selected) {
+                                                                MaterialTheme.colorScheme.primary.copy(alpha = 0.2f)
+                                                            } else {
+                                                                Color.Transparent
+                                                            },
+                                                        )
+                                                        .clickable {
+                                                            MusicSettings.setLyricFontScale(context, scale)
+                                                        }
+                                                        .padding(horizontal = 8.dp, vertical = 4.dp),
+                                                    fontSize = 12.sp,
+                                                    fontWeight = if (selected) FontWeight.Bold else null,
+                                                    color = if (selected) {
+                                                        MaterialTheme.colorScheme.primary
+                                                    } else {
+                                                        Color.White.copy(alpha = 0.8f)
+                                                    },
+                                                )
                                             }
                                         }
                                     }
@@ -1603,6 +1664,18 @@ private fun MusicSleepTimerDialog(
             }
         }
     }
+
+/** v1.3.2：歌词字号档（缩放倍数 → 标签；与 MusicSettings.lyricFontScale 对应）。 */
+private val LYRIC_FONT_SCALE_OPTIONS = listOf(
+    0.85f to "小",
+    1.0f to "标准",
+    1.15f to "大",
+    1.3f to "特大",
+)
+
+/** v1.3.2：歌词字号缩放（可单测的纯函数；1.0 时与原字号一致）。 */
+internal fun scaledLyricFontSize(style: TextStyle, scale: Float): TextStyle =
+    style.copy(fontSize = style.fontSize * scale)
 
 /** v0.125.0：歌词预设色（0=默认跟随主题色，其余为 ARGB；与 MusicSettings.lyricColor 对应）。 */
 private val LYRIC_COLOR_PRESETS = listOf(
