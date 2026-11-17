@@ -751,12 +751,17 @@ object LegadoJsEngine {
         return current
     }
 
-    /** 按 @ 切链段，但 <js>…</js> 块里的 @ 不切。 */
+    /** 按 @ 切链段，但 <js>…</js> 块里的 @ 不切。
+     * v1.2.27 #665：XPath 属性谓词里的 @ 也不切——[@id="list"] 一段里的 @ 若被当成分隔符，
+     * 规则会从 @id 处被切成两截，前段转 CSS 失败、整条规则选空（449 测 1 败的根因）。
+     * 只有方括号外、引号外的 @ 才是链段分隔符；末尾 /@href 那种 @ 在括号外，照常切分。 */
     private fun splitChainSegments(part: String): List<String> {
         val out = mutableListOf<String>()
         val cur = StringBuilder()
         var i = 0
         var inJs = false
+        var depth = 0
+        var quote = '\u0000'
         while (i < part.length) {
             if (!inJs && part.startsWith("<js>", i)) {
                 inJs = true
@@ -771,7 +776,23 @@ object LegadoJsEngine {
                 continue
             }
             val c = part[i]
-            if (c == '@' && !inJs) {
+            if (!inJs) {
+                if (quote != '\u0000') {
+                    cur.append(c)
+                    if (c == quote) quote = '\u0000'
+                    i++
+                    continue
+                }
+                if (c == '"' || c == '\'') {
+                    quote = c
+                    cur.append(c)
+                    i++
+                    continue
+                }
+                if (c == '[') depth++
+                if (c == ']' && depth > 0) depth--
+            }
+            if (c == '@' && !inJs && depth == 0) {
                 out.add(cur.toString())
                 cur.clear()
                 i++
