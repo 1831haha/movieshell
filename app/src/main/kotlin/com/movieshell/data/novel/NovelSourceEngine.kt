@@ -637,20 +637,30 @@ object NovelSourceEngine {
             }
             // v1.2.25：目录兜底——解析出 0 章时，跟详情页/目录页上的“目录”链接再解析一次
             // （黑岩详情页改版：目录不在详情页，规则 tocUrl 的“开始阅读”也没了；通用结构，不写站名）。
-            fun parseTocPage(body: String, pageUrl: String): List<ChapterMeta> {
+            // 第二项 = 是否走了通用兜底（源规则在该页选空）；取大逻辑只在兜底时触发。
+            fun parseTocPage(body: String, pageUrl: String): Pair<List<ChapterMeta>, Boolean> {
                 val doc = BookRuleEngine.parseDoc(body, pageUrl)
-                val listRule = source.ruleTocList.ifBlank { return emptyList() }
-                // v1.2.26：XPath 列表规则先转 CSS；源规则选空时，用通用 //li/a 再试一次
-                // （目录页多是裸 <li><a>，规则过期也照样出目录；仍空才判失败）。
+                val listRule = source.ruleTocList.ifBlank { return emptyList() to false }
+                // v1.2.26：XPath 列表规则先转 CSS；源规则选空时，用通用兜底再试一次。
                 val cssRule = listRule.trim().let {
                     if (it.startsWith("/")) LegadoJsEngine.xpathToCss(it) ?: it else it
                 }
                 var items = runCatching { doc.select(cssRule).toList() }.getOrDefault(emptyList())
-                if (items.isEmpty() && cssRule != "li > a") {
-                    items = runCatching { doc.select("li > a").toList() }.getOrDefault(emptyList())
-                    if (items.isNotEmpty()) LogBus.d(TAG, "目录通用兜底 ${source.name} 用 li>a 解析出 ${items.size} 章")
+                var usedFallback = false
+                if (items.isEmpty()) {
+                    // v1.2.28：通用兜底不再裸取 li>a（话本实证：70 条全是导航/推荐书/页脚，
+                    // 真章节在 div.chapter-row 里）；改取全页 a[href] 再按书页目录过滤，
+                    // ≥3 条才用，否则回退裸 li>a（防章节 URL 不含书号的站）。
+                    usedFallback = true
+                    val all = runCatching { doc.select("a[href]").toList() }.getOrDefault(emptyList())
+                    val kept = all.filter { el ->
+                        BookRuleEngine.isSameBookChapterLink(el.absUrl("href"), detailUrl)
+                    }
+                    items = if (kept.size >= 3) kept
+                    else runCatching { doc.select("li > a").toList() }.getOrDefault(emptyList())
+                    if (items.isNotEmpty()) LogBus.d(TAG, "目录通用兜底 ${source.name} 用同书链接解析出 ${items.size} 章")
                 }
-                return items.mapIndexedNotNull { i, el ->
+                return (items.mapIndexedNotNull { i, el ->
                     val title = BookRuleEngine.extract(el, pageUrl, source.ruleTocTitle.ifBlank { "@text" })
                     val url = BookRuleEngine.extract(el, pageUrl, source.ruleTocUrl.ifBlank { "@href" })
                     if (title.isBlank() || url.isBlank()) return@mapIndexedNotNull null
@@ -660,18 +670,37 @@ object NovelSourceEngine {
                 }
                     // v0.194.0：导航章兜底过滤（见 NovelStore.isNavChapterTitle）。
                     .filterNot { NovelStore.isNavChapterTitle(it.title) }
-                    .mapIndexed { i, m -> m.copy(index = i) }
+                    .mapIndexed { i, m -> m.copy(index = i) }) to usedFallback
             }
             val tocPage = BookRuleEngine.fetchPageWithOptions(tocUrl, options = fetchOptions(source)) ?: return emptyList()
             // 目录页可能是详情页（规则里 toc 列表直接在详情页上）
-            var result = parseTocPage(tocPage.body, tocPage.url)
+            var (result, usedFallback) = parseTocPage(tocPage.body, tocPage.url)
+            var triedUrl: String? = null
             if (result.isEmpty()) {
                 val fallbackUrl = BookRuleEngine.findTocLink(tocPage.body, tocPage.url)
                 if (fallbackUrl != null) {
+                    triedUrl = fallbackUrl
                     val fallbackPage = BookRuleEngine.fetchPageWithOptions(fallbackUrl, options = fetchOptions(source))
                     if (fallbackPage != null) {
-                        result = parseTocPage(fallbackPage.body, fallbackPage.url)
+                        val (r2, f2) = parseTocPage(fallbackPage.body, fallbackPage.url)
+                        result = r2
+                        usedFallback = f2
                         LogBus.d(TAG, "目录兜底 ${source.name} 跟进 $fallbackUrl 解析出 ${result.size} 章")
+                    }
+                }
+            }
+            // v1.2.28：兜底出的目录可能不全（如话本详情页只 inline 43/57 章）；
+            // 页上若有“目录”链接指向别的目录页，跟过去再解析一次，取章数多的那份。
+            if (usedFallback && result.isNotEmpty()) {
+                val moreUrl = BookRuleEngine.findTocLink(tocPage.body, tocPage.url)
+                if (moreUrl != null && moreUrl != tocUrl && moreUrl != triedUrl) {
+                    val morePage = BookRuleEngine.fetchPageWithOptions(moreUrl, options = fetchOptions(source))
+                    if (morePage != null) {
+                        val (more, _) = parseTocPage(morePage.body, morePage.url)
+                        if (more.size > result.size) {
+                            LogBus.d(TAG, "目录兜底 ${source.name} 目录页 ${more.size} 章多于当前 ${result.size} 章，用目录页")
+                            result = more
+                        }
                     }
                 }
             }
@@ -770,13 +799,55 @@ object NovelSourceEngine {
                     }
                 }
             }
-            // v1.2.26：通用列表兜底——源规则（含 XPath 转换）仍为 0 章时，用通用 //li/a 再抓一次。
+            // v1.2.28：通用兜底抽成小函数——a[href] 按书页目录过滤（≥3 条才用），
+            // 不足改用老口径 //li/a；返回新增章数。话本实证：裸 li>a 全是导航/推荐/页脚。
+            suspend fun harvestGeneric(page: PageResult): Int {
+                val before = all.size
+                harvest(page, "a[href]")
+                val added = all.subList(before, all.size).toList()
+                val kept = added.filter { BookRuleEngine.isSameBookChapterLink(it.url, detailUrl) }
+                repeat(added.size) { all.removeAt(before) }
+                if (kept.size >= 3) {
+                    all.addAll(kept)
+                    LogBus.d(TAG, "目录通用兜底 ${source.name} 用同书链接解析出 ${kept.size} 章")
+                    return kept.size
+                }
+                harvest(page, "//li/a")
+                val n = all.size - before
+                if (n > 0) LogBus.d(TAG, "目录通用兜底 ${source.name} 用 li>a 解析出 $n 章")
+                return n
+            }
+            // v1.2.26：通用列表兜底——源规则（含 XPath 转换）仍为 0 章时，用通用兜底再抓一次
+            // （目录页优先：跟进过的目录页在前，详情页在后）。
+            var usedGenericFallback = false
             if (all.isEmpty()) {
                 for (p in listOfNotNull(fallbackChecked, curPage)) {
-                    harvest(p, "//li/a")
-                    if (all.isNotEmpty()) {
-                        LogBus.d(TAG, "目录通用兜底 ${source.name} 用 li>a 解析出 ${all.size} 章")
+                    if (harvestGeneric(p) > 0) {
+                        usedGenericFallback = true
                         break
+                    }
+                }
+            }
+            // v1.2.28：兜底出的目录可能不全（如话本详情页只 inline 43/57 章）；
+            // 尚未跟进过目录页时，页上有“目录”链接就跟过去再抓一次，取章数多的那份。
+            if (usedGenericFallback && fallbackChecked == null) {
+                val moreUrl = BookRuleEngine.findTocLink(curPage.body, curPage.url)
+                if (moreUrl != null && moreUrl != curPage.url) {
+                    val morePage = BookRuleEngine.fetchPageWithOptions(moreUrl, ua, options = fetchOptions(source))
+                    if (morePage != null) {
+                        val checkedMore = LegadoJsEngine.runLoginCheck(source.toJsRuleSource(), morePage, ctx, state) {
+                            BookRuleEngine.fetchPageWithOptions(moreUrl, ua, options = fetchOptions(source))
+                        }
+                        val genericCount = all.size
+                        harvest(checkedMore)
+                        var moreCount = all.size - genericCount
+                        if (moreCount == 0) moreCount = harvestGeneric(checkedMore)
+                        if (moreCount > genericCount) {
+                            repeat(genericCount) { all.removeAt(0) }
+                            LogBus.d(TAG, "目录兜底 ${source.name} 目录页 $moreCount 章多于详情页 $genericCount 章，用目录页")
+                        } else {
+                            repeat(all.size - genericCount) { all.removeAt(genericCount) }
+                        }
                     }
                 }
             }

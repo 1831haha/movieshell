@@ -41,7 +41,15 @@ object NovelPurifyEngine {
         bookUrl: String = "",
         sourceKey: String = "",
     ): String {
+        // v1.2.28：正文里字面量 \r（反斜杠+r，站方双重转义）会原样显示在屏幕上
+        // （黑岩 #破冰实证）；先把字面量 \r\n / \r / \n 与真实 \r\n / \r 一律归一成 \n，
+        // 再按行切段。字面量 \r\n 先换，避免拆成两个换行。
         var out = text
+            .replace("\\r\\n", "\n")
+            .replace("\\r", "\n")
+            .replace("\\n", "\n")
+            .replace("\r\n", "\n")
+            .replace('\r', '\n')
         for (r in rules) {
             if (!r.enable || r.regex.isBlank()) continue
             if (!scopeMatch(r, bookUrl, sourceKey)) continue

@@ -167,13 +167,15 @@ val LogConsoleGlyph: ImageVector by lazy {
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun LogBubbleOverlay() {
+fun LogBubbleOverlay(hidden: Boolean = false) {
     val context = LocalContext.current
     val enabled by LogStore.enabled.collectAsState()
     if (!enabled) return
     // v1.0.6：播放器全屏时（横/竖屏都算）藏起日志气泡，退出全屏恢复。
     val isPlayerFullscreen by PlayerManager.isPlayerFullscreen.collectAsState()
     if (isPlayerFullscreen) return
+    // v1.2.28：小说阅读时（阅读器与目录页）也藏起，避免压住正文。
+    if (hidden) return
 
     BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
         val density = LocalDensity.current

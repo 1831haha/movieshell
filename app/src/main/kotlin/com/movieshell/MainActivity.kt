@@ -583,7 +583,10 @@ class MainActivity : ComponentActivity() {
                     },
                 )
                 // v0.7.2：运行日志悬浮窗（应用内悬浮）
-                LogBubbleOverlay()
+                // v1.2.28：小说阅读时（阅读器与目录页）藏起，不压正文。
+                LogBubbleOverlay(
+                    hidden = curRoute == "reader/{novelId}" || curRoute == "novel_toc/{novelId}",
+                )
                 // v0.27.2：PY 缺库一键安装引导
                 PyDepGuideOverlay()
                 // v0.201.0：Cloudflare/WebView 验证通道（有请求时弹全屏验证页）

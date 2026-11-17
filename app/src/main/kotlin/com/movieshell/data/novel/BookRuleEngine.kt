@@ -250,6 +250,24 @@ object BookRuleEngine {
     }
 
     /**
+     * v1.2.28：通用目录兜底——章节链接是否属于本书。
+     * 书页 URL 去扩展名得目录（如 /book/2105794.html → /book/2105794/，
+     * /book/143131 → /book/143131/）；章节 href 的路径以该目录开头才算本书章节。
+     * 话本实证：裸 li>a 的 70 条全是导航/推荐书/页脚，真章节在 div.chapter-row 里，
+     * href 都是 /book/<书号>/<章>.html。只认路径不认域名（w2 子站换 host 仍算同书）。
+     */
+    fun isSameBookChapterLink(href: String, bookUrl: String): Boolean {
+        if (href.isBlank() || bookUrl.isBlank()) return false
+        val bookPath = runCatching { java.net.URI(bookUrl).path }.getOrNull().orEmpty()
+        if (bookPath.isBlank()) return false
+        val dir = bookPath.removeSuffix(".html").removeSuffix(".htm").trimEnd('/') + "/"
+        if (dir == "/") return false
+        val hrefPath = runCatching { java.net.URI(href).path }.getOrNull().orEmpty()
+        if (hrefPath.isBlank()) return false
+        return hrefPath.startsWith(dir) && hrefPath.length > dir.length
+    }
+
+    /**
      * 正文提取：去掉 script/style；<br> 与块级元素都转成换行。
      *
      * v0.91.0 修复：此前用 el.textNodes() 只取直接文本节点；全本小说网等站正文
