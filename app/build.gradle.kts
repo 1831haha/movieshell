@@ -14,8 +14,8 @@ android {
         applicationId = "com.movieshell"
         minSdk = 26
         targetSdk = 34
-        versionCode = 495
-        versionName = "1.3.4"
+        versionCode = 496
+        versionName = "1.3.5"
 
         // v1.1.25：阿里云盘开放平台应用凭证——构建期注入，仓库不许出现凭证明文。
         // 未配置时为空串，阿里扫码入口给明确提示；CI 里由 secrets 注入环境变量。
@@ -169,6 +169,9 @@ dependencies {
 
     debugImplementation("androidx.compose.ui:ui-tooling")
     debugImplementation("androidx.compose.ui:ui-test-manifest")
+
+    // v1.3.5：分享链接登录扫码——二维码本地画（ZXing core，与 1.1.30 同版）
+    implementation("com.google.zxing:core:3.5.4")
 
     // 单元测试：type=4 PHP 接口双试探（MockWebServer + 真实 fixture）
     testImplementation("junit:junit:4.13.2")

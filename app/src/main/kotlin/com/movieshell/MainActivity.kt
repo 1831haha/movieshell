@@ -248,6 +248,8 @@ class MainActivity : ComponentActivity() {
         // v0.24.0：直播源 + 源启停状态
         LiveStore.init(this)
         SourceStateStore.init(this)
+        // v1.3.5：分享链接播剧——恢复各盘本机登录态（Cookie/token 只存本机）。
+        com.movieshell.data.sharelink.ShareAuth.init(this)
         // v0.147.0：恢复上次选中的片源（文件仍在且未被禁用才恢复），否则首页空态
         SourceStateStore.restoreActiveRule(this)
         // v0.26.0：追剧 + 下载

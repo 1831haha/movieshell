@@ -80,6 +80,8 @@ import com.movieshell.ui.novel.PurifyRulesScreen
 import com.movieshell.ui.novel.SearchBookDetailScreen
 import com.movieshell.ui.novel.SourceGroup
 import com.movieshell.ui.openlist.OpenListBrowseScreen
+import com.movieshell.player.SniffPlayHeaders
+import com.movieshell.ui.sharelink.ShareLinkScreen
 import com.movieshell.ui.mediaserver.MediaServerScreen
 import com.movieshell.ui.preview.FilePreviewScreen
 import com.movieshell.ui.reader.ReaderScreen
@@ -234,6 +236,7 @@ fun NavGraphBuilder.appDestinations(
                                     }
                                     navController.navigate("detail/${Uri.encode(vodId)}$siteParam")
                                 },
+                                onShareLinkClick = { navController.navigate("sharelink") },
                             )
                         }
                         // v0.88.0：演员作品页（点详情页演员名进入）
@@ -793,6 +796,20 @@ fun NavGraphBuilder.appDestinations(
                                 url = siteUrl,
                                 onBack = { navController.popBackStack() },
                                 onPlay = { playUrl, title ->
+                                    navController.navigateToPlayer(
+                                        url = playUrl,
+                                        title = title,
+                                    )
+                                },
+                            )
+                        }
+                        // v1.3.5：分享链接播剧（只做粘贴链接播，不做网盘中心）；
+                        // 直链请求头走 SniffPlayHeaders 内存通道，播放器启动时取出。
+                        composable("sharelink") {
+                            ShareLinkScreen(
+                                onBack = { navController.popBackStack() },
+                                onPlay = { playUrl, title, headers ->
+                                    SniffPlayHeaders.put(playUrl, headers)
                                     navController.navigateToPlayer(
                                         url = playUrl,
                                         title = title,

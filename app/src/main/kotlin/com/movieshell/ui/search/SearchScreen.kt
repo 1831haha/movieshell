@@ -38,9 +38,11 @@ import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.History
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -79,7 +81,10 @@ import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-fun SearchScreen(onVodClick: (vodId: String, siteKey: String) -> Unit) {
+fun SearchScreen(
+    onVodClick: (vodId: String, siteKey: String) -> Unit,
+    onShareLinkClick: () -> Unit = {},
+) {
     // v0.271.0（T25）：进详情前的切源是 suspend，点卡片时放协程里等切完。
     val scope = rememberCoroutineScope()
     // v0.103.0：activity 级 VM——切后台/切 tab 不销毁，viewModelScope 里的聚合搜索不中断、结果保留
@@ -162,6 +167,51 @@ fun SearchScreen(onVodClick: (vodId: String, siteKey: String) -> Unit) {
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
+
+        // v1.3.5：分享链接播剧入口——粘贴夸克/UC/百度/阿里/光鸭/迅雷分享链接直接播。
+        AppCard(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = V5.Gutter, vertical = 10.dp),
+            onClick = onShareLinkClick,
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.PlayArrow,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(20.dp),
+                )
+                Spacer(Modifier.width(12.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "粘贴分享链接播剧",
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    Text(
+                        text = "夸克 · UC · 百度 · 阿里 · 光鸭 · 迅雷",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+                Icon(
+                    imageVector = Icons.AutoMirrored.Filled.ArrowForward,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(18.dp),
                 )
             }
         }
