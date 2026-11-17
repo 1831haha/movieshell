@@ -92,8 +92,8 @@ class TocFallbackTest {
         """.trimIndent()
         val bookUrl = "https://www.ihuaben.com/book/2105794.html"
         val doc = BookRuleEngine.parseDoc(html, bookUrl)
-        // 旧口径裸 li>a：7 条全是错的。
-        assertEquals(7, doc.select("li > a").size)
+        // 旧口径裸 li>a：6 条全是错的（首页/关于我们/推荐书×2/帮助中心/下载客户端）。
+        assertEquals(6, doc.select("li > a").size)
         // 新口径 a[href] + 同书过滤：只剩 3 章。
         val kept = doc.select("a[href]").filter {
             BookRuleEngine.isSameBookChapterLink(it.absUrl("href"), bookUrl)
