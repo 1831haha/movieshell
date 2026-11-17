@@ -772,11 +772,14 @@ object LegadoJsEngine {
                         b == "*" -> when (v) {
                             is org.json.JSONArray -> {
                                 for (i in 0 until v.length()) next.add(v.get(i))
-                                v = TAKEN
+                                // 哨兵当分支值返回：Kotlin 里赋值是语句（值是 Unit），
+                                // 写 `v = TAKEN` 会被外层 `v = when` 盖成 Unit，Unit
+                                // 会被当成一条结果混进列表（1.2.23 单测 417 中 1 败的根因）。
+                                TAKEN
                             }
                             is List<*> -> {
                                 next.addAll(v)
-                                v = TAKEN
+                                TAKEN
                             }
                             else -> null
                         }
