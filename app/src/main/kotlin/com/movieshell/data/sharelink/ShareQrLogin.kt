@@ -218,13 +218,14 @@ object ShareQrLogin {
         return parseBaiduV(v)
     }
 
-    /** v 是形如 bduss=..&stoken=.. 的串；先按原文解析，找不到再 URL 解码后解析。 */
+    /** v 是形如 bduss=..&stoken=.. 的串；值可能 URL 编码过（如 %3D），按值逐个解码。 */
     fun parseBaiduV(v: String): BaiduLogin? {
+        // 整串也可能被编码过（如 bduss%3D..%26stoken%3D..），先整串解码再按原文各试一次。
         val decoded = runCatching { URLDecoder.decode(v, "UTF-8") }.getOrDefault(v)
         for (candidate in listOf(v, decoded)) {
             val map = candidate.split("&").mapNotNull {
                 val kv = it.split("=", limit = 2)
-                if (kv.size == 2) kv[0] to kv[1] else null
+                if (kv.size == 2) kv[0] to decodeValue(kv[1]) else null
             }.toMap()
             val bduss = map["bduss"].orEmpty()
             val stoken = map["stoken"].orEmpty()
@@ -232,6 +233,10 @@ object ShareQrLogin {
         }
         return null
     }
+
+    /** 只解 %XX 转义，不动字面 +（BDUSS 里可能有 +，URLDecoder 会把它变空格）。 */
+    private fun decodeValue(raw: String): String =
+        runCatching { URLDecoder.decode(raw.replace("+", "%2B"), "UTF-8") }.getOrDefault(raw)
 }
 
 /** 扫码弹窗的状态机：Loading 取码中、Ready 待扫、Scanned 已扫待确认、Exchanging 换登录态中、Success 成功、Expired 过期、Error 失败。 */
