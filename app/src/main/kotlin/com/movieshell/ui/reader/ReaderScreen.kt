@@ -64,6 +64,7 @@ import com.movieshell.ui.novel.chapterParagraphCommentTotal
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -1014,19 +1015,11 @@ fun ReaderScreen(
     // 阅读页纹丝不动（用户原话“为什么都不变化”）；跟随档取 App 主题的
     // 实际深浅（App 主题默认就是跟随系统），深→夜间黑、浅→白。
     val followDark = MaterialTheme.colorScheme.background.luminance() < 0.5f
-    val bg = when (bgTheme) {
-        0 -> Color(0xFFFFFFFF)
-        2 -> Color(0xFFE8F0E4)
-        3 -> Color(0xFF121212)
-        4 -> if (followDark) Color(0xFF121212) else Color(0xFFFFFFFF)
-        5 -> Color(0xFFDCE8EF)
-        6 -> Color(0xFFD8D4CA)
-        7 -> Color(0xFF20242B)
-        8 -> Color(0xFFFBE9EC)
-        9 -> Color(0xFFE9E4F3)
-        10 -> Color(0xFF1E2B26)
-        else -> Color(0xFFF7F3E8)
-    }
+    // v1.3.1：底色映射抽到 ReaderSystemBars（可单测），此处只调。
+    val bg = ReaderSystemBars.readerBgColor(bgTheme, followDark)
+    // v1.3.1：系统栏跟随阅读页底色——发布给 MainActivity，离页清掉。
+    SideEffect { ReaderSystemBars.publish(bg) }
+    DisposableEffect(Unit) { onDispose { ReaderSystemBars.clear() } }
     val fg = when (bgTheme) {
         2 -> Color(0xFF2E3B2E)
         3 -> Color(0xFFD8D8D8)

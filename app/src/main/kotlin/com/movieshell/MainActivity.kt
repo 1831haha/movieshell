@@ -21,6 +21,7 @@ import android.os.Bundle
 import android.content.Intent
 import android.content.res.Configuration
 import android.view.KeyEvent
+import com.movieshell.ui.reader.ReaderSystemBars
 import com.movieshell.ui.reader.VolumeKeyRouter
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -438,9 +439,20 @@ class MainActivity : ComponentActivity() {
                 // v0.292.0 V5：系统栏跟 M3 色板走——状态栏取当前页底色（设置页 surfaceContainer，
                 // 其余 surface），导航栏有底栏时与 NavigationBar 同色；图标深浅随色板明暗。
                 // 视频播放页自己管沉浸式（隐藏系统栏），这里只改颜色不改可见性。
+                // v1.3.1：阅读路由跟阅读页底色走（ReaderSystemBars 发布，离页清掉）——
+                // 对标阅读 APP：系统栏底色与页面同色；其它路由仍按 M3 色板走。
                 val sysScheme = MaterialTheme.colorScheme
-                val statusBg = if (curRoute == "settings") sysScheme.surfaceContainer else sysScheme.background
-                val navBg = if (showBottomBar) sysScheme.surfaceContainer else sysScheme.background
+                val readerBarBg = ReaderSystemBars.barColor
+                val statusBg = when {
+                    curRoute == "reader/{novelId}" && readerBarBg != null -> readerBarBg
+                    curRoute == "settings" -> sysScheme.surfaceContainer
+                    else -> sysScheme.background
+                }
+                val navBg = when {
+                    curRoute == "reader/{novelId}" && readerBarBg != null -> readerBarBg
+                    showBottomBar -> sysScheme.surfaceContainer
+                    else -> sysScheme.background
+                }
                 SideEffect {
                     val w = this@MainActivity.window
                     @Suppress("DEPRECATION")
