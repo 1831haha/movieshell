@@ -14,15 +14,16 @@ class PlayerSystemBarsTest {
 
     @Test fun artAverageIsDarkenedToMatchPageTopEdge() {
         // 页面顶部是模糊封面压 38% 黑渐变，系统栏色 = 平均色 × 0.62。
+        // Compose Color 按 8 位通道存储（单步 1/255≈0.0039），允差取 0.005。
         val white = PlayerSystemBars.atmosphereBarColor(Color(0xFFFFFFFF))
-        assertEquals(0.62f, white.red, 0.001f)
-        assertEquals(0.62f, white.green, 0.001f)
-        assertEquals(0.62f, white.blue, 0.001f)
+        assertEquals(0.62f, white.red, 0.005f)
+        assertEquals(0.62f, white.green, 0.005f)
+        assertEquals(0.62f, white.blue, 0.005f)
         val blue = PlayerSystemBars.atmosphereBarColor(Color(0xFF336699))
-        assertEquals(0x33 / 255f * 0.62f, blue.red, 0.001f)
-        assertEquals(0x66 / 255f * 0.62f, blue.green, 0.001f)
-        assertEquals(0x99 / 255f * 0.62f, blue.blue, 0.001f)
-        assertEquals(1f, blue.alpha, 0.001f)
+        assertEquals(0x33 / 255f * 0.62f, blue.red, 0.005f)
+        assertEquals(0x66 / 255f * 0.62f, blue.green, 0.005f)
+        assertEquals(0x99 / 255f * 0.62f, blue.blue, 0.005f)
+        assertEquals(1f, blue.alpha, 0.005f)
     }
 
     @Test fun averageColorOfPixels() {
