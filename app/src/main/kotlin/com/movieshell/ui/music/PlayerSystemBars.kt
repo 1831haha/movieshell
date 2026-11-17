@@ -42,6 +42,29 @@ object PlayerSystemBars {
         )
     }
 
+    /**
+     * v1.3.3：无封面时系统栏色——页面顶边实际是品牌渐变首色（0.32 透明度）
+     * 铺在氛围底色上，再压一层黑渐变（顶部 0.38，沉浸 0.18）；按同样的
+     * 两层叠加算出来，与页面顶边同色。直接回到底色会比页面顶边黑一截，
+     * 看着就是“没跟上”。
+     */
+    fun noArtBarColor(brandTop: Color?, immersive: Boolean): Color {
+        val top = brandTop ?: return ATMOSPHERE_BASE
+        val overBase = compositeOver(top.copy(alpha = 0.32f), ATMOSPHERE_BASE)
+        return compositeOver(Color.Black.copy(alpha = if (immersive) 0.18f else 0.38f), overBase)
+    }
+
+    /** src（带透明度）盖在不透明的 dst 上。 */
+    fun compositeOver(src: Color, dst: Color): Color {
+        val a = src.alpha
+        return Color(
+            red = (src.red * a + dst.red * (1f - a)).coerceIn(0f, 1f),
+            green = (src.green * a + dst.green * (1f - a)).coerceIn(0f, 1f),
+            blue = (src.blue * a + dst.blue * (1f - a)).coerceIn(0f, 1f),
+            alpha = 1f,
+        )
+    }
+
     /** 取 bitmap 的平均色：缩到 1×1（双线性采样即全图平均），不引 Palette。 */
     fun averageColor(bitmap: Bitmap): Color {
         if (bitmap.width <= 0 || bitmap.height <= 0) return ATMOSPHERE_BASE

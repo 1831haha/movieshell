@@ -105,6 +105,8 @@ import androidx.core.graphics.drawable.toBitmap
 import coil.compose.AsyncImage
 import coil.compose.AsyncImagePainter
 import coil.compose.rememberAsyncImagePainter
+import coil.request.ImageRequest
+import coil.size.Size
 import com.movieshell.core.log.LogBus
 import com.movieshell.data.source.MusicApi
 import com.movieshell.data.store.MusicSource
@@ -171,16 +173,32 @@ fun MusicPlayerScreen(
     val shownArt = artUrl.ifBlank {
         track?.let { matchedArtMap[it.id] }.orEmpty()
     }
-    // v1.3.2：系统栏跟随播放页整体色——另起一份画笔取封面平均色压暗发布
-    // （封面走内存缓存，与大封面同一份加载结果；无封面用氛围底色）。
-    val artPainter = rememberAsyncImagePainter(model = shownArt)
+    // v1.3.3：系统栏跟随播放页整体色——另起一份画笔取封面平均色压暗发布。
+    // 1.3.2 的教训：coil 的 AsyncImagePainter 没画出来时一直等画布尺寸
+    // （drawSize 恒为 0），state 永远到不了 Success，取色等于没跑，
+    // 状态栏永远是氛围底色。改走带明确尺寸的 ImageRequest，不等画布。
+    val artRequest = remember(shownArt) {
+        ImageRequest.Builder(LocalContext.current)
+            .data(shownArt)
+            .size(Size.ORIGINAL)
+            .build()
+    }
+    val artPainter = rememberAsyncImagePainter(model = artRequest)
     val artBitmap = (artPainter.state as? AsyncImagePainter.State.Success)
         ?.result?.drawable?.toBitmap()
-    LaunchedEffect(artBitmap) {
-        val avg = artBitmap?.let {
-            withContext(Dispatchers.Default) { PlayerSystemBars.averageColor(it) }
+    // 无封面时页面顶边是品牌渐变首色铺底 + 黑渐变，栏色按同样叠加算，
+    // 不能回到底色（底色比页面顶边黑一截，看着就是“没跟上”）。
+    val brandTop = LocalBrandGradient.current.firstOrNull()
+    val immersiveLayout = playerLayout == MusicPlayerLayout.IMMERSIVE
+    LaunchedEffect(artBitmap, shownArt) {
+        val color = when {
+            artBitmap != null -> withContext(Dispatchers.Default) {
+                PlayerSystemBars.atmosphereBarColor(PlayerSystemBars.averageColor(artBitmap))
+            }
+            shownArt.isBlank() -> PlayerSystemBars.noArtBarColor(brandTop, immersiveLayout)
+            else -> PlayerSystemBars.ATMOSPHERE_BASE
         }
-        PlayerSystemBars.publish(PlayerSystemBars.atmosphereBarColor(avg))
+        PlayerSystemBars.publish(color)
     }
     DisposableEffect(Unit) { onDispose { PlayerSystemBars.clear() } }
 

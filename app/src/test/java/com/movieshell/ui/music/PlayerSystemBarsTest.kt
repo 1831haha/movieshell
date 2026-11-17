@@ -37,6 +37,30 @@ class PlayerSystemBarsTest {
         assertEquals(PlayerSystemBars.ATMOSPHERE_BASE, PlayerSystemBars.averageColorOf(intArrayOf()))
     }
 
+    @Test fun noArtBarColorMatchesAtmosphereTopEdge() {
+        // 品牌首色青 0xFF4DD0E1：0.32 铺底 + 顶部黑 0.38，两层叠加后约 (0.071, 0.173, 0.197)。
+        val normal = PlayerSystemBars.noArtBarColor(Color(0xFF4DD0E1), immersive = false)
+        assertEquals(0.071f, normal.red, 0.005f)
+        assertEquals(0.173f, normal.green, 0.005f)
+        assertEquals(0.197f, normal.blue, 0.005f)
+        // 沉浸黑渐变顶部只有 0.18，颜色更亮。
+        val immersive = PlayerSystemBars.noArtBarColor(Color(0xFF4DD0E1), immersive = true)
+        assertEquals(0.095f, immersive.red, 0.005f)
+        assertEquals(0.229f, immersive.green, 0.005f)
+        assertEquals(0.260f, immersive.blue, 0.005f)
+        assertEquals(PlayerSystemBars.ATMOSPHERE_BASE, PlayerSystemBars.noArtBarColor(null, false))
+    }
+
+    @Test fun compositeOverBlendsByAlpha() {
+        val blended = PlayerSystemBars.compositeOver(
+            Color(red = 1f, green = 0f, blue = 0f, alpha = 0.5f),
+            Color(red = 0f, green = 0f, blue = 1f, alpha = 1f),
+        )
+        assertEquals(0.5f, blended.red, 0.005f)
+        assertEquals(0f, blended.green, 0.005f)
+        assertEquals(0.5f, blended.blue, 0.005f)
+    }
+
     @Test fun publishAndClearRoundTrip() {
         PlayerSystemBars.publish(Color(0xFF112233))
         assertEquals(Color(0xFF112233), PlayerSystemBars.barColor)
