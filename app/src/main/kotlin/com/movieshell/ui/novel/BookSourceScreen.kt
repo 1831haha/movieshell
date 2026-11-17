@@ -767,12 +767,15 @@ fun BookSourceScreen(
                 }
             },
         ) {
+            // v1.2.22：粘贴框是多行文本域，用 12dp 小圆角——之前全胶囊硬拉 200dp 高，
+            // 框成了大鸡蛋、提示文字顶着边框像被裁掉。
             TechTextField(
                 value = importText,
                 onValueChange = { importText = it },
                 placeholder = "粘贴 bookSource.json",
                 modifier = Modifier.fillMaxWidth().height(200.dp),
                 singleLine = false,
+                shape = RoundedCornerShape(12.dp),
             )
         }
     }

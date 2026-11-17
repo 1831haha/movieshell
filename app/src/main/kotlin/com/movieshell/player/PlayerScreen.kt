@@ -33,6 +33,7 @@ import com.movieshell.ui.components.AppButton
 import com.movieshell.ui.components.AppButtonVariant
 import com.movieshell.ui.components.V5Chip
 import com.movieshell.ui.components.TechDialog
+import com.movieshell.ui.components.TechTextField
 import android.view.View
 import android.view.ViewGroup
 import android.view.WindowManager
@@ -2897,6 +2898,11 @@ fun PlayerScreen(
             val speedIdx by ds.speed.collectAsState()
             val areaIdx by ds.area.collectAsState()
             val lineHeightIdx by ds.lineHeight.collectAsState()
+            // v1.2.22：自定义弹幕接口（LogVar 站）编辑态
+            val customHostsRaw by ds.customHostsRaw.collectAsState()
+            val customHosts by ds.customHosts.collectAsState()
+            var showCustomHostsDialog by remember { mutableStateOf(false) }
+            var customHostsDraft by remember { mutableStateOf("") }
             TechDialog(
                 onDismissRequest = { uiVm.showDanmakuSettings = false },
                 title = "弹幕设置",
@@ -2962,8 +2968,58 @@ fun PlayerScreen(
                                 )
                             }
                         }
+                        androidx.compose.foundation.layout.Spacer(Modifier.size(8.dp))
+                        // v1.2.22：自定义弹幕接口——用户在 TG 频道看到的 LogVar 站可贴进来，
+                        // App 直接按弹弹play 协议拉，与内置源、本地服务三路合并显示。
+                        androidx.compose.material3.Text("自定义弹幕接口", style = androidx.compose.material3.MaterialTheme.typography.labelLarge)
+                        androidx.compose.material3.Text(
+                            "每行一个 LogVar 弹幕站地址，如 dm.999.team；只取 host 部分。图里那 8 个站已在插件内置的 14 家里，不用重复贴。",
+                            style = androidx.compose.material3.MaterialTheme.typography.bodySmall,
+                            color = androidx.compose.material3.MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        androidx.compose.foundation.layout.Row(
+                            verticalAlignment = androidx.compose.foundation.layout.Alignment.CenterVertically,
+                        ) {
+                            androidx.compose.material3.Text(
+                                text = if (customHosts.isEmpty()) "未添加" else "已加 ${customHosts.size} 个",
+                                style = androidx.compose.material3.MaterialTheme.typography.bodyMedium,
+                                modifier = Modifier.weight(1f),
+                            )
+                            AppButton(
+                                text = "编辑",
+                                onClick = {
+                                    customHostsDraft = customHostsRaw
+                                    showCustomHostsDialog = true
+                                },
+                                variant = AppButtonVariant.Ghost,
+                            )
+                        }
                     }
                 }
+            // v1.2.22：自定义弹幕接口编辑弹窗（嵌在弹幕设置里，同 AI 设置嵌服务商弹窗的做法）。
+            if (showCustomHostsDialog) {
+                TechDialog(
+                    onDismissRequest = { showCustomHostsDialog = false },
+                    title = "自定义弹幕接口",
+                    subtitle = "每行一个 LogVar 弹幕站地址，如 dm.999.team",
+                    confirmText = "保存",
+                    onConfirm = {
+                        com.movieshell.player.danmaku.DanmakuSettings.setCustomHosts(
+                            context, customHostsDraft,
+                        )
+                        showCustomHostsDialog = false
+                    },
+                ) {
+                    TechTextField(
+                        value = customHostsDraft,
+                        onValueChange = { customHostsDraft = it },
+                        placeholder = "dm.999.team",
+                        modifier = Modifier.fillMaxWidth().height(160.dp),
+                        singleLine = false,
+                        shape = RoundedCornerShape(12.dp),
+                    )
+                }
+            }
         }
 
         if (uiVm.showSubtitleDialog) {

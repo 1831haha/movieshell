@@ -261,7 +261,10 @@ fun PluginDetailScreen(pluginId: String, market: String = "", onBack: () -> Unit
                 Spacer(Modifier.height(8.dp))
             }
             val typeNote = when (plugin.type) {
-                "server" -> "server 插件 App 只负责下载校验与版本管理，Node.js 服务需自行运行"
+                // v1.2.22：旧文案“Node.js 服务需自行运行”是错的——市场两家 server 插件
+                // （danmu-service、hello-service）都是 .sh 脚本，由 App 用 /system/bin/sh
+                // 在本机直接运行，只绑 127.0.0.1；只有 Node.js 写的服务才需用户自行运行。
+                "server" -> "server 插件由 App 负责下载、校验并在本机运行（.sh 脚本服务），服务只绑 127.0.0.1；需 Node.js 的服务请自行运行"
                 "env" -> "env 环境插件：依赖包解压到私有目录，PY 规则 import 即用；卸载后需重启 App 生效"
                 "setup" -> "setup 一键配置插件：安装即在文件管理器建好目录并写入说明文档，已有文件不覆盖；卸载不删已建好的目录和说明"
                 else -> ""

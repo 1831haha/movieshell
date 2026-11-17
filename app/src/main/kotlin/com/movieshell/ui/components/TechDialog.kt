@@ -40,6 +40,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.text.font.FontWeight
@@ -244,8 +245,9 @@ fun TechTextField(
     trailingIcon: (@Composable () -> Unit)? = null,
     // v1.2.15：输入框右侧单位（如“秒”），空则不显示（原 AppTextField 同名参数，播放器跳过设置用）。
     suffix: String? = null,
+    // v1.2.22：形状（默认全胶囊）；多行文本域（如粘贴导入）传小圆角，别硬拉胶囊成大鸡蛋。
+    shape: Shape = RoundedCornerShape(50),
 ) {
-    val shape = RoundedCornerShape(50)
     // v0.294.3：有值时占位提示缩成框内顶部小标签（同 AppTextField），预填值的编辑框不再“无标签”
     val floatLabel = value.isNotEmpty() && placeholder.isNotBlank() && placeholder.any { !it.isDigit() }
     val interactionSource = remember { MutableInteractionSource() }
@@ -272,7 +274,11 @@ fun TechTextField(
                 else MaterialTheme.colorScheme.outline.copy(alpha = 0.30f),
                 shape = shape,
             )
-            .padding(horizontal = 16.dp, vertical = if (compact || floatLabel) 6.dp else 8.dp),
+            .padding(
+                horizontal = 16.dp,
+                // v1.2.22：多行文本域上下留 12dp，提示/正文不再顶着边框（粘贴导入框的教训）。
+                vertical = if (compact || floatLabel) 6.dp else if (!singleLine) 12.dp else 8.dp,
+            ),
         decorationBox = { inner ->
             Column {
                 if (floatLabel) {
@@ -285,7 +291,8 @@ fun TechTextField(
                         overflow = TextOverflow.Ellipsis,
                     )
                 }
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                // v1.2.22：多行顶对齐（单行才垂直居中），空态提示落在左上角。
+                Row(verticalAlignment = if (singleLine) Alignment.CenterVertically else Alignment.Top) {
                     if (leadingIcon != null) {
                         Box(Modifier.padding(end = 8.dp)) { leadingIcon() }
                     }

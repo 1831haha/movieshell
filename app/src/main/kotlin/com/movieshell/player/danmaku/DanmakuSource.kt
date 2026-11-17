@@ -7,11 +7,18 @@ import com.movieshell.core.util.SafeFileName
 import com.movieshell.data.source.CmsApi
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.longOrNull
 import okhttp3.Request
 
 /**
@@ -45,14 +52,80 @@ object DanmakuSource {
      * 两路都按 timeMs 排序后合并，再走同一套去重（同文本 3 秒内只留一条）+
      * 密度控制（每分钟最多 60 条）；本地服务未运行/失败时只有内置源，不影响播放。
      * 开关只有一个（DanmakuSettings.enabled），由 PlayerScreen 在开关打开时调用。
+     * v1.2.22：再加自定义接口一路（用户在弹幕设置里贴的 LogVar 站），三路合并；
+     * 自定义一路整体 10 秒封顶，超时只丢这一路，不拖内置源与本地服务。
      */
     suspend fun fetchMerged(title: String, episode: Int = 1): List<Danmaku> = withContext(Dispatchers.IO) {
         val builtin = fetch(title, episode)
         val local = DanmakuLocalSource.fetch(title, episode)
-        if (local.isEmpty()) return@withContext builtin
-        (builtin + local).sortedBy { it.timeMs }
+        val customHosts = DanmakuSettings.customHosts.value
+        val custom = if (customHosts.isEmpty()) emptyList()
+        else withTimeoutOrNull(10_000) { fetchCustom(title, episode, customHosts) } ?: emptyList()
+        if (local.isEmpty() && custom.isEmpty()) return@withContext builtin
+        (builtin + local + custom).sortedBy { it.timeMs }
             .let { dedup(it) }
             .let { limitDensity(it) }
+    }
+
+    /**
+     * v1.2.22：自定义弹幕接口——直接按弹弹play/LogVar 协议拉用户贴的站：
+     * search → bangumi（按集数配 episodeId）→ comment；每站单请求 5 秒超时、
+     * 失败跳过；多站并发。协议与 danmu-service 的 fetch_host 同款（server.sh）。
+     */
+    suspend fun fetchCustom(title: String, episode: Int, hosts: List<String>): List<Danmaku> =
+        withContext(Dispatchers.IO) {
+            if (hosts.isEmpty()) return@withContext emptyList()
+            coroutineScope {
+                hosts.map { host ->
+                    async {
+                        runCatching { fetchCustomHost(host, title, episode) }
+                            .onFailure { LogBus.w(TAG, "自定义弹幕 $host 失败：${it.message}") }
+                            .getOrElse { emptyList() }
+                    }
+                }.awaitAll().flatten()
+            }.sortedBy { it.timeMs }
+        }
+
+    private suspend fun fetchCustomHost(host: String, title: String, episode: Int): List<Danmaku> {
+        val q = java.net.URLEncoder.encode(title.take(20).trim(), "UTF-8")
+        val searchBody = getBody("https://$host/api/v2/search/anime?keyword=$q") ?: return emptyList()
+        val animeId = json.parseToJsonElement(searchBody).jsonObject["animes"]
+            ?.jsonArray?.firstOrNull()?.jsonObject?.get("animeId")
+            ?.jsonPrimitive?.longOrNull ?: return emptyList()
+        val bangumiBody = getBody("https://$host/api/v2/bangumi/$animeId") ?: return emptyList()
+        val episodeId = pickEpisodeId(bangumiBody, episode) ?: return emptyList()
+        val commentBody = getBody("https://$host/api/v2/comment/$episodeId") ?: return emptyList()
+        val comments = json.decodeFromString(CommentResp.serializer(), commentBody).comments
+        val result = mapComments(comments)
+        LogBus.i(TAG, "自定义弹幕 $host：$title E$episode -> ${result.size} 条")
+        return result
+    }
+
+    /** v1.2.22：bangumi 集数配对——episodeNumber 精确命中优先，其次按顺序第 N 集，再退首集（同 server.sh）。 */
+    internal fun pickEpisodeId(bangumiBody: String, episode: Int): Long? {
+        val episodes = runCatching {
+            json.parseToJsonElement(bangumiBody).jsonObject["episodes"]?.jsonArray
+        }.getOrNull() ?: return null
+        if (episodes.isEmpty()) return null
+        val pairs = episodes.mapNotNull { el ->
+            val obj = el.jsonObject
+            val id = obj["episodeId"]?.jsonPrimitive?.longOrNull ?: return@mapNotNull null
+            // episodeNumber 在不同部署里可能是字符串也可能是数字，都按字符串比。
+            val num = obj["episodeNumber"]?.jsonPrimitive?.content ?: return@mapNotNull null
+            num to id
+        }
+        if (pairs.isEmpty()) return null
+        pairs.firstOrNull { it.first == episode.toString() }?.second?.let { return it }
+        if (episode in 1..pairs.size) return pairs[episode - 1].second
+        return pairs.first().second
+    }
+
+    /** v1.2.22：单次 GET，5 秒超时；失败返回 null（调用方当无弹幕处理）。 */
+    private suspend fun getBody(url: String): String? = withTimeoutOrNull(5_000) {
+        val req = Request.Builder().url(url).header("User-Agent", "movieshell/1.0").build()
+        client.newCall(req).execute().use { resp ->
+            if (!resp.isSuccessful) null else resp.body?.string()
+        }
     }
 
     /**
@@ -72,25 +145,7 @@ object DanmakuSource {
             }
             val animeId = searchAnimeSmart(title) ?: return@withContext emptyList()
             val comments = fetchComments(animeId, episode)
-            val result = comments.mapNotNull { c ->
-                val parts = c.p.split(",")
-                if (parts.size < 3 || c.m.isBlank()) return@mapNotNull null
-                val timeSec = parts[0].toDoubleOrNull() ?: return@mapNotNull null
-                val mode = parts[1].toIntOrNull() ?: 1
-                val colorInt = parts[2].toIntOrNull() ?: 16777215
-                val type = when (mode) {
-                    4 -> Danmaku.TYPE_BOTTOM
-                    5 -> Danmaku.TYPE_TOP
-                    else -> Danmaku.TYPE_SCROLL
-                }
-                val argb = 0xFF000000.toInt() or (colorInt and 0xFFFFFF)
-                Danmaku(
-                    text = c.m.take(60),
-                    timeMs = (timeSec * 1000).toLong(),
-                    color = argb,
-                    type = type,
-                )
-            }
+            val result = mapComments(comments)
                 .sortedBy { it.timeMs }
                 .let { dedup(it) }      // v0.55：去重
                 .let { limitDensity(it) } // v0.55：密度控制
@@ -106,6 +161,27 @@ object DanmakuSource {
             LogBus.w(TAG, "弹幕拉取失败：${e.message}")
             emptyList()
         }
+    }
+
+    /** v1.2.22：弹幕评论（弹弹play/LogVar 同款 p 字段）转 Danmaku；内置源与自定义接口共用。 */
+    private fun mapComments(comments: List<Comment>): List<Danmaku> = comments.mapNotNull { c ->
+        val parts = c.p.split(",")
+        if (parts.size < 3 || c.m.isBlank()) return@mapNotNull null
+        val timeSec = parts[0].toDoubleOrNull() ?: return@mapNotNull null
+        val mode = parts[1].toIntOrNull() ?: 1
+        val colorInt = parts[2].toIntOrNull() ?: 16777215
+        val type = when (mode) {
+            4 -> Danmaku.TYPE_BOTTOM
+            5 -> Danmaku.TYPE_TOP
+            else -> Danmaku.TYPE_SCROLL
+        }
+        val argb = 0xFF000000.toInt() or (colorInt and 0xFFFFFF)
+        Danmaku(
+            text = c.m.take(60),
+            timeMs = (timeSec * 1000).toLong(),
+            color = argb,
+            type = type,
+        )
     }
 
     /** v0.55：标题清洗 + 多关键词回退搜索 */
@@ -242,6 +318,28 @@ object DanmakuSource {
 }
 
 /**
+ * v1.2.22：自定义弹幕接口——每行一个 LogVar 站地址，只取 host 部分（API 走 host 根，
+ * 页面路由后缀如 /87654321、/cynnsq 不用）。纯函数：去 scheme/路径/端口、去重、上限 10 个。
+ */
+fun parseCustomDanmakuHosts(raw: String): List<String> {
+    val seen = LinkedHashSet<String>()
+    for (token in raw.split('\n', ',', '，', ' ', '\t')) {
+        var h = token.trim().lowercase()
+        if (h.isEmpty()) continue
+        h = h.removePrefix("https://").removePrefix("http://")
+        h = h.substringBefore('/').substringBefore('?').substringBefore('#')
+        h = h.substringBefore(':').removeSuffix(".")
+        if (!h.contains('.') || h.length > 253) continue
+        if (!h.all { it.code < 128 && (it.isLetterOrDigit() || it == '.' || it == '-') }) continue
+        if (h.startsWith('.') || h.startsWith('-') || h.endsWith('-')) continue
+        if (h.split('.').any { it.isEmpty() }) continue
+        seen.add(h)
+        if (seen.size >= 10) break
+    }
+    return seen.toList()
+}
+
+/**
  * v0.54：弹幕开关与状态（持久化在 movieshell_prefs）。
  * v0.56：加样式设置（大小/透明度/速度/区域），全部持久化。
  */
@@ -255,6 +353,8 @@ object DanmakuSettings {
     private const val KEY_AREA = "danmaku_area" // 0=全屏 1=上半屏
     // v0.150.0：弹幕行高（对标 DS danmakuLineHeight）0=紧凑 1=标准 2=宽松
     private const val KEY_LINE_HEIGHT = "danmaku_line_height"
+    // v1.2.22：自定义弹幕接口（原始文本，每行一个 LogVar 站地址）
+    private const val KEY_CUSTOM_HOSTS = "danmaku_custom_hosts"
 
     private val _enabled = MutableStateFlow(false)
     val enabled: StateFlow<Boolean> = _enabled
@@ -270,6 +370,11 @@ object DanmakuSettings {
     val area: StateFlow<Int> = _area
     private val _lineHeight = MutableStateFlow(1)
     val lineHeight: StateFlow<Int> = _lineHeight
+    // v1.2.22：自定义弹幕接口（原始文本 + 解析后的 host 列表）
+    private val _customHostsRaw = MutableStateFlow("")
+    val customHostsRaw: StateFlow<String> = _customHostsRaw
+    private val _customHosts = MutableStateFlow<List<String>>(emptyList())
+    val customHosts: StateFlow<List<String>> = _customHosts
 
     fun init(context: Context) {
         val p = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
@@ -279,6 +384,8 @@ object DanmakuSettings {
         _speed.value = p.getInt(KEY_SPEED, 1)
         _area.value = p.getInt(KEY_AREA, 0)
         _lineHeight.value = p.getInt(KEY_LINE_HEIGHT, 1)
+        _customHostsRaw.value = p.getString(KEY_CUSTOM_HOSTS, "") ?: ""
+        _customHosts.value = parseCustomDanmakuHosts(_customHostsRaw.value)
     }
 
     fun setEnabled(context: Context, on: Boolean) {
@@ -313,6 +420,15 @@ object DanmakuSettings {
         _lineHeight.value = v.coerceIn(0, 2)
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             .edit().putInt(KEY_LINE_HEIGHT, _lineHeight.value).apply()
+    }
+
+    /** v1.2.22：自定义弹幕接口——存原始文本，解析后的 host 列表同步进状态流。 */
+    fun setCustomHosts(context: Context, raw: String) {
+        _customHostsRaw.value = raw
+        _customHosts.value = parseCustomDanmakuHosts(raw)
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .edit().putString(KEY_CUSTOM_HOSTS, raw).apply()
+        LogBus.i("Danmaku", "自定义弹幕接口：${_customHosts.value.size} 个")
     }
 
 

@@ -1382,21 +1382,25 @@ internal fun AiSettingsDialog(
             },
         )
     }
-    SingleChoiceDialog(
-        title = "AI 服务商",
-        options = AiRepairSettings.PRESETS.map { it.name },
-        selected = (AiRepairSettings.PRESETS.firstOrNull { it.id == aiProviderId }
-            ?: AiRepairSettings.PRESETS.first()).name,
-        onDismiss = { showAiProviderDialog = false },
-        onSelect = { name ->
-            val p = AiRepairSettings.PRESETS.firstOrNull { it.name == name }
-            if (p != null) {
-                AiRepairSettings.setProvider(context, p.id)
-                aiProviderId = p.id
-            }
-            showAiProviderDialog = false
-        },
-    )
+    // v1.2.22：服务商弹窗必须受 showAiProviderDialog 守卫——之前无条件渲染，
+    // 点选/取消只改标志位、弹窗下一帧又弹出来，AI 设置页根本返回不了。
+    if (showAiProviderDialog) {
+        SingleChoiceDialog(
+            title = "AI 服务商",
+            options = AiRepairSettings.PRESETS.map { it.name },
+            selected = (AiRepairSettings.PRESETS.firstOrNull { it.id == aiProviderId }
+                ?: AiRepairSettings.PRESETS.first()).name,
+            onDismiss = { showAiProviderDialog = false },
+            onSelect = { name ->
+                val p = AiRepairSettings.PRESETS.firstOrNull { it.name == name }
+                if (p != null) {
+                    AiRepairSettings.setProvider(context, p.id)
+                    aiProviderId = p.id
+                }
+                showAiProviderDialog = false
+            },
+        )
+    }
 }
 
 /**

@@ -45,9 +45,6 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
-import androidx.compose.material3.SegmentedButton
-import androidx.compose.material3.SegmentedButtonDefaults
-import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -418,18 +415,18 @@ fun NovelSearchScreen(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.weight(1f),
                     )
-                    // v1.2.1：分段按钮（跟添加服务器的 Emby/Jellyfin 同款），比俩文字按钮精致。
-                    SingleChoiceSegmentedButtonRow {
-                        SegmentedButton(
+                    // v1.2.22：分段按钮换双胶囊——Material3 分段按钮带勾、跟 App 胶囊风不搭。
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        SearchViewCapsule(
+                            text = "按源分组",
                             selected = !mergeMode,
                             onClick = { mergeMode = false },
-                            shape = SegmentedButtonDefaults.itemShape(index = 0, count = 2),
-                        ) { Text("按源分组", fontSize = 13.sp) }
-                        SegmentedButton(
+                        )
+                        SearchViewCapsule(
+                            text = "合并排序",
                             selected = mergeMode,
                             onClick = { mergeMode = true },
-                            shape = SegmentedButtonDefaults.itemShape(index = 1, count = 2),
-                        ) { Text("合并排序", fontSize = 13.sp) }
+                        )
                     }
                 }
                 LazyColumn(
@@ -515,6 +512,30 @@ fun NovelSearchScreen(
             }
         }
     }
+}
+
+/** v1.2.22：搜书视图切换胶囊——选中浅底填充、未选灰底，跟“加入书架”同款胶囊风。 */
+@Composable
+private fun SearchViewCapsule(
+    text: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+) {
+    val bg = if (selected) MaterialTheme.colorScheme.primaryContainer
+    else MaterialTheme.colorScheme.surfaceContainerHighest
+    val fg = if (selected) MaterialTheme.colorScheme.onPrimaryContainer
+    else MaterialTheme.colorScheme.onSurfaceVariant
+    Text(
+        text = text,
+        fontSize = 13.sp,
+        fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
+        color = fg,
+        modifier = Modifier
+            .clip(RoundedCornerShape(50))
+            .background(bg)
+            .clickable { onClick() }
+            .padding(horizontal = 14.dp, vertical = 7.dp),
+    )
 }
 
 /** v0.64.0：找书结果分组（JSON 书源 / 本地 PY 书源统一展示）。v0.103.1：去 internal——
