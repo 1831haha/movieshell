@@ -635,22 +635,38 @@ object NovelSourceEngine {
                 )
                 if (resolved.isNotBlank()) tocUrl = resolved
             }
+            // v1.2.25：目录兜底——解析出 0 章时，跟详情页/目录页上的“目录”链接再解析一次
+            // （黑岩详情页改版：目录不在详情页，规则 tocUrl 的“开始阅读”也没了；通用结构，不写站名）。
+            fun parseTocPage(body: String, pageUrl: String): List<ChapterMeta> {
+                val doc = BookRuleEngine.parseDoc(body, pageUrl)
+                val listRule = source.ruleTocList.ifBlank { return emptyList() }
+                val items = runCatching { doc.select(listRule).toList() }.getOrDefault(emptyList())
+                return items.mapIndexedNotNull { i, el ->
+                    val title = BookRuleEngine.extract(el, pageUrl, source.ruleTocTitle.ifBlank { "@text" })
+                    val url = BookRuleEngine.extract(el, pageUrl, source.ruleTocUrl.ifBlank { "@href" })
+                    if (title.isBlank() || url.isBlank()) return@mapIndexedNotNull null
+                    // v1.1.3：段评最小版——提评论页地址（规则空时 extract 返回空串，不参与过滤）。
+                    val commentUrl = BookRuleEngine.extract(el, pageUrl, source.ruleTocCommentUrl)
+                    ChapterMeta(index = i, title = title, url = url, commentUrl = commentUrl)
+                }
+                    // v0.194.0：导航章兜底过滤（见 NovelStore.isNavChapterTitle）。
+                    .filterNot { NovelStore.isNavChapterTitle(it.title) }
+                    .mapIndexed { i, m -> m.copy(index = i) }
+            }
             val tocPage = BookRuleEngine.fetchPageWithOptions(tocUrl, options = fetchOptions(source)) ?: return emptyList()
             // 目录页可能是详情页（规则里 toc 列表直接在详情页上）
-            val doc = BookRuleEngine.parseDoc(tocPage.body, tocPage.url)
-            val listRule = source.ruleTocList.ifBlank { return emptyList() }
-            val items = runCatching { doc.select(listRule).toList() }.getOrDefault(emptyList())
-            return items.mapIndexedNotNull { i, el ->
-                val title = BookRuleEngine.extract(el, tocPage.url, source.ruleTocTitle.ifBlank { "@text" })
-                val url = BookRuleEngine.extract(el, tocPage.url, source.ruleTocUrl.ifBlank { "@href" })
-                if (title.isBlank() || url.isBlank()) return@mapIndexedNotNull null
-                // v1.1.3：段评最小版——提评论页地址（规则空时 extract 返回空串，不参与过滤）。
-                val commentUrl = BookRuleEngine.extract(el, tocPage.url, source.ruleTocCommentUrl)
-                ChapterMeta(index = i, title = title, url = url, commentUrl = commentUrl)
+            var result = parseTocPage(tocPage.body, tocPage.url)
+            if (result.isEmpty()) {
+                val fallbackUrl = BookRuleEngine.findTocLink(tocPage.body, tocPage.url)
+                if (fallbackUrl != null) {
+                    val fallbackPage = BookRuleEngine.fetchPageWithOptions(fallbackUrl, options = fetchOptions(source))
+                    if (fallbackPage != null) {
+                        result = parseTocPage(fallbackPage.body, fallbackPage.url)
+                        LogBus.d(TAG, "目录兜底 ${source.name} 跟进 $fallbackUrl 解析出 ${result.size} 章")
+                    }
+                }
             }
-                // v0.194.0：导航章兜底过滤（见 NovelStore.isNavChapterTitle）。
-                .filterNot { NovelStore.isNavChapterTitle(it.title) }
-                .mapIndexed { i, m -> m.copy(index = i) }
+            return result
         }
         // v0.199.0：JS 源目录（含 nextTocUrl 分页：单 URL 循环跟随，整批 URL 逐页抓完）。
         return withContext(Dispatchers.IO) {
@@ -701,28 +717,47 @@ object NovelSourceEngine {
                     }
                 }
             }
-            var guard = 0
-            while (guard++ < 50) {
-                collect(curPage.body, curPage.url)
-                if (source.ruleTocNext.isBlank()) break
-                val pageCtx = ctx.copy(baseUrl = curPage.url)
-                val nexts = LegadoJsEngine.evalNextUrls(curPage.body, curPage.url, source.ruleTocNext, pageCtx, state)
-                if (nexts.isEmpty()) break
-                if (nexts.size == 1) {
-                    val next = BookRuleEngine.fetchPageWithOptions(nexts[0], ua, options = fetchOptions(source)) ?: break
-                    curPage = LegadoJsEngine.runLoginCheck(source.toJsRuleSource(), next, ctx, state) {
-                        BookRuleEngine.fetchPageWithOptions(nexts[0], ua, options = fetchOptions(source))
+            // v1.2.25：分页抓取抽成 harvest——首轮 0 章时兜底跟进“目录”链接再 harvest 一次，共用同一套分页逻辑。
+            fun harvest(start: PageResult) {
+                var page = start
+                var g = 0
+                while (g++ < 50) {
+                    collect(page.body, page.url)
+                    if (source.ruleTocNext.isBlank()) break
+                    val pageCtx = ctx.copy(baseUrl = page.url)
+                    val nexts = LegadoJsEngine.evalNextUrls(page.body, page.url, source.ruleTocNext, pageCtx, state)
+                    if (nexts.isEmpty()) break
+                    if (nexts.size == 1) {
+                        val next = BookRuleEngine.fetchPageWithOptions(nexts[0], ua, options = fetchOptions(source)) ?: break
+                        page = LegadoJsEngine.runLoginCheck(source.toJsRuleSource(), next, ctx, state) {
+                            BookRuleEngine.fetchPageWithOptions(nexts[0], ua, options = fetchOptions(source))
+                        }
+                        continue
                     }
-                    continue
-                }
-                for (u in nexts) {
-                    val p = BookRuleEngine.fetchPageWithOptions(u, ua, options = fetchOptions(source)) ?: continue
-                    val checked = LegadoJsEngine.runLoginCheck(source.toJsRuleSource(), p, ctx, state) {
-                        BookRuleEngine.fetchPageWithOptions(u, ua, options = fetchOptions(source))
+                    for (u in nexts) {
+                        val p = BookRuleEngine.fetchPageWithOptions(u, ua, options = fetchOptions(source)) ?: continue
+                        val checked = LegadoJsEngine.runLoginCheck(source.toJsRuleSource(), p, ctx, state) {
+                            BookRuleEngine.fetchPageWithOptions(u, ua, options = fetchOptions(source))
+                        }
+                        collect(checked.body, checked.url)
                     }
-                    collect(checked.body, checked.url)
+                    break
                 }
-                break
+            }
+            harvest(curPage)
+            // v1.2.25：目录兜底——首轮解析出 0 章时，跟页面上的“目录”链接再解析一次（与纯路径同口径）。
+            if (all.isEmpty()) {
+                val fallbackUrl = BookRuleEngine.findTocLink(curPage.body, curPage.url)
+                if (fallbackUrl != null) {
+                    val fbPage = BookRuleEngine.fetchPageWithOptions(fallbackUrl, ua, options = fetchOptions(source))
+                    if (fbPage != null) {
+                        val checked = LegadoJsEngine.runLoginCheck(source.toJsRuleSource(), fbPage, ctx, state) {
+                            BookRuleEngine.fetchPageWithOptions(fallbackUrl, ua, options = fetchOptions(source))
+                        }
+                        harvest(checked)
+                        LogBus.d(TAG, "目录兜底 ${source.name} 跟进 $fallbackUrl 解析出 ${all.size} 章")
+                    }
+                }
             }
             val result = all.filterNot { NovelStore.isNavChapterTitle(it.title) }
                 .mapIndexed { i, m -> m.copy(index = i) }

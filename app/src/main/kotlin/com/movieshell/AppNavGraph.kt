@@ -55,6 +55,7 @@ import com.movieshell.player.playerDestination
 import com.movieshell.ui.actor.ActorWorksScreen
 import com.movieshell.ui.ai.AiScreen
 import com.movieshell.ui.bookshelf.BookshelfScreen
+import com.movieshell.ui.bookshelf.NovelTocScreen
 import com.movieshell.ui.changelog.ChangelogScreen
 import com.movieshell.ui.detail.DetailScreen
 import com.movieshell.ui.download.DownloadScreen
@@ -391,6 +392,8 @@ fun NavGraphBuilder.appDestinations(
                             BookshelfScreen(
                                 onNovelClick = openReaderChecked,
                                 onManageSourcesClick = { navController.navigate("book_source") },
+                                // v1.2.25：书籍详情里的目录行点进目录整页。
+                                onOpenToc = { id -> navController.navigate("novel_toc/$id") },
                                 // v0.98.0：书籍详情里的净化规则快捷入口
                                 onOpenPurifyRules = { navController.navigate("purify_rules") },
                                 // v0.229.0：书架内嵌找书点卡片进书籍信息整页。
@@ -537,6 +540,18 @@ fun NavGraphBuilder.appDestinations(
                                     onBack = { navController.popBackStack() },
                                 )
                             }
+                        }
+                        // v1.2.25：书籍目录整页——书架详情弹窗点“目录”进来（单开一页，不再是弹窗里收起展开）。
+                        composable(
+                            "novel_toc/{novelId}",
+                            arguments = listOf(navArgument("novelId") { type = NavType.StringType }),
+                        ) { entry ->
+                            val novelId = entry.arguments?.getString("novelId").orEmpty()
+                            NovelTocScreen(
+                                novelId = novelId,
+                                onBack = { navController.popBackStack() },
+                                onOpenReader = openReaderChecked,
+                            )
                         }
                         // v0.26.0：下载管理
                         composable("downloads") {

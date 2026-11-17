@@ -1,6 +1,7 @@
 package com.movieshell.core.net
 
 import org.json.JSONObject
+import org.mozilla.javascript.Undefined
 import java.net.URLEncoder
 
 /**
@@ -80,9 +81,13 @@ fun isJsonListRule(rule: String): Boolean {
  * v1.2.24：JS 求值结果转模板文本（阅读 AnalyzeUrlCore.replaceKeyPageJs 同款）。
  * 数字表达式（如 {{page+1}}）Rhino 返回 Double，整数值去小数点——否则 URL
  * 里出现 page=2.0；字符串原样；其余 toString。
+ * v1.2.25：Rhino 的 Undefined（读零零小说 `{{url=...; cookie.removeCookie(url)}}`
+ * 这种只赋值、不产值的块，求值结果就是 Undefined）必须转空串——之前走
+ * else 分支 toString，URL 里拼出 org.mozilla.javascript.Undefined@...，
+ * POST 发到错地址还回 200，静默失败。
  */
 fun formatJsTemplateValue(v: Any?): String = when (v) {
-    null -> ""
+    null, is Undefined -> ""
     is String -> v
     is Double -> if (v % 1.0 == 0.0) v.toLong().toString() else v.toString()
     is Float -> if (v % 1f == 0f) v.toLong().toString() else v.toString()

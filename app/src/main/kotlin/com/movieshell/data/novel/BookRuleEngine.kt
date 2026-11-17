@@ -225,6 +225,22 @@ object BookRuleEngine {
         Jsoup.parse(html, baseUrl)
 
     /**
+     * v1.2.25：目录兜底——在详情页/目录页上找“目录”链接（如“查看章节目录”），
+     * 跟过去再解析一次。只认链接文本含“目录”、地址与当前页不同（去 # 片段后比）；
+     * 不写站名、不认站方结构，任何站的详情页挂目录链接都适用。
+     * 黑岩实证：详情页改版后目录不在详情页、规则 tocUrl 的“开始阅读”也没了，
+     * 详情页上的“查看章节目录”链到 w2.heiyan.com/chapter/{id} 才是真目录。
+     */
+    fun findTocLink(html: String, pageUrl: String): String? {
+        val doc = parseDoc(html, pageUrl)
+        val base = pageUrl.substringBefore("#")
+        return doc.select("a:contains(目录)").firstNotNullOfOrNull { el ->
+            val href = el.absUrl("href").substringBefore("#")
+            if (href.isBlank() || href == base) null else href
+        }
+    }
+
+    /**
      * 正文提取：去掉 script/style；<br> 与块级元素都转成换行。
      *
      * v0.91.0 修复：此前用 el.textNodes() 只取直接文本节点；全本小说网等站正文

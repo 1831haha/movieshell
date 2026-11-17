@@ -50,6 +50,8 @@ data class BookSource(
     val headerUa: String = "",
     /** v0.200.0：共享 JS 库（阅读式 jsLib，内联代码；URL 形式暂不支持）。 */
     val jsLib: String = "",
+    /** v1.2.25：阅读式 bookSourceComment——123读书把验证码 helper JS 存在注释里，规则 eval 它；导入时保留，导出时有值才写。 */
+    val bookSourceComment: String = "",
     /** v1.1.6 反爬吸收项：书源自定义请求头（JSON 对象或 JSON 字符串，
      * 如 {"Referer":"https://x/","X-Requested-With":"XMLHttpRequest"}；
      * User-Agent 仍走 headerUa，见 parseHeaderUa）。 */
@@ -115,6 +117,9 @@ data class BookSource(
         put("loginCheckJs", loginCheckJs)
         put("loginUrl", loginUrl)
         put("jsLib", jsLib)
+        if (bookSourceComment.isNotBlank()) {
+            put("bookSourceComment", bookSourceComment)
+        }
         if (header.isNotBlank()) {
             put("header", header)
         }
@@ -199,6 +204,7 @@ data class BookSource(
                 loginUrl = o.optString("loginUrl").orEmpty(),
                 headerUa = parseHeaderUa(o),
                 jsLib = o.optString("jsLib").orEmpty(),
+                bookSourceComment = o.optString("bookSourceComment").orEmpty(),
                 header = o.optJSONObject("header")?.toString().orEmpty()
                     .ifBlank { o.optString("header").orEmpty() },
                 cookies = o.optString("cookies").orEmpty(),

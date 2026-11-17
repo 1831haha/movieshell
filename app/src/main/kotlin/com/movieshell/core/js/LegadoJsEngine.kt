@@ -113,6 +113,8 @@ object LegadoJsEngine {
         var lastPage: PageResult? = null
         var baseUrl: String = ""
         var variableChanged: Boolean = false
+        /** v1.2.25：java.put/get 的源内变量表（随心看/七猫/123读书的 searchUrl 与后续规则共用同一份；同一次搜索内有效）。 */
+        val vars = ConcurrentHashMap<String, String>()
     }
 
     /** 规则求值的上下文。 */
@@ -129,9 +131,12 @@ object LegadoJsEngine {
     )
 
     /** 发给 JS 的响应包装：脚本里调 result.body() / result.url()。 */
-    class StrResponse(private val bodyText: String, private val urlText: String) {
+    class StrResponse(private val bodyText: String, private val urlText: String, private val headers: Map<String, String> = emptyMap()) {
         fun body(): String = bodyText
         fun url(): String = urlText
+        /** v1.2.25：取响应头（不区分大小写；123读书 java.post(...).header("Location") 用）。 */
+        fun header(name: String): String =
+            headers[name] ?: headers.entries.firstOrNull { it.key.equals(name, ignoreCase = true) }?.value.orEmpty()
     }
 
     /** book / chapter 的 JS 对象标记（求值时转成 NativeObject）。 */
@@ -142,14 +147,25 @@ object LegadoJsEngine {
         fun removeCookie(url: String) {
             HttpClient.clearCookies(url)
         }
+
+        /** v1.2.25：阅读式 cookie.getCookie/setCookie（123读书正文规则读写 Cookie；getCookie 取整条头，setCookie 按头写回共享 Jar）。 */
+        fun getCookie(url: String): String = HttpClient.getCookieHeader(url)
+
+        fun setCookie(url: String, cookie: String) {
+            HttpClient.putCookies(url, cookie)
+        }
     }
 
-    class SourceBridge(private val sourceKey: String, private val state: JsState) {
+    class SourceBridge(private val source: JsRuleSource, private val state: JsState) {
         /** v1.2.23：阅读式 `source.getKey()`（如读零零小说 searchUrl 的 `{{url=source.getKey(); ...}}`）。 */
-        fun getKey(): String = sourceKey
-        fun getVariable(): String = SourceVariableStore.get(sourceKey)
+        fun getKey(): String = source.key
+
+        /** v1.2.25：阅读式 `source.bookSourceComment`——123读书把验证码 helper JS 存在注释里，规则 eval 它；没有就返回空串。 */
+        fun getBookSourceComment(): String = source.bookSourceComment
+
+        fun getVariable(): String = SourceVariableStore.get(source.key)
         fun setVariable(value: String) {
-            if (SourceVariableStore.set(sourceKey, value)) state.variableChanged = true
+            if (SourceVariableStore.set(source.key, value)) state.variableChanged = true
         }
     }
 
@@ -218,6 +234,85 @@ object LegadoJsEngine {
 
         fun toast(message: String) {
             Log.d(TAG, "toast: $message")
+        }
+
+        /**
+         * v1.2.25：阅读式 java.put/get——源内变量表（随心看 `java.put('key',key)` 后
+         * bookList 用 `java.get('key')` 取；七猫存 headers JSON 同理）。put 返回存入
+         * 的值（七猫 searchUrl 把它拼进 `,{...}` 后缀）。
+         */
+        fun put(key: String, value: Any?): String {
+            val stored = toJsString(value)
+            state.vars[key] = stored
+            return stored
+        }
+
+        fun get(key: String): String = state.vars[key].orEmpty()
+
+        /** v1.2.25：阅读式 java.longToast——只记日志，不弹 Toast（searchUrl 求值在后台线程，弹 Toast 会扰民；规则只拿它当失败提示）。 */
+        fun longToast(message: String) {
+            Log.d(TAG, "longToast: $message")
+        }
+
+        /** v1.2.25：阅读式 java.encodeURI(str, charset)——123读书对 GBK 表单段逐段编码；charset 非法回落 UTF-8。 */
+        fun encodeURI(input: String, charset: String = "UTF-8"): String = runCatching {
+            java.net.URLEncoder.encode(input, charset)
+        }.getOrElse {
+            runCatching { java.net.URLEncoder.encode(input, "UTF-8") }.getOrDefault(input)
+        }
+
+        /** v1.2.25：阅读式 java.timeFormat——七猫把 update_time 时间戳转显示日期；秒/毫秒自判，输出 yyyy-MM-dd HH:mm。 */
+        fun timeFormat(input: Any?): String {
+            val millis = when (input) {
+                is Number -> input.toLong()
+                is String -> input.trim().toLongOrNull() ?: return input
+                else -> return ""
+            }
+            val ms = if (millis < 100_000_000_000L) millis * 1000 else millis
+            return runCatching {
+                java.text.SimpleDateFormat("yyyy-MM-dd HH:mm", java.util.Locale.CHINA).format(java.util.Date(ms))
+            }.getOrDefault("")
+        }
+
+        /**
+         * v1.2.25：阅读式 java.post(url, body, headers)——123读书拿 302 的 Location
+         * 头；不跟随跳转，响应头进 StrResponse.header()。headers 形参目前忽略
+         * （该源传 {} 空对象）；失败返回空响应，规则按空结果处理。
+         */
+        fun post(url: String, body: String, headers: Any? = null): StrResponse {
+            return runCatching {
+                val noRedirect = client.newBuilder().followRedirects(false).followSslRedirects(false).build()
+                val builder = Request.Builder()
+                    .url(url)
+                    .header("User-Agent", ua ?: DEFAULT_UA_CHROME120)
+                    .header("Accept-Language", "zh-CN,zh;q=0.9")
+                    .post(body.toRequestBody("application/x-www-form-urlencoded".toMediaType()))
+                noRedirect.newCall(builder.build()).execute().use { resp ->
+                    val bytes = resp.body?.bytes() ?: ByteArray(0)
+                    val headerMap = resp.headers.toMultimap().mapValues { it.value.firstOrNull().orEmpty() }
+                    StrResponse(decodeBytes(bytes), resp.request.url.toString(), headerMap)
+                }
+            }.getOrElse { StrResponse("", url) }
+        }
+
+        /** v1.2.25：阅读式 java.getCookie(url[, name])——123读书取指定 Cookie 值；不给名返回整条头。 */
+        fun getCookie(url: String): String = getCookie(url, "")
+
+        fun getCookie(url: String, name: String): String {
+            val header = HttpClient.getCookieHeader(url)
+            if (name.isBlank()) return header
+            return header.split(";").map { it.trim() }
+                .firstOrNull { it.startsWith("$name=") }?.substringAfter("=", "") ?: ""
+        }
+
+        /**
+         * v1.2.25：阅读式 java.getVerificationCode——123读书验证码分支要用户输码；
+         * 本版暂不接输入框 UI，返回空串走规则自己的重试（不让整条求值崩掉）。
+         * 有验证码的搜索仍会失败，属已知缺口，不谎称已支持。
+         */
+        fun getVerificationCode(code: String): String {
+            Log.d(TAG, "getVerificationCode 未接输入框，返回空串: $code")
+            return ""
         }
 
         /**
@@ -379,7 +474,7 @@ object LegadoJsEngine {
     fun bindings(ctx: JsCtx, state: JsState, result: Any?, src: String): Map<String, Any?> {
         val map = mutableMapOf<String, Any?>(
             "baseUrl" to ctx.baseUrl,
-            "source" to SourceBridge(ctx.source.key, state),
+            "source" to SourceBridge(ctx.source, state),
             "cookie" to CookieBridge(),
             "java" to JavaBridge(state, ctx.source.headerUa.ifBlank { null }),
             "src" to src,

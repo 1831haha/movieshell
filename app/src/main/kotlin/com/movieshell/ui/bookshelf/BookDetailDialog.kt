@@ -90,6 +90,9 @@ fun BookDetailDialog(
     // v0.211.0 审计修复：目录行点某章要直达该章（原来只调无参 onRead，
     // 点哪章都按旧进度打开，目录跳转语义不存在）。
     onReadChapter: ((Int) -> Unit)? = null,
+    // v1.2.25：目录行点进目录整页（用户 2026-11-17 要求：单开一页显示目录）；
+    // 不传时回落旧行为（弹窗内收起展开）。
+    onOpenToc: (() -> Unit)? = null,
     onMoveGroup: () -> Unit,
     onDelete: () -> Unit,
     onOpenPurifyRules: () -> Unit,
@@ -260,8 +263,9 @@ fun BookDetailDialog(
                 InfoRow(
                     icon = Icons.Filled.Folder,
                     label = "目录",
-                    actionText = if (showToc) "收起目录" else "查看目录",
-                    onAction = { showToc = !showToc },
+                    // v1.2.25：点目录进整页（onOpenToc 在时）；不传回调时回落旧的收起展开。
+                    actionText = if (onOpenToc != null) "查看目录" else if (showToc) "收起目录" else "查看目录",
+                    onAction = { onOpenToc?.invoke() ?: run { showToc = !showToc } },
                 )
                 if (onToggleFavorite != null) {
                     InfoRow(

@@ -158,6 +158,8 @@ fun BookshelfScreen(
     onOpenDetail: (SourceGroup, NovelSearchResult) -> Unit = { _, _ -> },
     // v0.248.0：发现页胶囊点进单源发现页（源 key＋分类标题，由宿主导航）。
     onOpenExplore: (String, String?) -> Unit = { _, _ -> },
+    // v1.2.25：书籍详情里的目录行点进目录整页（书 id，由宿主导航）。
+    onOpenToc: (String) -> Unit = {},
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -1135,6 +1137,8 @@ fun BookshelfScreen(
                 com.movieshell.ui.reader.ReaderJumpRequest.chapter = idx
                 openNovel(fresh)
             },
+            // v1.2.25：目录行点进目录整页（先关详情弹窗再导航）。
+            onOpenToc = { detailTarget = null; onOpenToc(fresh.id) },
             onMoveGroup = { detailTarget = null; groupPickerFor = listOf(fresh.id) },
             onDelete = { detailTarget = null; deleteTarget = fresh },
             onOpenPurifyRules = { detailTarget = null; onOpenPurifyRules() },

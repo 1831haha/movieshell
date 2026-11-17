@@ -4,6 +4,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import org.mozilla.javascript.Undefined
 
 /** v1.2.23：searchUrl 求值判定、相对地址补全、JSON 列表规则判定。 */
 class SearchRequestTest {
@@ -113,5 +114,11 @@ class SearchRequestTest {
         assertEquals("abc", formatJsTemplateValue("abc"))
         assertEquals("", formatJsTemplateValue(null))
         assertEquals("3", formatJsTemplateValue(3))
+    }
+
+    @Test fun formatJsTemplateValueUndefinedIsEmpty() {
+        // v1.2.25：读零零小说 {{...}} 只赋值块求出 Undefined，之前 toString
+        // 拼进 URL（org.mozilla.javascript.Undefined@...），POST 发到错地址。
+        assertEquals("", formatJsTemplateValue(Undefined.instance))
     }
 }

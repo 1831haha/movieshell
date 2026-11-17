@@ -25,4 +25,5 @@ internal fun BookSource.toJsRuleSource(): JsRuleSource = JsRuleSource(
     ruleContent = ruleContent,
     ruleContentReplace = ruleContentReplace,
     ruleContentNext = ruleContentNext,
+    bookSourceComment = bookSourceComment,
 )

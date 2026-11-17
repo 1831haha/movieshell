@@ -259,6 +259,18 @@ object HttpClient {
         if (cookies.isNotEmpty()) memoryCookieJar.put(httpUrl, cookies)
     }
 
+    /**
+     * v1.2.25：读某地址在共享 Jar 里的 Cookie 头（"a=b; c=d" 形；JS 桥
+     * java.getCookie / cookie.getCookie 用）。过期 Cookie 由 loadForRequest
+     * 自行过滤；无 Cookie 返回空串。
+     */
+    fun getCookieHeader(url: String): String {
+        val httpUrl = url.toHttpUrlOrNull() ?: return ""
+        return runCatching {
+            memoryCookieJar.loadForRequest(httpUrl).joinToString("; ") { "${it.name}=${it.value}" }
+        }.getOrDefault("")
+    }
+
     /** v0.201.0：清掉某地址 host 在 OkHttp Jar 与 WebView 里的 Cookie。 */
     fun clearCookies(url: String) {
         val host = url.toHttpUrlOrNull()?.host ?: return
