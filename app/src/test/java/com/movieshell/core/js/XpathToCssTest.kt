@@ -1,6 +1,7 @@
 package com.movieshell.core.js
 
 import com.movieshell.data.novel.BookRuleEngine
+import com.movieshell.data.novel.toJsRuleSource
 import com.movieshell.domain.model.BookSource
 import org.jsoup.Jsoup
 import org.junit.Assert.assertEquals
