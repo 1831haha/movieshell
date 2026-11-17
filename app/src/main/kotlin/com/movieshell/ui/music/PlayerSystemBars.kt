@@ -65,11 +65,26 @@ object PlayerSystemBars {
         )
     }
 
-    /** 取 bitmap 的平均色：缩到 1×1（双线性采样即全图平均），不引 Palette。 */
+    /**
+     * 取 bitmap 的平均色：缩到 1×1（双线性采样即全图平均），不引 Palette。
+     * v1.3.4：Coil 默认解出来的是 HARDWARE 位图，getPixel 直接读会抛
+     * IllegalStateException（1.3.3 真机一进播放页就闪退的根因）。硬件
+     * 位图先 copy 成 ARGB_8888 再读；任何异常都回到底色，取色绝不能
+     * 让 App 闪退。
+     */
     fun averageColor(bitmap: Bitmap): Color {
-        if (bitmap.width <= 0 || bitmap.height <= 0) return ATMOSPHERE_BASE
-        val px = Bitmap.createScaledBitmap(bitmap, 1, 1, true).getPixel(0, 0)
-        return Color(px)
+        return try {
+            if (bitmap.width <= 0 || bitmap.height <= 0) return ATMOSPHERE_BASE
+            val readable = if (bitmap.config == Bitmap.Config.HARDWARE) {
+                bitmap.copy(Bitmap.Config.ARGB_8888, false) ?: return ATMOSPHERE_BASE
+            } else {
+                bitmap
+            }
+            val px = Bitmap.createScaledBitmap(readable, 1, 1, true).getPixel(0, 0)
+            Color(px)
+        } catch (_: Exception) {
+            ATMOSPHERE_BASE
+        }
     }
 
     /** 像素数组的平均色（可单测的纯函数；bitmap 版只负责取像素）。 */

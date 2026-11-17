@@ -182,6 +182,9 @@ fun MusicPlayerScreen(
         ImageRequest.Builder(ctx)
             .data(shownArt)
             .size(Size.ORIGINAL)
+            // v1.3.4：这份画笔只取色、从不画出来，硬件位图读像素会闪退，
+            // 直接让 Coil 解成软件位图（averageColor 里另有 copy 兜底）。
+            .allowHardware(false)
             .build()
     }
     val artPainter = rememberAsyncImagePainter(model = artRequest)
