@@ -156,8 +156,6 @@ fun BookshelfScreen(
     onOpenPurifyRules: () -> Unit = {},
     // v0.229.0：内嵌找书点结果卡片进书籍信息整页（由宿主导航）。
     onOpenDetail: (SourceGroup, NovelSearchResult) -> Unit = { _, _ -> },
-    // v0.248.0：发现页胶囊点进单源发现页（源 key＋分类标题，由宿主导航）。
-    onOpenExplore: (String, String?) -> Unit = { _, _ -> },
     // v1.2.25：书籍详情里的目录行点进目录整页（书 id，由宿主导航）。
     onOpenToc: (String) -> Unit = {},
 ) {
@@ -182,8 +180,6 @@ fun BookshelfScreen(
     // v0.197.0：阅读式页签（全部 / 更新失败）+ 上次检查失败的书 id（持久化在 prefs）
     // v0.294.5：页签与找书态改 rememberSaveable——进书详情/阅读再返回不丢
     var shelfTab by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(0) }
-    // v0.248.0：书架内页签（书架 / 发现）；发现页是书架子结构，不占底部导航。
-    var mainTab by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(0) }
     var failedIds by remember { mutableStateOf(BookshelfGroupStore.failedIds(context)) }
 
     // v0.98.0：多选模式
@@ -620,16 +616,18 @@ fun BookshelfScreen(
         // 检查更新改下拉刷新、批量管理改长按进多选；
         // 多选模式仍用上面那个“已选 N 本”操作栏。
 
-        // v0.279.0 旧版：12dp 页边距；一级页签（书架 / 发现）改 扁平文字 tab（15/600 + 强调色下划线），
+        // v0.279.0 旧版：12dp 页边距；一级标题改 扁平文字（15/600 + 强调色下划线），
         // 右侧本数（等宽 t3）+ 线性图标，整行底部通栏 1px 分隔线。
+        // v1.2.27：发现页签已并进书源管理，这里只剩“书架”一个标题。
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(horizontal = V5.Gutter),
         ) {
 
-            // v0.249.0：头区方案 A——第 1 行只留一级内页签（书架／发现，字号稍大），
-            // 找书与更多菜单移到本行右侧（只在书架分支显示，发现分支只留页签）。
+            // v0.249.0：头区方案 A——第 1 行只留书架标题（字号稍大），
+            // 找书与更多菜单移到本行右侧。
+            // v1.2.27：发现页签已并进书源管理。
             // v0.251.0：顶栏合并——第 2 行工具栏拿掉，本数＋新建分组＋视图切换收进本行右侧；
             // 排序与更新失败筛选收进更多菜单，功能不丢；窄屏（<360dp）仍藏本数。
             Row(
@@ -645,399 +643,384 @@ fun BookshelfScreen(
                     modifier = Modifier.fillMaxHeight(),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    listOf(0 to "书架", 1 to "发现").forEachIndexed { i, (tab, label) ->
-                        if (i > 0) Spacer(Modifier.width(22.dp))
-                        val tabSelected = mainTab == tab
+                    // v1.2.27：发现页签已并进书源管理，书架只剩一个标题（样式与原来选中态一致）。
+                    Box(
+                        contentAlignment = Alignment.Center,
+                        modifier = Modifier.fillMaxHeight(),
+                    ) {
+                        Text(
+                            "书架",
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.onSurface,
+                        )
                         Box(
-                            contentAlignment = Alignment.Center,
                             modifier = Modifier
-                                .fillMaxHeight()
-                                .clickable { mainTab = tab },
-                        ) {
-                            Text(
-                                label,
-                                fontSize = 15.sp,
-                                fontWeight = if (tabSelected) FontWeight.SemiBold else FontWeight.Normal,
-                                color = if (tabSelected) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                            Box(
-                                modifier = Modifier
-                                    .align(Alignment.BottomCenter)
-                                    .width(if (label.length > 1) 30.dp else 16.dp)
-                                    .height(2.dp)
-                                    .clip(RoundedCornerShape(1.dp))
-                                    .background(
-                                        if (tabSelected) MaterialTheme.colorScheme.primary else Color.Transparent,
-                                    ),
-                            )
-                        }
+                                .align(Alignment.BottomCenter)
+                                .width(30.dp)
+                                .height(2.dp)
+                                .clip(RoundedCornerShape(1.dp))
+                                .background(MaterialTheme.colorScheme.primary),
+                        )
                     }
                 }
-                if (mainTab == 0) {
-                    val narrowHeader = LocalConfiguration.current.screenWidthDp < 380
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        if (!narrowHeader) {
-                            Text(
-                                "${visibleBooks.size} 本",
-                                style = MaterialTheme.typography.labelMedium,
-                                color = MaterialTheme.colorScheme.outline,
-                            )
-                            Spacer(Modifier.width(8.dp))
-                        }
-                        // v0.294.6：顶栏动作统一 36dp 无底色图标钮——导入 / 排序 / 视图 / 找书 / 更多；
-                        // 新建分组收进「更多」菜单（功能不丢）。
-                        IconButton(
-                            onClick = { if (!importing) pickTxt.launch("text/plain") },
-                            enabled = !importing,
-                            modifier = Modifier.size(36.dp),
-                        ) {
+                val narrowHeader = LocalConfiguration.current.screenWidthDp < 380
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    if (!narrowHeader) {
+                        Text(
+                            "${visibleBooks.size} 本",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.outline,
+                        )
+                        Spacer(Modifier.width(8.dp))
+                    }
+                    // v0.294.6：顶栏动作统一 36dp 无底色图标钮——导入 / 排序 / 视图 / 找书 / 更多；
+                    // 新建分组收进「更多」菜单（功能不丢）。
+                    IconButton(
+                        onClick = { if (!importing) pickTxt.launch("text/plain") },
+                        enabled = !importing,
+                        modifier = Modifier.size(36.dp),
+                    ) {
+                        Icon(
+                            Icons.Outlined.UploadFile,
+                            contentDescription = "导入本地书籍",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(20.dp),
+                        )
+                    }
+                    Box {
+                        IconButton(onClick = { showSortMenu = true }, modifier = Modifier.size(36.dp)) {
                             Icon(
-                                Icons.Outlined.UploadFile,
-                                contentDescription = "导入本地书籍",
+                                Icons.AutoMirrored.Filled.Sort,
+                                contentDescription = "排序",
                                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
                                 modifier = Modifier.size(20.dp),
                             )
                         }
-                        Box {
-                            IconButton(onClick = { showSortMenu = true }, modifier = Modifier.size(36.dp)) {
-                                Icon(
-                                    Icons.AutoMirrored.Filled.Sort,
-                                    contentDescription = "排序",
-                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    modifier = Modifier.size(20.dp),
-                                )
-                            }
-                            AppDropdownMenu(
-                                expanded = showSortMenu,
-                                onDismissRequest = { showSortMenu = false },
-                            ) {
-                                sortNames.forEachIndexed { i, name ->
-                                    DropdownMenuItem(
-                                        text = { Text(name) },
-                                        leadingIcon = {
-                                            Icon(
-                                                Icons.Filled.Check,
-                                                contentDescription = null,
-                                                tint = if (sortMode == i) MaterialTheme.colorScheme.primary
-                                                else Color.Transparent,
-                                            )
-                                        },
-                                        onClick = {
-                                            showSortMenu = false
-                                            sortMode = i
-                                            BookshelfGroupStore.setSortMode(context, i)
-                                        },
-                                    )
-                                }
-                            }
-                        }
-                        IconButton(
-                            onClick = {
-                                viewMode = if (viewMode == BookshelfGroupStore.VIEW_LIST)
-                                    BookshelfGroupStore.VIEW_GRID else BookshelfGroupStore.VIEW_LIST
-                                BookshelfGroupStore.setViewMode(context, viewMode)
-                            },
-                            modifier = Modifier.size(36.dp),
+                        AppDropdownMenu(
+                            expanded = showSortMenu,
+                            onDismissRequest = { showSortMenu = false },
                         ) {
-                            Icon(
-                                if (viewMode == BookshelfGroupStore.VIEW_LIST) Icons.Filled.GridView
-                                else Icons.Filled.FormatListBulleted,
-                                contentDescription = "切换视图",
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.size(20.dp),
-                            )
-                        }
-                        IconButton(onClick = { searching = true }, modifier = Modifier.size(36.dp)) {
-                            Icon(Icons.Filled.Search, "找书", tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(20.dp))
-                        }
-                        Box {
-                            IconButton(onClick = { showTopMenu = true }, modifier = Modifier.size(36.dp)) {
-                                Icon(Icons.Filled.MoreVert, "更多", tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(20.dp))
-                            }
-                            AppDropdownMenu(
-                                expanded = showTopMenu,
-                                onDismissRequest = { showTopMenu = false },
-                            ) {
-                                // v0.197.0：阅读式书架菜单（只留有真实功能的项；
-                                // 添加网址/远程书籍/缓存导出/导出导入书单/日志暂无对应功能，不摆空壳）
-                                // v0.251.0：更新目录挪给下拉刷新，菜单里换成净化规则入口。
+                            sortNames.forEachIndexed { i, name ->
                                 DropdownMenuItem(
-                                    text = { Text("净化规则") },
-                                    leadingIcon = {
-                                        Icon(Icons.Filled.FilterAlt, contentDescription = null)
-                                    },
-                                    onClick = {
-                                        showTopMenu = false
-                                        onOpenPurifyRules()
-                                    },
-                                )
-                                DropdownMenuItem(
-                                    text = { Text("添加本地书籍") },
-                                    enabled = !importing,
-                                    leadingIcon = {
-                                        Icon(Icons.Filled.Add, contentDescription = null)
-                                    },
-                                    onClick = {
-                                        showTopMenu = false
-                                        pickTxt.launch("text/plain")
-                                    },
-                                )
-                                DropdownMenuItem(
-                                    text = { Text("书架管理") },
-                                    leadingIcon = {
-                                        Icon(Icons.Filled.Checklist, contentDescription = null)
-                                    },
-                                    onClick = {
-                                        showTopMenu = false
-                                        selectionMode = true
-                                    },
-                                )
-                                DropdownMenuItem(
-                                    text = { Text("书架布局") },
-                                    leadingIcon = {
-                                        Icon(Icons.Filled.GridView, contentDescription = null)
-                                    },
-                                    onClick = {
-                                        showTopMenu = false
-                                        viewMode = if (viewMode == BookshelfGroupStore.VIEW_LIST)
-                                            BookshelfGroupStore.VIEW_GRID else BookshelfGroupStore.VIEW_LIST
-                                        BookshelfGroupStore.setViewMode(context, viewMode)
-                                    },
-                                )
-                                DropdownMenuItem(
-                                    text = { Text("书源管理") },
-                                    leadingIcon = {
-                                        Icon(Icons.Filled.Storage, contentDescription = null)
-                                    },
-                                    onClick = {
-                                        showTopMenu = false
-                                        onManageSourcesClick()
-                                    },
-                                )
-                                // v0.251.0：顶栏拿掉的排序与更新失败筛选收进这里，功能不丢；
-                                // 未选中项用透明对勾占位，文字左对齐不错位。
-                                HorizontalDivider()
-                                // v0.294.6：排序挪到顶栏独立排序钮；这里补「新建分组」（原顶栏 + 号）。
-                                DropdownMenuItem(
-                                    text = { Text("新建分组") },
-                                    leadingIcon = {
-                                        Icon(Icons.Filled.Add, contentDescription = null)
-                                    },
-                                    onClick = {
-                                        showTopMenu = false
-                                        showCreateGroup = true
-                                    },
-                                )
-                                DropdownMenuItem(
-                                    text = {
-                                        Text(
-                                            if (failedIds.isNotEmpty()) "筛选：更新失败(${failedIds.size})"
-                                            else "筛选：更新失败",
-                                        )
-                                    },
+                                    text = { Text(name) },
                                     leadingIcon = {
                                         Icon(
                                             Icons.Filled.Check,
                                             contentDescription = null,
-                                            tint = if (shelfTab == 1) MaterialTheme.colorScheme.onSurface
+                                            tint = if (sortMode == i) MaterialTheme.colorScheme.primary
                                             else Color.Transparent,
                                         )
                                     },
                                     onClick = {
-                                        showTopMenu = false
-                                        shelfTab = if (shelfTab == 1) 0 else 1
+                                        showSortMenu = false
+                                        sortMode = i
+                                        BookshelfGroupStore.setSortMode(context, i)
                                     },
                                 )
                             }
                         }
                     }
+                    IconButton(
+                        onClick = {
+                            viewMode = if (viewMode == BookshelfGroupStore.VIEW_LIST)
+                                BookshelfGroupStore.VIEW_GRID else BookshelfGroupStore.VIEW_LIST
+                            BookshelfGroupStore.setViewMode(context, viewMode)
+                        },
+                        modifier = Modifier.size(36.dp),
+                    ) {
+                        Icon(
+                            if (viewMode == BookshelfGroupStore.VIEW_LIST) Icons.Filled.GridView
+                            else Icons.Filled.FormatListBulleted,
+                            contentDescription = "切换视图",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(20.dp),
+                        )
+                    }
+                    IconButton(onClick = { searching = true }, modifier = Modifier.size(36.dp)) {
+                        Icon(Icons.Filled.Search, "找书", tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(20.dp))
+                    }
+                    Box {
+                        IconButton(onClick = { showTopMenu = true }, modifier = Modifier.size(36.dp)) {
+                            Icon(Icons.Filled.MoreVert, "更多", tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(20.dp))
+                        }
+                        AppDropdownMenu(
+                            expanded = showTopMenu,
+                            onDismissRequest = { showTopMenu = false },
+                        ) {
+                            // v0.197.0：阅读式书架菜单（只留有真实功能的项；
+                            // 添加网址/远程书籍/缓存导出/导出导入书单/日志暂无对应功能，不摆空壳）
+                            // v0.251.0：更新目录挪给下拉刷新，菜单里换成净化规则入口。
+                            DropdownMenuItem(
+                                text = { Text("净化规则") },
+                                leadingIcon = {
+                                    Icon(Icons.Filled.FilterAlt, contentDescription = null)
+                                },
+                                onClick = {
+                                    showTopMenu = false
+                                    onOpenPurifyRules()
+                                },
+                            )
+                            DropdownMenuItem(
+                                text = { Text("添加本地书籍") },
+                                enabled = !importing,
+                                leadingIcon = {
+                                    Icon(Icons.Filled.Add, contentDescription = null)
+                                },
+                                onClick = {
+                                    showTopMenu = false
+                                    pickTxt.launch("text/plain")
+                                },
+                            )
+                            DropdownMenuItem(
+                                text = { Text("书架管理") },
+                                leadingIcon = {
+                                    Icon(Icons.Filled.Checklist, contentDescription = null)
+                                },
+                                onClick = {
+                                    showTopMenu = false
+                                    selectionMode = true
+                                },
+                            )
+                            DropdownMenuItem(
+                                text = { Text("书架布局") },
+                                leadingIcon = {
+                                    Icon(Icons.Filled.GridView, contentDescription = null)
+                                },
+                                onClick = {
+                                    showTopMenu = false
+                                    viewMode = if (viewMode == BookshelfGroupStore.VIEW_LIST)
+                                        BookshelfGroupStore.VIEW_GRID else BookshelfGroupStore.VIEW_LIST
+                                    BookshelfGroupStore.setViewMode(context, viewMode)
+                                },
+                            )
+                            DropdownMenuItem(
+                                text = { Text("书源管理") },
+                                leadingIcon = {
+                                    Icon(Icons.Filled.Storage, contentDescription = null)
+                                },
+                                onClick = {
+                                    showTopMenu = false
+                                    onManageSourcesClick()
+                                },
+                            )
+                            // v0.251.0：顶栏拿掉的排序与更新失败筛选收进这里，功能不丢；
+                            // 未选中项用透明对勾占位，文字左对齐不错位。
+                            HorizontalDivider()
+                            // v0.294.6：排序挪到顶栏独立排序钮；这里补「新建分组」（原顶栏 + 号）。
+                            DropdownMenuItem(
+                                text = { Text("新建分组") },
+                                leadingIcon = {
+                                    Icon(Icons.Filled.Add, contentDescription = null)
+                                },
+                                onClick = {
+                                    showTopMenu = false
+                                    showCreateGroup = true
+                                },
+                            )
+                            DropdownMenuItem(
+                                text = {
+                                    Text(
+                                        if (failedIds.isNotEmpty()) "筛选：更新失败(${failedIds.size})"
+                                        else "筛选：更新失败",
+                                    )
+                                },
+                                leadingIcon = {
+                                    Icon(
+                                        Icons.Filled.Check,
+                                        contentDescription = null,
+                                        tint = if (shelfTab == 1) MaterialTheme.colorScheme.onSurface
+                                        else Color.Transparent,
+                                    )
+                                },
+                                onClick = {
+                                    showTopMenu = false
+                                    shelfTab = if (shelfTab == 1) 0 else 1
+                                },
+                            )
+                        }
+                    }
                 }
             }
             Spacer(Modifier.height(8.dp))
-            if (mainTab == 0) {
-            // v0.249.0：全部／更新失败不再占一整行页签，收进第 2 行工具栏的筛选菜单。
-            // v0.196.0：搜索框上移到与“找书”同一行——框直接绑活动级搜索 VM
-            // （与内嵌找书页同一份 keyword），回车即搜；VM 与焦点提到分支外，避免条件组合。
-            val searchActivity = LocalContext.current as ComponentActivity
-            val searchVm: NovelSearchViewModel = viewModel(searchActivity)
-            val searchKeyword by searchVm.keyword.collectAsState()
-            val searchFocus = remember { FocusRequester() }
-            // v0.294.55：退出找书态（取消/返回）即复位搜索 VM——活动级 VM 原来只清框词，
-            // 结果留着，下次进找书先看到上一次的结果。
-            LaunchedEffect(searching) { if (!searching) searchVm.resetSearch() }
-            if (searching) {
-                LaunchedEffect(Unit) { searchFocus.requestFocus() }
-                Column(modifier = Modifier.fillMaxSize()) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        // v0.294.6：统一 AppSearchBar（48dp 胶囊；回车/放大镜即搜并收键盘），
-                        // 去掉左侧「找书」大字，框更宽；仍绑活动级 NovelSearchViewModel。
-                        AppSearchBar(
-                            value = searchKeyword,
-                            onValueChange = { searchVm.setKeyword(it) },
-                            placeholder = "找书：书名 / 作者",
-                            onSearch = { searchVm.doSearch() },
-                            focusRequester = searchFocus,
-                            modifier = Modifier.weight(1f),
+        // v0.249.0：全部／更新失败不再占一整行页签，收进第 2 行工具栏的筛选菜单。
+        // v0.196.0：搜索框上移到与“找书”同一行——框直接绑活动级搜索 VM
+        // （与内嵌找书页同一份 keyword），回车即搜；VM 与焦点提到分支外，避免条件组合。
+        val searchActivity = LocalContext.current as ComponentActivity
+        val searchVm: NovelSearchViewModel = viewModel(searchActivity)
+        val searchKeyword by searchVm.keyword.collectAsState()
+        val searchFocus = remember { FocusRequester() }
+        // v0.294.55：退出找书态（取消/返回）即复位搜索 VM——活动级 VM 原来只清框词，
+        // 结果留着，下次进找书先看到上一次的结果。
+        LaunchedEffect(searching) { if (!searching) searchVm.resetSearch() }
+        if (searching) {
+            LaunchedEffect(Unit) { searchFocus.requestFocus() }
+            Column(modifier = Modifier.fillMaxSize()) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    // v0.294.6：统一 AppSearchBar（48dp 胶囊；回车/放大镜即搜并收键盘），
+                    // 去掉左侧「找书」大字，框更宽；仍绑活动级 NovelSearchViewModel。
+                    AppSearchBar(
+                        value = searchKeyword,
+                        onValueChange = { searchVm.setKeyword(it) },
+                        placeholder = "找书：书名 / 作者",
+                        onSearch = { searchVm.doSearch() },
+                        focusRequester = searchFocus,
+                        modifier = Modifier.weight(1f),
+                    )
+                    TextButton(onClick = { searching = false }) { Text("取消") }
+                }
+                // v0.279.0：内嵌找书结果不跟浮动底栏抢位置——底部让出底栏高度
+                Box(modifier = Modifier.weight(1f).padding(bottom = dockClearance())) {
+                    NovelSearchScreen(
+                        embedded = true,
+                        autoFocus = false,
+                        hideSearchField = true,
+                        onManageSources = onManageSourcesClick,
+                        onOpenDetail = onOpenDetail,
+                    )
+                }
+            }
+        } else {
+        // v0.251.0：分组横滑只在已有自定义分组时出现（没有时不空占一行；新建分组入口在顶栏右侧）。
+        // v0.197.0：更新失败页签不看分组，横滑行隐藏。
+        if (shelfTab == 0 && shelfGroups.any { it.id != BookshelfGroupStore.GROUP_ALL }) {
+        LazyRow(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            contentPadding = PaddingValues(end = 4.dp),
+        ) {
+            items(shelfGroups.filter { it.id != BookshelfGroupStore.GROUP_ALL }, key = { it.id }) { g ->
+                val selected = g.id == selectedGroup
+                GroupChip(
+                    name = g.name,
+                    count = g.count,
+                    selected = selected,
+                    onClick = {
+                        selectedGroup = g.id
+                        BookshelfGroupStore.setSelectedGroup(context, g.id)
+                    },
+                    onLongClick = {
+                        // 自定义分组长按：重命名/删除
+                        customGroups.find { it.id == g.id }?.let { groupMenuTarget = it }
+                    },
+                )
+            }
+        }
+        } // v0.197.0：闭合 shelfTab==0 的分组横滑
+        Spacer(Modifier.height(8.dp))
+
+        // v0.178.0：下拉刷新 = 原检查更新（获取最新章节），
+        // checking 既是刷新指示也是防重入，空书架无书可查不触发。
+        PullToRefreshBox(
+            state = pullRefreshState,
+            isRefreshing = checking,
+            onRefresh = { checkUpdates() },
+            modifier = Modifier.fillMaxSize(),
+        ) {
+        // v0.98.0：内容区（分组切换小动画）
+        AnimatedContent(
+            targetState = "$selectedGroup|$viewMode|$shelfTab",
+            label = "shelfContent",
+            modifier = Modifier.fillMaxSize(),
+        ) {
+            if (books.isEmpty()) {
+                // 趣味空状态
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(bottom = dockClearance()),
+                ) {
+                    item {
+                        BookshelfEmptyState(
+                            onFindBook = { searching = true },
+                            onImportTxt = { pickTxt.launch("text/plain") },
                         )
-                        TextButton(onClick = { searching = false }) { Text("取消") }
                     }
-                    // v0.279.0：内嵌找书结果不跟浮动底栏抢位置——底部让出底栏高度
-                    Box(modifier = Modifier.weight(1f).padding(bottom = dockClearance())) {
-                        NovelSearchScreen(
-                            embedded = true,
-                            autoFocus = false,
-                            hideSearchField = true,
-                            onManageSources = onManageSourcesClick,
-                            onOpenDetail = onOpenDetail,
+                }
+            } else if (visibleBooks.isEmpty()) {
+                Box(
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    // 全量重做：分组空态走共享 EmptyState（文案与原来逐字一致，
+                    // v0.197.0 更新失败页签单独说明保留）。
+                    EmptyState(
+                        kind = EmptyKind.Empty,
+                        icon = Icons.Filled.MenuBook,
+                        title = if (shelfTab == 1) "还没有更新失败的书" else "这个分组还没有书",
+                        hint = if (shelfTab == 1) "下拉刷新检查后，失败的会列在这里" else "长按书籍看书籍信息",
+                    )
+                }
+            } else if (viewMode == BookshelfGroupStore.VIEW_GRID) {
+                // v0.294.6：列数随宽度自适应（每格 ≥96dp：手机 3 列、宽屏/平板更多）
+                LazyVerticalGrid(
+                    columns = GridCells.Adaptive(minSize = 96.dp),
+                    verticalArrangement = Arrangement.spacedBy(14.dp),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    contentPadding = PaddingValues(top = 4.dp, bottom = dockClearance() + 8.dp),
+                ) {
+                    if (checking) {
+                        item(span = { GridItemSpan(maxLineSpan) }) {
+                            CheckingRow()
+                        }
+                    }
+                    items(visibleBooks, key = { it.id }) { novel ->
+                        NovelGridCard(
+                            novel = novel,
+                            updateCount = updates[novel.id]?.newChapters ?: 0,
+                            checking = checkingIds.contains(novel.id),
+                            checkFailed = failedIds.contains(novel.id),
+                            selectionMode = selectionMode,
+                            selected = selectedIds.contains(novel.id),
+                            onClick = {
+                                if (selectionMode) toggleSelect(novel.id)
+                                else openNovel(novel)
+                            },
+                            onLongClick = {
+                                // v0.211.0：长按直接进书籍详情（用户截图口径），
+                                // 不再弹长按操作表；分组/换源/删除/收藏都在详情里。
+                                if (selectionMode) toggleSelect(novel.id)
+                                else detailTarget = novel
+                            },
                         )
                     }
                 }
             } else {
-            // v0.251.0：分组横滑只在已有自定义分组时出现（没有时不空占一行；新建分组入口在顶栏右侧）。
-            // v0.197.0：更新失败页签不看分组，横滑行隐藏。
-            if (shelfTab == 0 && shelfGroups.any { it.id != BookshelfGroupStore.GROUP_ALL }) {
-            LazyRow(
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                contentPadding = PaddingValues(end = 4.dp),
-            ) {
-                items(shelfGroups.filter { it.id != BookshelfGroupStore.GROUP_ALL }, key = { it.id }) { g ->
-                    val selected = g.id == selectedGroup
-                    GroupChip(
-                        name = g.name,
-                        count = g.count,
-                        selected = selected,
-                        onClick = {
-                            selectedGroup = g.id
-                            BookshelfGroupStore.setSelectedGroup(context, g.id)
-                        },
-                        onLongClick = {
-                            // 自定义分组长按：重命名/删除
-                            customGroups.find { it.id == g.id }?.let { groupMenuTarget = it }
-                        },
-                    )
-                }
-            }
-            } // v0.197.0：闭合 shelfTab==0 的分组横滑
-            Spacer(Modifier.height(8.dp))
-
-            // v0.178.0：下拉刷新 = 原检查更新（获取最新章节），
-            // checking 既是刷新指示也是防重入，空书架无书可查不触发。
-            PullToRefreshBox(
-                state = pullRefreshState,
-                isRefreshing = checking,
-                onRefresh = { checkUpdates() },
-                modifier = Modifier.fillMaxSize(),
-            ) {
-            // v0.98.0：内容区（分组切换小动画）
-            AnimatedContent(
-                targetState = "$selectedGroup|$viewMode|$shelfTab",
-                label = "shelfContent",
-                modifier = Modifier.fillMaxSize(),
-            ) {
-                if (books.isEmpty()) {
-                    // 趣味空状态
-                    LazyColumn(
-                        modifier = Modifier.fillMaxSize(),
-                        contentPadding = PaddingValues(bottom = dockClearance()),
-                    ) {
-                        item {
-                            BookshelfEmptyState(
-                                onFindBook = { searching = true },
-                                onImportTxt = { pickTxt.launch("text/plain") },
-                            )
-                        }
+                // v0.197.0：阅读式 plain 行自带底部分隔线，列表不再额外留 10dp 间距
+                LazyColumn(
+                    verticalArrangement = Arrangement.spacedBy(0.dp),
+                    contentPadding = PaddingValues(top = 4.dp, bottom = dockClearance() + 8.dp),
+                ) {
+                    if (checking) {
+                        item(key = "checking") { CheckingRow() }
                     }
-                } else if (visibleBooks.isEmpty()) {
-                    Box(
-                        modifier = Modifier.fillMaxSize(),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        // 全量重做：分组空态走共享 EmptyState（文案与原来逐字一致，
-                        // v0.197.0 更新失败页签单独说明保留）。
-                        EmptyState(
-                            kind = EmptyKind.Empty,
-                            icon = Icons.Filled.MenuBook,
-                            title = if (shelfTab == 1) "还没有更新失败的书" else "这个分组还没有书",
-                            hint = if (shelfTab == 1) "下拉刷新检查后，失败的会列在这里" else "长按书籍看书籍信息",
+                    items(visibleBooks, key = { it.id }) { novel ->
+                        NovelListCard(
+                            novel = novel,
+                            lastReadAt = progressMap[novel.id]?.updatedAt ?: 0L,
+                            updateCount = updates[novel.id]?.newChapters ?: 0,
+                            checking = checkingIds.contains(novel.id),
+                            checkFailed = failedIds.contains(novel.id),
+                            selectionMode = selectionMode,
+                            selected = selectedIds.contains(novel.id),
+                            onClick = {
+                                if (selectionMode) toggleSelect(novel.id)
+                                else openNovel(novel)
+                            },
+                            onLongClick = {
+                                // v0.211.0：长按直接进书籍详情（用户截图口径），
+                                // 不再弹长按操作表；分组/换源/删除/收藏都在详情里。
+                                if (selectionMode) toggleSelect(novel.id)
+                                else detailTarget = novel
+                            },
                         )
                     }
-                } else if (viewMode == BookshelfGroupStore.VIEW_GRID) {
-                    // v0.294.6：列数随宽度自适应（每格 ≥96dp：手机 3 列、宽屏/平板更多）
-                    LazyVerticalGrid(
-                        columns = GridCells.Adaptive(minSize = 96.dp),
-                        verticalArrangement = Arrangement.spacedBy(14.dp),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
-                        contentPadding = PaddingValues(top = 4.dp, bottom = dockClearance() + 8.dp),
-                    ) {
-                        if (checking) {
-                            item(span = { GridItemSpan(maxLineSpan) }) {
-                                CheckingRow()
-                            }
-                        }
-                        items(visibleBooks, key = { it.id }) { novel ->
-                            NovelGridCard(
-                                novel = novel,
-                                updateCount = updates[novel.id]?.newChapters ?: 0,
-                                checking = checkingIds.contains(novel.id),
-                                checkFailed = failedIds.contains(novel.id),
-                                selectionMode = selectionMode,
-                                selected = selectedIds.contains(novel.id),
-                                onClick = {
-                                    if (selectionMode) toggleSelect(novel.id)
-                                    else openNovel(novel)
-                                },
-                                onLongClick = {
-                                    // v0.211.0：长按直接进书籍详情（用户截图口径），
-                                    // 不再弹长按操作表；分组/换源/删除/收藏都在详情里。
-                                    if (selectionMode) toggleSelect(novel.id)
-                                    else detailTarget = novel
-                                },
-                            )
-                        }
-                    }
-                } else {
-                    // v0.197.0：阅读式 plain 行自带底部分隔线，列表不再额外留 10dp 间距
-                    LazyColumn(
-                        verticalArrangement = Arrangement.spacedBy(0.dp),
-                        contentPadding = PaddingValues(top = 4.dp, bottom = dockClearance() + 8.dp),
-                    ) {
-                        if (checking) {
-                            item(key = "checking") { CheckingRow() }
-                        }
-                        items(visibleBooks, key = { it.id }) { novel ->
-                            NovelListCard(
-                                novel = novel,
-                                lastReadAt = progressMap[novel.id]?.updatedAt ?: 0L,
-                                updateCount = updates[novel.id]?.newChapters ?: 0,
-                                checking = checkingIds.contains(novel.id),
-                                checkFailed = failedIds.contains(novel.id),
-                                selectionMode = selectionMode,
-                                selected = selectedIds.contains(novel.id),
-                                onClick = {
-                                    if (selectionMode) toggleSelect(novel.id)
-                                    else openNovel(novel)
-                                },
-                                onLongClick = {
-                                    // v0.211.0：长按直接进书籍详情（用户截图口径），
-                                    // 不再弹长按操作表；分组/换源/删除/收藏都在详情里。
-                                    if (selectionMode) toggleSelect(novel.id)
-                                    else detailTarget = novel
-                                },
-                            )
-                        }
-                    }
                 }
             }
-            } // v0.178.0：闭合 PullToRefreshBox
-            } // 闭合 searching else 分支（v0.248.0 修复：原 } else 误配给 searching，属第二重 else）
-            } // 闭合 mainTab == 0 分支
-            if (mainTab != 0) {
-                // v0.248.0：发现内页（书源列表＋分类胶囊，搜索/排序/分组只属于书架分支）。
-                DiscoverTab(onOpenExplore = onOpenExplore)
-            }
+        }
+        } // v0.178.0：闭合 PullToRefreshBox
+        } // 闭合 searching else 分支（v0.248.0 修复：原 } else 误配给 searching，属第二重 else）
         }
     }
 

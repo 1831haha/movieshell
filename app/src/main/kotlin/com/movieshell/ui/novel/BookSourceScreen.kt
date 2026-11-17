@@ -76,6 +76,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import com.movieshell.data.novel.BookProbe
 import com.movieshell.data.novel.BookProbeRecord
 import com.movieshell.data.novel.BookProbeStore
 import com.movieshell.domain.model.BookSource
@@ -215,6 +216,22 @@ fun BookSourceScreen(
         BookSourceManager.load(context)
         PyBookSourceManager.load(context)
         BookProbeStore.load(context)
+    }
+
+    // v1.2.27：发现页并进书源管理——进页即探连通（原 DiscoverTab 的逻辑平移）：
+    // 只探带发现分类的已启用 JSON 源，未知、地址对不上或超过 24 小时的才探；
+    // 离页自动取消在途探测，取消按取消处理，绝不写成“不通”。
+    LaunchedEffect(sources) {
+        val now = System.currentTimeMillis()
+        sources.filter { it.enabled && it.exploreUrl.isNotBlank() }.forEach { src ->
+            if (src.url.isBlank()) return@forEach
+            val rec = probeMap[src.key]
+            if (rec != null && rec.url == src.url && now - rec.time < 24L * 60 * 60 * 1000) return@forEach
+            launch {
+                val r = BookProbe.probe(src.url)
+                BookProbeStore.update(context, src.key, r)
+            }
+        }
     }
 
     val pyImportLauncher = rememberLauncherForActivityResult(
@@ -1252,7 +1269,7 @@ private fun SourceTextEditorDialog(
     }
 }
 
-/** v1.1.3：探测状态点颜色，与发现页 DiscoverTab 同口径：通绿、慢黄、不通红、未测灰。 */
+/** v1.1.3：探测状态点颜色（与发现探测同口径）：通绿、慢黄、不通红、未测灰。 */
 private fun bookProbeDotColor(status: String?): Color = when (status) {
     // v1.2.14 E片：探测状态点是 3:1 图形——原色浅色底只有 1.79/1.80/2.91:1；
     // 通改 #15803D（4.78/3.69）、慢改 #9A6B0F（4.46/3.96）、不通改 #D92D20（4.60/3.84），

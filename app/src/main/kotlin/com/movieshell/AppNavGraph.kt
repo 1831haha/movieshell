@@ -407,12 +407,7 @@ fun NavGraphBuilder.appDestinations(
                                             "&cover=${Uri.encode(item.cover.orEmpty())}",
                                     )
                                 },
-                                // v0.248.0：发现页胶囊进单源发现页（分类预选）。
-                                onOpenExplore = { key, cat ->
-                                    navController.navigate(
-                                        "explore/${Uri.encode(key)}?cat=${Uri.encode(cat.orEmpty())}",
-                                    )
-                                },
+                                // v1.2.27：书架发现页签已并进书源管理，不再从书架进单源发现页。
                             )
                         }
                         composable(
