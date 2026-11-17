@@ -41,9 +41,14 @@ object NovelPurifyEngine {
         bookUrl: String = "",
         sourceKey: String = "",
     ): String {
-        // v1.2.28：正文里字面量 \r（反斜杠+r，站方双重转义）会原样显示在屏幕上
-        // （黑岩 #破冰实证）；先把字面量 \r\n / \r / \n 与真实 \r\n / \r 一律归一成 \n，
-        // 再按行切段。字面量 \r\n 先换，避免拆成两个换行。
+        // v1.2.28：换行符归一（对标阅读 ContentProcessor 的内置步骤，不是用户规则）：
+        // 正文里字面量 \r（反斜杠+r）与真实 \r 一律归一成 \n，再按行切段。
+        // 真机制（黑岩 #破冰字节级实证）：站方 JSON 是标准单层转义，\r 是合法
+        // 转义不是双重转义；以前 App 取值链没按 JSON 路径求值，readabilityText
+        // 直接对原始 JSON 文本提字，转义才以字面量漏上屏。根因修在
+        // evalChapterText/extractChapterText 的 JSON 路径求值（evalJsonRule），
+        // 这里是兜底：任何残留的字面量/真实换行符都不许进屏幕。
+        // 字面量 \r\n 先换，避免拆成两个换行。
         var out = text
             .replace("\\r\\n", "\n")
             .replace("\\r", "\n")

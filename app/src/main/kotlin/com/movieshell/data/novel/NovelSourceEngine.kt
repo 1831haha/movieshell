@@ -640,7 +640,7 @@ object NovelSourceEngine {
             // 第二项 = 是否走了通用兜底（源规则在该页选空）；取大逻辑只在兜底时触发。
             fun parseTocPage(body: String, pageUrl: String): Pair<List<ChapterMeta>, Boolean> {
                 val doc = BookRuleEngine.parseDoc(body, pageUrl)
-                val listRule = source.ruleTocList.ifBlank { return emptyList() to false }
+                val listRule = source.ruleTocList.ifBlank { return emptyList<ChapterMeta>() to false }
                 // v1.2.26：XPath 列表规则先转 CSS；源规则选空时，用通用兜底再试一次。
                 val cssRule = listRule.trim().let {
                     if (it.startsWith("/")) LegadoJsEngine.xpathToCss(it) ?: it else it
@@ -861,6 +861,16 @@ object NovelSourceEngine {
 
     /** v0.250.0：非 JS 正文提取（规则 + 替换 + 通用兜底），首抓与验证重抓共用。 */
     private fun extractChapterText(source: BookSource, html: String, pageUrl: String): String {
+        // v1.2.28：JSON 路径正文规则（对标阅读 AnalyzeRule.getString）：
+        // 裸 `$.` 规则不是 CSS 选择器——先按 JSON 路径对响应体求值，取出的
+        // htmlContent 按 HTML 片段分段；路径取不到返回 ""（权威空，不回退
+        // readabilityText——它对原始 JSON 文本提字会把 \r 转义以字面量漏上屏）。
+        LegadoJsEngine.evalJsonPathRule(html, source.ruleContent)?.let { value ->
+            if (value.isBlank()) return ""
+            val text = if (value.contains('<')) BookRuleEngine.extractHtmlText(value, pageUrl) else value
+            return if (source.ruleContentReplace.isBlank()) text
+            else BookRuleEngine.applyReplaceRegex(text, source.ruleContentReplace)
+        }
         val doc = BookRuleEngine.parseDoc(html, pageUrl)
         val raw = if (source.ruleContent.isBlank()) "" else BookRuleEngine.extractContent(doc, source.ruleContent)
         val out = if (source.ruleContentReplace.isBlank()) raw
@@ -978,8 +988,14 @@ object NovelSourceEngine {
                     BookRuleEngine.applyReplaceRegex(outText, source.ruleContentReplace)
                 }
             }
-            // v0.202.0：JS 规则提空时同样用通用正文兜底（取首页面源码）
-            val finalText = outText.ifBlank { readabilityText(chapter.url, checked.body) }
+            // v0.202.0：JS 规则提空时同样用通用正文兜底（取首页面源码）。
+            // v1.2.28：JSON 路径规则提空是权威空（对标阅读 AnalyzeRule 取不到
+            // 即内容为空），不再回退 readabilityText——它对原始 JSON 文本提字
+            // 会把 \r 转义以字面量漏上屏（黑岩 #破冰实证）。
+            val isJsonContentRule = LegadoJsEngine.splitJsonRule(source.ruleContent) != null
+            val finalText =
+                if (outText.isBlank() && !isJsonContentRule) readabilityText(chapter.url, checked.body)
+                else outText
             if (finalText.isNotBlank()) ContentResult.Ok(finalText)
             else ContentResult.Failed(ContentFail.PARSE_EMPTY)
         }
@@ -1058,7 +1074,13 @@ object NovelSourceEngine {
         }.getOrDefault("")
     }
 
-    /** v0.199.0：单页正文求值（JS 规则跑 Rhino，否则走老 extractContent）。 */
+    /** v0.199.0：单页正文求值（JS 规则跑 Rhino，否则走老 extractContent）。
+     * v1.2.28：JSON 路径正文规则（对标阅读 AnalyzeRule.getString）：
+     * `$.chapter.htmlContent@js:...` 先按 JSON 路径求值（JSON 解码把 `\r`
+     * 转义还原成真实回车），再跑 @js: 后缀，取出的 HTML 片段按块级分段。
+     * 以前这条路走 extractContent，Jsoup 对 `$` 开头的选择器直接抛错返回
+     * 空串，content() 再回退 readabilityText 对原始 JSON 文本提字，
+     * `\r` 转义以字面量漏上屏（黑岩 #破冰实证）。路径取不到返回 ""（权威空）。 */
     private fun evalChapterText(
         source: BookSource,
         html: String,
@@ -1080,6 +1102,10 @@ object NovelSourceEngine {
                 s = LegadoJsEngine.evalTextRule(doc, pageUrl, rest, ctx.copy(baseUrl = pageUrl), state)
             }
             return s
+        }
+        LegadoJsEngine.evalJsonRule(html, source.ruleContent, ctx, state)?.let { value ->
+            if (value.isBlank()) return ""
+            return if (value.contains('<')) BookRuleEngine.extractHtmlText(value, pageUrl) else value
         }
         val doc = BookRuleEngine.parseDoc(html, pageUrl)
         return BookRuleEngine.extractContent(doc, source.ruleContent)

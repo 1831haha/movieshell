@@ -1095,6 +1095,51 @@ object LegadoJsEngine {
     }
 
     /**
+     * v1.2.28：JSON 路径规则拆分（对标阅读 AnalyzeRule.getString）：
+     * `$.a.b[0].c` 或 `$.a.b@js:<表达式>` → (JSON 路径, @js: 表达式?)；
+     * 不是 `$.` 开头返回 null。@js: 在 JSON 路径段里不可能出现，
+     * 直接取首次出现处切分即可。
+     */
+    fun splitJsonRule(rule: String): Pair<String, String?>? {
+        val r = rule.trim()
+        if (!r.startsWith("$.")) return null
+        val jsIdx = r.indexOf("@js:")
+        return if (jsIdx >= 0) r.substring(0, jsIdx).trim() to r.substring(jsIdx + 4)
+        else r to null
+    }
+
+    /**
+     * v1.2.28：JSON 路径正文/字段规则求值（对标阅读 AnalyzeRule.getString）：
+     * 先按 JSON 路径对响应体求值（org.json 解码把 `\r` 转义还原成真实回车），
+     * 再把 @js: 后缀当表达式跑 Rhino（result=路径取值）。
+     * 不是 JSON 路径规则返回 null（调用方走原有 CSS 链）；是则返回求值结果
+     * （路径取不到返回 ""）。黑岩 #破冰实证：规则
+     * `$.chapter.htmlContent@js:result?result:'付费章节，换源阅读'` 以前走
+     * extractContent，Jsoup 对 `$` 开头的选择器直接抛错返回空串，
+     * 再回退 readabilityText 对原始 JSON 文本提字，`\r` 转义以字面量漏上屏。
+     */
+    fun evalJsonRule(body: String, rule: String, ctx: JsCtx, state: JsState): String? {
+        val split = splitJsonRule(substituteTemplates(rule, ctx)) ?: return null
+        var value = evalJsonPath(body, split.first)
+        val script = split.second
+        if (!script.isNullOrBlank()) {
+            value = toJsString(evalJs(script, ctx, state, result = value, src = body))
+        }
+        return value
+    }
+
+    /**
+     * v1.2.28：无 JS 上下文的 JSON 路径规则求值（非 JS 链路用）：
+     * 只认不带 @js: 的裸 `$.` 规则（含 @js: 或含 {{模板}} 的返回 null，
+     * 走原有链路，不静默吞掉需要 Rhino/模板的规则）。
+     */
+    fun evalJsonPathRule(body: String, rule: String): String? {
+        if (rule.contains("@js:") || rule.contains("{{")) return null
+        val split = splitJsonRule(rule) ?: return null
+        return evalJsonPath(body, split.first)
+    }
+
+    /**
      * v1.2.23：JSON 路径求值（列表用）。
      * 支持 `$.data.content[*]`（取数组全部元素）、`$.a[0].b`、`$.a.b`。
      * 目标是数组时返回其元素；是单个对象/标量时包成一项；路径走不通返回空列。

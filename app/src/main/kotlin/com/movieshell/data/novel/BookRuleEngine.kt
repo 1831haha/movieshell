@@ -281,17 +281,37 @@ object BookRuleEngine {
             // v1.2.26：XPath 正文规则先转 CSS（见 xpathToCss）。
             val sel = rule.trim().let { if (it.startsWith("/")) LegadoJsEngine.xpathToCss(it) ?: it else it }
             val el = doc.selectFirst(sel) ?: return ""
-            el.select("script, style").remove()
-            // after 只追加换行文本节点，不复制正文；嵌套块产生的多余空行会被 filter 去掉
-            el.select("br").forEach { it.after("\n") }
-            el.select("p, div, h1, h2, h3, h4, h5, h6, li, blockquote, tr, section, article")
-                .forEach { it.after("\n") }
-            el.wholeText()
-                .split("\n")
-                .map { it.trim() }
-                .filter { it.isNotEmpty() }
-                .joinToString("\n\n") { "　　$it" }
+            extractElementText(el)
         }.getOrDefault("")
+    }
+
+    /**
+     * v1.2.28：元素内文本按块级分段（对标阅读 HtmlFormatter.formatKeepImg：
+     * 块后断行、逐行 trim、空行过滤、段首缩进）。真实回车是空白符，
+     * trim 时直接去掉，不会漏到屏幕上；字面量 `\r`（反斜杠+r）不在此处理，
+     * 由取值链的 JSON 解码（evalJsonRule）与净化规则（purify）负责。
+     */
+    fun extractElementText(el: org.jsoup.nodes.Element): String {
+        el.select("script, style").remove()
+        // after 只追加换行文本节点，不复制正文；嵌套块产生的多余空行会被 filter 去掉
+        el.select("br").forEach { it.after("\n") }
+        el.select("p, div, h1, h2, h3, h4, h5, h6, li, blockquote, tr, section, article")
+            .forEach { it.after("\n") }
+        return el.wholeText()
+            .split("\n")
+            .map { it.trim() }
+            .filter { it.isNotEmpty() }
+            .joinToString("\n\n") { "　　$it" }
+    }
+
+    /**
+     * v1.2.28：HTML 片段直接取段落文本，不走选择器。
+     * JSON 路径取出的 htmlContent（`<p>…</p>` 串）由此进正文。
+     */
+    fun extractHtmlText(html: String, baseUrl: String): String {
+        if (html.isBlank()) return ""
+        return runCatching { extractElementText(parseDoc(html, baseUrl).body()) }
+            .getOrDefault("")
     }
 
     /** v0.198.0：阅读式正文替换。

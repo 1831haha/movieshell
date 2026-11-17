@@ -4,7 +4,9 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Test
 
-/** v1.2.28：正文里字面量 \r（反斜杠+r，站方双重转义）不能原样上屏——黑岩 #破冰实证。 */
+/** v1.2.28：正文里字面量 \r（反斜杠+r）不能原样上屏——黑岩 #破冰实证。
+ * 真机制：站方 JSON 是标准单层转义，根因是 App 取值链没按 JSON 路径求值；
+ * 这里是 ContentProcessor 式兜底：任何残留的字面量/真实换行符一律归一。 */
 class NovelPurifyTest {
 
     @Test fun literalBackslashRBecomesParagraphBreak() {
