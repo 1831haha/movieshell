@@ -635,7 +635,8 @@ object LegadoJsEngine {
     ): ChainResult {
         if (part.isBlank()) return Texts(listOf(root.outerHtml()))
         var current: ChainResult = Elems(listOf(root))
-        val segs = part.split("@")
+        // v1.2.26：按 @ 切段时，<js>…</js> 块里的 @ 不切（脚本里可能有 @）。
+        val segs = splitChainSegments(part)
         var si = 0
         while (si < segs.size) {
             val segRaw = segs[si]
@@ -721,16 +722,239 @@ object LegadoJsEngine {
                         if (seg == "href" || seg == "src") absolutize(pageUrl, v) else v
                     },
                 )
+                // v1.2.26：段内 <js>（如 href<js>…</js>）——<js> 不在段首时 splitJsPrefix 够不着，
+                // 此前整段被当成 CSS 选，抛错 → 章节地址全空。先按段首取属性/文本，再把值逐个交给 JS。
+                seg.contains("<js>") && seg.contains("</js>") -> {
+                    val pre = seg.substringBefore("<js>").trim()
+                    val script = seg.substringAfter("<js>").substringBefore("</js>")
+                    val post = seg.substringAfter("</js>").trim()
+                    if (post.isNotEmpty()) {
+                        selectSegment(current, seg, pageUrl)
+                    } else {
+                        val values: List<String> = when (current) {
+                            is Texts -> current.list
+                            is Elems -> when (pre) {
+                                "", "text" -> current.list.map { it.text() }
+                                "html" -> current.list.map { it.html() }
+                                else -> current.list.map {
+                                    val v = it.attr(pre).trim()
+                                    if (pre == "href" || pre == "src") absolutize(pageUrl, v) else v
+                                }
+                            }
+                        }
+                        Texts(values.map { v -> toJsString(jsEval(script, v)) })
+                    }
+                }
                 else -> selectSegment(current, seg, pageUrl)
             }
         }
         return current
     }
 
+    /** 按 @ 切链段，但 <js>…</js> 块里的 @ 不切。 */
+    private fun splitChainSegments(part: String): List<String> {
+        val out = mutableListOf<String>()
+        val cur = StringBuilder()
+        var i = 0
+        var inJs = false
+        while (i < part.length) {
+            if (!inJs && part.startsWith("<js>", i)) {
+                inJs = true
+                cur.append("<js>")
+                i += 4
+                continue
+            }
+            if (inJs && part.startsWith("</js>", i)) {
+                inJs = false
+                cur.append("</js>")
+                i += 5
+                continue
+            }
+            val c = part[i]
+            if (c == '@' && !inJs) {
+                out.add(cur.toString())
+                cur.clear()
+                i++
+                continue
+            }
+            cur.append(c)
+            i++
+        }
+        out.add(cur.toString())
+        return out
+    }
+
+    /**
+     * v1.2.26：XPath 选段转 CSS。
+     * 引擎此前只会 Jsoup CSS，// 开头的规则一律选空——黑岩 chapterList //li[span]/a、
+     * tocUrl //a[text()="开始阅读"]/@href 全是 XPath，目录兜底抓对了页也解析出 0 章。
+     * 只转常见形状，转不了返回 null（调用方用原规则，行为与之前一致，不引入新失败）。
+     * 支持：//tag、/ 与 // 步进（> 与后代）、[@attr="v"]、[@attr]、[N]（:eq）、
+     * [子元素]（:has）、[text()="v"]（:containsOwn）、[contains(text(),"v")]（:contains）、
+     * [position()>N]/[position()>=N]/[position()<N]/[position()<=N]（:gt/:lt）、
+     * following-sibling::X（~ X）。不支持：..、last()、||、<js>、其它轴与函数。
+     */
+    fun xpathToCss(selector: String): String? {
+        var s = selector.trim()
+        if (!s.startsWith("//") && !s.startsWith("/")) return null
+        if (s.contains("<js>") || s.contains("||") || s.contains("..")) return null
+        while (s.endsWith("/")) s = s.dropLast(1)
+        if (s.isEmpty()) return null
+        // 按步进切分（/ 与 //），方括号与引号里的 / 不切。
+        val steps = mutableListOf<String>()
+        val combs = mutableListOf<String>()
+        var i = if (s.startsWith("//")) 2 else 1
+        var comb = ""
+        val cur = StringBuilder()
+        var depth = 0
+        var quote = '\u0000'
+        while (i < s.length) {
+            val c = s[i]
+            when {
+                quote != '\u0000' -> {
+                    cur.append(c)
+                    if (c == quote) quote = '\u0000'
+                }
+                c == '"' || c == '\'' -> {
+                    quote = c
+                    cur.append(c)
+                }
+                c == '[' -> {
+                    depth++
+                    cur.append(c)
+                }
+                c == ']' -> {
+                    depth--
+                    cur.append(c)
+                }
+                c == '/' && depth == 0 -> {
+                    steps.add(cur.toString())
+                    combs.add(comb)
+                    cur.clear()
+                    if (i + 1 < s.length && s[i + 1] == '/') {
+                        comb = " "
+                        i++
+                    } else {
+                        comb = " > "
+                    }
+                }
+                else -> cur.append(c)
+            }
+            i++
+        }
+        steps.add(cur.toString())
+        combs.add(comb)
+        val out = StringBuilder()
+        for (k in steps.indices) {
+            val converted = convertXpathStep(steps[k]) ?: return null
+            if (k == 0) {
+                out.append(converted.first)
+            } else {
+                out.append(if (converted.second) " ~ " else combs[k])
+                out.append(converted.first)
+            }
+        }
+        val css = out.toString().trim()
+        return css.ifBlank { null }
+    }
+
+    /** 转单步 XPath：返回（CSS 选段，是否 following-sibling 步）。 */
+    private fun convertXpathStep(step: String): Pair<String, Boolean>? {
+        var rest = step.trim()
+        if (rest.isEmpty()) return null
+        var sibling = false
+        if (rest.startsWith("following-sibling::")) {
+            sibling = true
+            rest = rest.removePrefix("following-sibling::")
+        }
+        if (rest == ".." || rest.contains("::")) return null
+        val bracket = rest.indexOf('[')
+        val tag = if (bracket < 0) rest else rest.substring(0, bracket)
+        val preds = if (bracket < 0) "" else rest.substring(bracket)
+        val base = when {
+            tag == "*" -> ""
+            tag.matches(Regex("[A-Za-z_][A-Za-z0-9_-]*")) -> tag
+            else -> return null
+        }
+        val sb = StringBuilder(base)
+        var j = 0
+        while (j < preds.length) {
+            if (preds[j] != '[') return null
+            var k = j + 1
+            var d = 1
+            var q = '\u0000'
+            while (k < preds.length && d > 0) {
+                val ch = preds[k]
+                if (q != '\u0000') {
+                    if (ch == q) q = '\u0000'
+                } else {
+                    when (ch) {
+                        '"', '\'' -> q = ch
+                        '[' -> d++
+                        ']' -> d--
+                    }
+                }
+                k++
+            }
+            if (d != 0) return null
+            sb.append(convertXpathPredicate(preds.substring(j + 1, k - 1)) ?: return null)
+            j = k
+        }
+        return sb.toString() to sibling
+    }
+
+    /** 转单个 XPath 谓词为 CSS 伪类 / 属性选择器。 */
+    private fun convertXpathPredicate(inner: String): String? {
+        val p = inner.trim()
+        if (p.matches(Regex("\\d+"))) {
+            val n = p.toIntOrNull() ?: return null
+            if (n < 1) return null
+            return ":eq(${n - 1})"
+        }
+        if (p.startsWith("@")) {
+            val m = Regex("^@([A-Za-z_][A-Za-z0-9_:.\\-]*)(\\s*=\\s*([\"'])(.*)\\3)?$").find(p)
+                ?: return null
+            val attr = m.groupValues[1]
+            if (m.groupValues[2].isEmpty()) return "[$attr]"
+            val value = m.groupValues[4]
+            if (value.contains('"') || value.contains('\'')) return null
+            return "[$attr=\"$value\"]"
+        }
+        if (p.startsWith("text()")) {
+            val m = Regex("^text\\(\\)\\s*=\\s*([\"'])(.*)\\1$").find(p) ?: return null
+            val v = m.groupValues[2]
+            if (v.isEmpty() || v.contains(")") || v.contains("\"") || v.contains("'")) return null
+            return ":containsOwn($v)"
+        }
+        if (p.startsWith("contains(")) {
+            val m = Regex("^contains\\(text\\(\\)\\s*,\\s*([\"'])(.*)\\1\\)$").find(p)
+                ?: return null
+            val v = m.groupValues[2]
+            if (v.isEmpty() || v.contains(")") || v.contains("\"") || v.contains("'")) return null
+            return ":contains($v)"
+        }
+        if (p.startsWith("position()")) {
+            val m = Regex("^position\\(\\)\\s*(>=|<=|>|<)\\s*(\\d+)$").find(p) ?: return null
+            val n = m.groupValues[2].toIntOrNull() ?: return null
+            return when (m.groupValues[1]) {
+                ">" -> ":gt(${n - 1})"
+                ">=" -> ":gt(${n - 2})"
+                "<" -> ":lt(${n - 1})"
+                "<=" -> ":lt($n)"
+                else -> null
+            }
+        }
+        if (p.matches(Regex("[A-Za-z_][A-Za-z0-9_-]*"))) return ":has($p)"
+        return null
+    }
+
     /** 选择器段：tag.xxx 按标签名，其余按 CSS；对文本列的选择器段直接判空。 */
     private fun selectSegment(current: ChainResult, seg: String, pageUrl: String = ""): ChainResult {
         if (current !is Elems) return Texts(emptyList())
-        val css = if (seg.startsWith("tag.")) seg.removePrefix("tag.") else seg
+        val raw = if (seg.startsWith("tag.")) seg.removePrefix("tag.") else seg
+        if (raw.isBlank()) return current
+        // v1.2.26：// 开头的 XPath 段先转 CSS（Jsoup 选 XPath 直接抛错，整段判空）。
+        val css = if (raw.trimStart().startsWith("/")) xpathToCss(raw) ?: raw else raw
         if (css.isBlank()) return current
         val found = current.list.flatMap { el ->
             runCatching { el.select(css).toList() }.getOrDefault(emptyList())

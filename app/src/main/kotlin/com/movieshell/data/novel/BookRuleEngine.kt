@@ -1,6 +1,7 @@
 package com.movieshell.data.novel
 
 import com.movieshell.core.log.LogBus
+import com.movieshell.core.js.LegadoJsEngine
 import com.movieshell.core.net.DEFAULT_UA_CHROME120
 import com.movieshell.core.net.HttpClient
 import com.movieshell.core.net.PageResult
@@ -206,7 +207,13 @@ object BookRuleEngine {
             } else {
                 r to "text"
             }
-            val el: Element = if (selector.isEmpty()) root else root.selectFirst(selector) ?: return ""
+            val el: Element = if (selector.isEmpty()) root else {
+                // v1.2.26：// 开头的 XPath 选段先转 CSS（Jsoup 选 XPath 直接抛错，整段判空）。
+                val sel = selector.trim().let {
+                    if (it.startsWith("/")) LegadoJsEngine.xpathToCss(it) ?: it else it
+                }
+                root.selectFirst(sel)
+            } ?: return ""
             when (attr.lowercase()) {
                 "text" -> el.text().trim()
                 "html" -> el.html()
@@ -218,7 +225,9 @@ object BookRuleEngine {
 
     fun selectList(html: String, css: String): List<Element> {
         if (css.isBlank()) return emptyList()
-        return runCatching { Jsoup.parse(html).select(css).toList() }.getOrDefault(emptyList())
+        // v1.2.26：XPath 列表规则先转 CSS（见 xpathToCss）。
+        val sel = css.trim().let { if (it.startsWith("/")) LegadoJsEngine.xpathToCss(it) ?: it else it }
+        return runCatching { Jsoup.parse(html).select(sel).toList() }.getOrDefault(emptyList())
     }
 
     fun parseDoc(html: String, baseUrl: String): org.jsoup.nodes.Document =
@@ -251,7 +260,9 @@ object BookRuleEngine {
     fun extractContent(doc: org.jsoup.nodes.Document, rule: String): String {
         if (rule.isBlank()) return ""
         return runCatching {
-            val el = doc.selectFirst(rule) ?: return ""
+            // v1.2.26：XPath 正文规则先转 CSS（见 xpathToCss）。
+            val sel = rule.trim().let { if (it.startsWith("/")) LegadoJsEngine.xpathToCss(it) ?: it else it }
+            val el = doc.selectFirst(sel) ?: return ""
             el.select("script, style").remove()
             // after 只追加换行文本节点，不复制正文；嵌套块产生的多余空行会被 filter 去掉
             el.select("br").forEach { it.after("\n") }

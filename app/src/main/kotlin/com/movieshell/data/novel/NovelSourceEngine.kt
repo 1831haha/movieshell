@@ -640,7 +640,16 @@ object NovelSourceEngine {
             fun parseTocPage(body: String, pageUrl: String): List<ChapterMeta> {
                 val doc = BookRuleEngine.parseDoc(body, pageUrl)
                 val listRule = source.ruleTocList.ifBlank { return emptyList() }
-                val items = runCatching { doc.select(listRule).toList() }.getOrDefault(emptyList())
+                // v1.2.26：XPath 列表规则先转 CSS；源规则选空时，用通用 //li/a 再试一次
+                // （目录页多是裸 <li><a>，规则过期也照样出目录；仍空才判失败）。
+                val cssRule = listRule.trim().let {
+                    if (it.startsWith("/")) LegadoJsEngine.xpathToCss(it) ?: it else it
+                }
+                var items = runCatching { doc.select(cssRule).toList() }.getOrDefault(emptyList())
+                if (items.isEmpty() && cssRule != "li > a") {
+                    items = runCatching { doc.select("li > a").toList() }.getOrDefault(emptyList())
+                    if (items.isNotEmpty()) LogBus.d(TAG, "目录通用兜底 ${source.name} 用 li>a 解析出 ${items.size} 章")
+                }
                 return items.mapIndexedNotNull { i, el ->
                     val title = BookRuleEngine.extract(el, pageUrl, source.ruleTocTitle.ifBlank { "@text" })
                     val url = BookRuleEngine.extract(el, pageUrl, source.ruleTocUrl.ifBlank { "@href" })
@@ -705,9 +714,9 @@ object NovelSourceEngine {
             }
             val checkedLen = curPage.body.length
             val all = mutableListOf<ChapterMeta>()
-            fun collect(html: String, pageUrl: String) {
+            fun collect(html: String, pageUrl: String, listRule: String = source.ruleTocList) {
                 val pageCtx = ctx.copy(baseUrl = pageUrl)
-                LegadoJsEngine.evalListRule(html, pageUrl, source.ruleTocList, pageCtx, state).forEach { el ->
+                LegadoJsEngine.evalListRule(html, pageUrl, listRule, pageCtx, state).forEach { el ->
                     val title = LegadoJsEngine.evalTextRule(el, pageUrl, source.ruleTocTitle.ifBlank { "@text" }, pageCtx, state)
                     val url = LegadoJsEngine.evalTextRule(el, pageUrl, source.ruleTocUrl.ifBlank { "@href" }, pageCtx, state)
                     if (title.isNotBlank() && url.isNotBlank()) {
@@ -718,11 +727,11 @@ object NovelSourceEngine {
                 }
             }
             // v1.2.25：分页抓取抽成 harvest——首轮 0 章时兜底跟进“目录”链接再 harvest 一次，共用同一套分页逻辑。
-            suspend fun harvest(start: PageResult) {
+            suspend fun harvest(start: PageResult, listRule: String = source.ruleTocList) {
                 var page = start
                 var g = 0
                 while (g++ < 50) {
-                    collect(page.body, page.url)
+                    collect(page.body, page.url, listRule)
                     if (source.ruleTocNext.isBlank()) break
                     val pageCtx = ctx.copy(baseUrl = page.url)
                     val nexts = LegadoJsEngine.evalNextUrls(page.body, page.url, source.ruleTocNext, pageCtx, state)
@@ -739,13 +748,14 @@ object NovelSourceEngine {
                         val checked = LegadoJsEngine.runLoginCheck(source.toJsRuleSource(), p, ctx, state) {
                             BookRuleEngine.fetchPageWithOptions(u, ua, options = fetchOptions(source))
                         }
-                        collect(checked.body, checked.url)
+                        collect(checked.body, checked.url, listRule)
                     }
                     break
                 }
             }
             harvest(curPage)
             // v1.2.25：目录兜底——首轮解析出 0 章时，跟页面上的“目录”链接再解析一次（与纯路径同口径）。
+            var fallbackChecked: PageResult? = null
             if (all.isEmpty()) {
                 val fallbackUrl = BookRuleEngine.findTocLink(curPage.body, curPage.url)
                 if (fallbackUrl != null) {
@@ -754,8 +764,19 @@ object NovelSourceEngine {
                         val checked = LegadoJsEngine.runLoginCheck(source.toJsRuleSource(), fbPage, ctx, state) {
                             BookRuleEngine.fetchPageWithOptions(fallbackUrl, ua, options = fetchOptions(source))
                         }
+                        fallbackChecked = checked
                         harvest(checked)
                         LogBus.d(TAG, "目录兜底 ${source.name} 跟进 $fallbackUrl 解析出 ${all.size} 章")
+                    }
+                }
+            }
+            // v1.2.26：通用列表兜底——源规则（含 XPath 转换）仍为 0 章时，用通用 //li/a 再抓一次。
+            if (all.isEmpty()) {
+                for (p in listOfNotNull(fallbackChecked, curPage)) {
+                    harvest(p, "//li/a")
+                    if (all.isNotEmpty()) {
+                        LogBus.d(TAG, "目录通用兜底 ${source.name} 用 li>a 解析出 ${all.size} 章")
+                        break
                     }
                 }
             }

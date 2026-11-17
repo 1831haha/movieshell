@@ -410,7 +410,7 @@ fun BookSourceScreen(
         Spacer(Modifier.height(6.dp))
         LazyColumn(
             modifier = Modifier.weight(1f),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
             // v0.64.0：本地 PY 书源区
             if (shownPy.isNotEmpty()) {
@@ -424,7 +424,7 @@ fun BookSourceScreen(
                 }
             }
             items(shownPy, key = { "py_${it.name}" }) { r ->
-                // v0.223.0：每源单独卡片（点卡打开该源，长按进文本编辑）。
+                // v1.2.26：单行窄行（与 JSON 卡同口径；文件名与大小进长按后的文本编辑页看）。
                 AppCard(
                     modifier = Modifier.fillMaxWidth(),
                     onClick = { onOpenPySource(r.name) },
@@ -441,7 +441,7 @@ fun BookSourceScreen(
                     },
                 ) {
                     Row(
-                        modifier = Modifier.fillMaxWidth().padding(12.dp),
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         if (batchMode) {
@@ -454,19 +454,11 @@ fun BookSourceScreen(
                                 modifier = Modifier.padding(end = 4.dp),
                             )
                         }
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                r.title, fontWeight = FontWeight.Bold, fontSize = 16.sp,
-                                maxLines = 1, overflow = TextOverflow.Ellipsis,
-                            )
-                            Text(
-                                "${r.name} · ${r.sizeKb}KB",
-                                fontSize = 12.sp,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                            )
-                        }
+                        Text(
+                            r.title, fontWeight = FontWeight.Bold, fontSize = 15.sp,
+                            maxLines = 1, overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f),
+                        )
                         AppSwitch(
                             checked = r.name in pyEnabled,
                             onCheckedChange = {
@@ -477,47 +469,63 @@ fun BookSourceScreen(
                         )
                         // v0.67.0：连通性测试（跑一遍 bookSearch）
                         if (testingPy == r.name) {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(24.dp),
-                                strokeWidth = 2.dp,
-                            )
+                            Box(
+                                modifier = Modifier.size(32.dp),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(20.dp),
+                                    strokeWidth = 2.dp,
+                                )
+                            }
                         } else {
-                            IconButton(onClick = {
-                                testingPy = r.name
-                                testResult = null
-                                scope.launch {
-                                    // 排队：等前一个源的测试跑完再跑自己的，
-                                    // 转圈与结果不再被别的源顶掉。
-                                    testMutex.withLock {
-                                        val path = PyBookSourceManager.rulePath(context, r.name)
-                                        val msg = if (path == null) {
-                                            "找不到源文件"
-                                        } else {
-                                            PyBookApi().testSearch(path).fold(
-                                                onSuccess = { n -> "测试通过：搜到 $n 本书" },
-                                                onFailure = { e -> "测试失败：${e.message}" },
-                                            )
+                            Box(
+                                modifier = Modifier.size(32.dp).clickable {
+                                    testingPy = r.name
+                                    testResult = null
+                                    scope.launch {
+                                        // 排队：等前一个源的测试跑完再跑自己的，
+                                        // 转圈与结果不再被别的源顶掉。
+                                        testMutex.withLock {
+                                            val path = PyBookSourceManager.rulePath(context, r.name)
+                                            val msg = if (path == null) {
+                                                "找不到源文件"
+                                            } else {
+                                                PyBookApi().testSearch(path).fold(
+                                                    onSuccess = { n -> "测试通过：搜到 $n 本书" },
+                                                    onFailure = { e -> "测试失败：${e.message}" },
+                                                )
+                                            }
+                                            testResult = "《${r.title}》$msg"
                                         }
-                                        testResult = "《${r.title}》$msg"
+                                        testingPy = null
                                     }
-                                    testingPy = null
-                                }
-                            }) {
+                                },
+                                contentAlignment = Alignment.Center,
+                            ) {
                                 Icon(
                                     Icons.Filled.PlayArrow,
                                     "测试",
                                     tint = accent,
+                                    modifier = Modifier.size(20.dp),
                                 )
                             }
                         }
-                        IconButton(onClick = { editPyTarget = r }) {
-                            Icon(Icons.Filled.Edit, "编辑", tint = accent)
+                        Box(
+                            modifier = Modifier.size(32.dp).clickable { editPyTarget = r },
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Icon(Icons.Filled.Edit, "编辑", tint = accent, modifier = Modifier.size(20.dp))
                         }
-                        IconButton(onClick = { deletePyTarget = r }) {
+                        Box(
+                            modifier = Modifier.size(32.dp).clickable { deletePyTarget = r },
+                            contentAlignment = Alignment.Center,
+                        ) {
                             Icon(
                                 Icons.Filled.Delete,
                                 "删除",
                                 tint = MaterialTheme.colorScheme.error,
+                                modifier = Modifier.size(20.dp),
                             )
                         }
                     }
@@ -534,99 +542,87 @@ fun BookSourceScreen(
                 }
             }
             items(shownJson, key = { "json_${it.key}" }) { s ->
-                // v0.223.0：每源单独卡片——第一行书名 + 开关（开关恒贴右缘），
-                // 第二行地址 + 操作钮（操作列恒贴右缘），各卡片开关与操作列纵向对齐。
+                // v1.2.26：单行窄行——名＋状态＋开关＋编辑/删除一行放下（约 44dp，原两行约 80dp）；
+                // 地址与分组进点卡后的字段编辑页看，「发现」入口保留（有发现分类的源才显示）。
                 // 点卡进字段编辑，长按进文本编辑（与原来点行/长按一致）。
                 AppCard(
                     modifier = Modifier.fillMaxWidth(),
                     onClick = { editTarget = s },
                     onLongClick = { textEditJson = s },
                 ) {
-                    Column(modifier = Modifier.fillMaxWidth().padding(12.dp)) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            if (batchMode) {
-                                Checkbox(
-                                    checked = "json_${s.key}" in selectedSrcKeys,
-                                    onCheckedChange = {
-                                        selectedSrcKeys = if (it) selectedSrcKeys + "json_${s.key}"
-                                        else selectedSrcKeys - "json_${s.key}"
-                                    },
-                                    modifier = Modifier.padding(end = 4.dp),
-                                )
-                            }
-                            Text(
-                                s.name, fontWeight = FontWeight.Bold, fontSize = 16.sp,
-                                maxLines = 1, overflow = TextOverflow.Ellipsis,
-                                modifier = Modifier.weight(1f),
-                            )
-                            // v1.1.3：连通状态点＋耗时（发现页探测结果；没去过发现页即“未测”）。
-                            val rec = probeMap[s.key]
-                            Box(
-                                modifier = Modifier
-                                    .size(8.dp)
-                                    .background(bookProbeDotColor(rec?.status), CircleShape),
-                            )
-                            Spacer(Modifier.width(6.dp))
-                            Text(
-                                bookProbeText(rec),
-                                fontSize = 11.sp,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                            Spacer(Modifier.width(8.dp))
-                            AppSwitch(
-                                checked = s.enabled,
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        if (batchMode) {
+                            Checkbox(
+                                checked = "json_${s.key}" in selectedSrcKeys,
                                 onCheckedChange = {
-                                    scope.launch {
-                                        // v0.188.0：写盘失败提示“保存失败”；管理器已回滚
-                                        // 内存表，开关随 StateFlow 旧值自动弹回，不用手动复位。
-                                        if (!BookSourceManager.setEnabled(context, s.key, it)) {
-                                            AppToast.show(context, "保存失败", long = false)
-                                        }
-                                    }
+                                    selectedSrcKeys = if (it) selectedSrcKeys + "json_${s.key}"
+                                    else selectedSrcKeys - "json_${s.key}"
                                 },
+                                modifier = Modifier.padding(end = 4.dp),
                             )
                         }
-                        Spacer(Modifier.height(4.dp))
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                modifier = Modifier.weight(1f),
-                            ) {
-                                Text(
-                                    s.url,
-                                    fontSize = 12.sp,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                    modifier = Modifier.weight(1f, fill = false),
-                                )
-                                if (s.group.isNotBlank()) {
-                                    Spacer(Modifier.width(6.dp))
-                                    Text(
-                                        s.group,
-                                        fontSize = 12.sp,
-                                        color = accent,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis,
-                                    )
+                        // v1.1.3：连通状态点＋耗时（发现页探测结果；没去过发现页即“未测”）。
+                        val rec = probeMap[s.key]
+                        Box(
+                            modifier = Modifier
+                                .size(8.dp)
+                                .background(bookProbeDotColor(rec?.status), CircleShape),
+                        )
+                        Spacer(Modifier.width(6.dp))
+                        Text(
+                            s.name, fontWeight = FontWeight.Bold, fontSize = 15.sp,
+                            maxLines = 1, overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f),
+                        )
+                        Text(
+                            bookProbeText(rec),
+                            fontSize = 11.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        // v0.201.0：有发现分类的源行末加「发现」入口（进书架子结构内的发现页）
+                        if (s.exploreUrl.isNotBlank()) {
+                            Text(
+                                "发现",
+                                fontSize = 13.sp,
+                                color = accent,
+                                modifier = Modifier
+                                    .clickable { onOpenExplore(s.key) }
+                                    .padding(horizontal = 4.dp, vertical = 4.dp),
+                            )
+                            Spacer(Modifier.width(4.dp))
+                        }
+                        AppSwitch(
+                            checked = s.enabled,
+                            onCheckedChange = {
+                                scope.launch {
+                                    // v0.188.0：写盘失败提示“保存失败”；管理器已回滚
+                                    // 内存表，开关随 StateFlow 旧值自动弹回，不用手动复位。
+                                    if (!BookSourceManager.setEnabled(context, s.key, it)) {
+                                        AppToast.show(context, "保存失败", long = false)
+                                    }
                                 }
-                            }
-                            // v0.201.0：有发现分类的源行末加「发现」入口（进书架子结构内的发现页）
-                            if (s.exploreUrl.isNotBlank()) {
-                                TextButton(onClick = { onOpenExplore(s.key) }) {
-                                    Text("发现", fontSize = 13.sp)
-                                }
-                            }
-                            IconButton(onClick = { editTarget = s }) {
-                                Icon(Icons.Filled.Edit, "编辑", tint = accent)
-                            }
-                            IconButton(onClick = { deleteTarget = s }) {
-                                Icon(
-                                    Icons.Filled.Delete,
-                                    "删除",
-                                    tint = MaterialTheme.colorScheme.error,
-                                )
-                            }
+                            },
+                        )
+                        Box(
+                            modifier = Modifier.size(32.dp).clickable { editTarget = s },
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Icon(Icons.Filled.Edit, "编辑", tint = accent, modifier = Modifier.size(20.dp))
+                        }
+                        Box(
+                            modifier = Modifier.size(32.dp).clickable { deleteTarget = s },
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Icon(
+                                Icons.Filled.Delete,
+                                "删除",
+                                tint = MaterialTheme.colorScheme.error,
+                                modifier = Modifier.size(20.dp),
+                            )
                         }
                     }
                 }
