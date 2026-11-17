@@ -718,7 +718,7 @@ object NovelSourceEngine {
                 }
             }
             // v1.2.25：分页抓取抽成 harvest——首轮 0 章时兜底跟进“目录”链接再 harvest 一次，共用同一套分页逻辑。
-            fun harvest(start: PageResult) {
+            suspend fun harvest(start: PageResult) {
                 var page = start
                 var g = 0
                 while (g++ < 50) {
