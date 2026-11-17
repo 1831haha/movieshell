@@ -7,6 +7,9 @@ import com.movieshell.core.net.HttpClient
 import com.movieshell.core.net.PageResult
 import com.movieshell.core.net.SourceThrottle
 import com.movieshell.core.net.buildSearchRequest
+import com.movieshell.core.net.isJsonListRule
+import com.movieshell.core.net.resolveSearchUrlTemplate
+import com.movieshell.core.net.searchUrlNeedsJs
 import com.movieshell.data.store.NovelStore
 import com.movieshell.domain.model.BookDetailInfo
 import com.movieshell.domain.model.BookSource
@@ -23,15 +26,24 @@ import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.channelFlow
+import kotlinx.coroutines.flow.toList
+import kotlinx.coroutines.joinAll
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.IOException
 import java.io.InterruptedIOException
+import java.net.ConnectException
 import java.net.SocketTimeoutException
 import java.net.UnknownHostException
+import java.util.concurrent.ConcurrentHashMap
+import javax.net.ssl.SSLException
 
 /**
  * v0.61.0 书源执行引擎：把 BookSource 规则跑通
@@ -43,9 +55,48 @@ object NovelSourceEngine {
 
     private const val TAG = "NovelSourceEngine"
 
-    /** v0.101.0：书源并发搜上限，书源齐发会被反爬封 IP（影视模块有自己的限流，互不干扰）。 */
-    private const val SEARCH_MAX_CONCURRENCY = 4
+    /** v0.101.0：书源并发搜上限，书源齐发会被反爬封 IP（影视模块有自己的限流，互不干扰）。
+     * v1.2.23：4 → 10——同域仍有 SourceThrottle 间隔限速，提并发只为让 2000+ 源的
+     * 聚合搜索不再排 500 轮长队；单源 30 秒与整轮 120 秒封顶兜底慢源。 */
+    private const val SEARCH_MAX_CONCURRENCY = 10
     private val searchSemaphore = Semaphore(SEARCH_MAX_CONCURRENCY)
+
+    /** v1.2.23：聚合搜索里单个书源的预算（毫秒）——超了直接丢弃该源结果，不拖整轮。 */
+    private const val SEARCH_SOURCE_TIMEOUT_MS = 30_000L
+
+    /** v1.2.23：聚合搜索整轮预算（毫秒）——到点即收尾，已出的结果保留。 */
+    private const val SEARCH_GLOBAL_BUDGET_MS = 120_000L
+
+    /** v1.2.23：死站 host 的跳过时长（毫秒）——DNS/SSL/超时连不上的 host 在此时长内不再发请求。 */
+    private const val DEAD_HOST_TTL_MS = 10 * 60_000L
+
+    /** v1.2.23：死站 host → 恢复时间戳（内存态，进程重启清零）。 */
+    private val deadHosts = ConcurrentHashMap<String, Long>()
+
+    /** v1.2.23：该 host 是否在死站跳过期内。 */
+    private fun isHostDead(host: String): Boolean {
+        if (host.isBlank()) return false
+        val until = deadHosts[host] ?: return false
+        if (System.currentTimeMillis() < until) return true
+        deadHosts.remove(host)
+        return false
+    }
+
+    /** v1.2.23：连通性错误（DNS/SSL/超时/建连失败）才记死站；403/429 这类站方限流不记。 */
+    private fun isConnectivityError(e: Throwable?): Boolean =
+        e is UnknownHostException || e is SocketTimeoutException ||
+            e is InterruptedIOException || e is SSLException || e is ConnectException
+
+    /** v1.2.23：按最后一次抓取结果记死站（调用方在搜失败后调一次）。 */
+    private fun markDeadHostIfConnectivityError(host: String, last: BookRuleEngine.FetchOutcome?) {
+        if (host.isBlank() || !isConnectivityError(last?.error)) return
+        if (deadHosts.size > 1000) deadHosts.entries.removeIf { it.value < System.currentTimeMillis() }
+        deadHosts[host] = System.currentTimeMillis() + DEAD_HOST_TTL_MS
+        LogBus.w(TAG, "搜书死站跳过 $host（10 分钟内不再请求）")
+    }
+
+    private fun hostOf(url: String): String =
+        runCatching { java.net.URI(url).host.orEmpty() }.getOrDefault("")
 
     /**
      * v1.1.12：最近一次搜书失败的书源名（内存态，不落盘；影视侧 SiteRepository
@@ -108,27 +159,135 @@ object NovelSourceEngine {
     private fun fetchOptions(source: BookSource): BookRuleEngine.FetchOptions =
         BookRuleEngine.FetchOptions(headers = source.headerMap, timeoutMs = source.timeout)
 
-    /** v0.199.0：searchUrl 求值：<js> 前缀跑 JS，否则原样（{{key}}/{{page}} 由 buildSearchRequest 处理）。 */
+    /**
+     * v0.199.0：searchUrl 求值：<js> 前缀跑 JS，否则原样（{{key}}/{{page}} 由 buildSearchRequest 处理）。
+     * v1.2.23：补三类之前直接丢给 OkHttp 炸掉的写法——`@js:` 前缀（Lofter/123读书/
+     * 青羽阅读整段都是 JS）、`{{...}}` 表达式块（读零零小说的
+     * `{{url=source.getKey(); cookie.removeCookie(url)}}`）、相对地址（旧时光的
+     * `/modules/article/search.php`、无忧小说网的 `/search.html` 等，按源地址补全）。
+     * 求不出有效 http(s) 地址返回 null，调用方直接跳过该源、不弹验证窗。
+     */
     private fun evalSearchUrl(
         source: BookSource,
         ctx: LegadoJsEngine.JsCtx,
         state: LegadoJsEngine.JsState,
     ): String? {
-        val (js, _) = LegadoJsEngine.splitJsPrefix(source.searchUrl)
-        if (js == null) return source.searchUrl
-        val out = LegadoJsEngine.evalScript(
-            js,
-            LegadoJsEngine.bindings(ctx, state, result = "", src = ""),
-            LegadoJsEngine.jsLibPrelude(ctx.source),
-        )
-        val urlStr = LegadoJsEngine.toJsString(out)
-        // v0.226.0：求值失败时旧逻辑回退原串，OkHttp 再以“无 scheme”炸掉，
-        // 白白走 30 秒验证；求值失败直接判空，调用方跳过验证。
-        if (urlStr.isBlank() || urlStr.trimStart().startsWith("<js>")) {
-            LogBus.w(TAG, "搜索地址 JS 求值失败 ${source.name}，跳过本次搜索")
+        val raw = source.searchUrl.trim()
+        if (raw.isBlank()) return null
+        var template = raw
+        // 1. <js> 前缀：原逻辑
+        val (js, _) = LegadoJsEngine.splitJsPrefix(template)
+        if (js != null) {
+            val out = LegadoJsEngine.evalScript(
+                js,
+                LegadoJsEngine.bindings(ctx, state, result = "", src = ""),
+                LegadoJsEngine.jsLibPrelude(ctx.source),
+            )
+            val urlStr = LegadoJsEngine.toJsString(out)
+            // v0.226.0：求值失败时旧逻辑回退原串，OkHttp 再以“无 scheme”炸掉，
+            // 白白走 30 秒验证；求值失败直接判空，调用方跳过验证。
+            if (urlStr.isBlank() || urlStr.trimStart().startsWith("<js>")) {
+                LogBus.w(TAG, "搜索地址 JS 求值失败 ${source.name}，跳过本次搜索")
+                return null
+            }
+            template = urlStr
+        } else if (template.startsWith("@js:")) {
+            // 2. @js: 前缀：去前缀后整段求值（与 <js> 同一套绑定与完成值语义）
+            val out = LegadoJsEngine.evalScript(
+                template.removePrefix("@js:"),
+                LegadoJsEngine.bindings(ctx, state, result = "", src = ""),
+                LegadoJsEngine.jsLibPrelude(ctx.source),
+            )
+            val urlStr = LegadoJsEngine.toJsString(out)
+            if (urlStr.isBlank() || urlStr.trimStart().startsWith("@js:")) {
+                LogBus.w(TAG, "搜索地址 JS 求值失败 ${source.name}，跳过本次搜索")
+                return null
+            }
+            template = urlStr
+        } else {
+            // 3. {{...}} 表达式块：逐块跑 JS 求值替换（{{key}}/{{page}} 留给 buildSearchRequest）。
+            // 按位置替换，不按内容拼串——块内带空格（如 {{ url=... }}）也能对上。
+            var failed = false
+            template = Regex("\\{\\{([^{}]+)\\}\\}").replace(template) { m ->
+                val inner = m.groupValues[1].trim()
+                if (inner == "key" || inner == "page") {
+                    m.value
+                } else {
+                    val out = LegadoJsEngine.evalScript(
+                        inner,
+                        LegadoJsEngine.bindings(ctx, state, result = "", src = ""),
+                        LegadoJsEngine.jsLibPrelude(ctx.source),
+                    )
+                    if (out == null) {
+                        failed = true
+                        ""
+                    } else {
+                        LegadoJsEngine.toJsString(out)
+                    }
+                }
+            }
+            if (failed) {
+                LogBus.w(TAG, "搜索地址模板求值失败 ${source.name}，跳过本次搜索")
+                return null
+            }
+        }
+        // 4. 相对地址按源地址补全；补完仍不是 http(s) 直接判空
+        template = resolveSearchUrlTemplate(template, source.url)
+        if (!template.startsWith("http://") && !template.startsWith("https://")) {
+            LogBus.w(TAG, "搜索地址无效 ${source.name}，跳过本次搜索")
             return null
         }
-        return urlStr
+        return template
+    }
+
+    /**
+     * v1.2.23：单源搜索的请求构造（求值 + 补全 + 校验一次做完）。
+     * 返回 null = 该源本次搜不了（地址求不出/无效），调用方记失败、不发请求、不弹验证。
+     * ctx/state 由调用方传（JS 分支复用同一份，供后续解析与登录校验用）。
+     */
+    private fun buildSearchReq(
+        source: BookSource,
+        keyword: String,
+        ctx: LegadoJsEngine.JsCtx,
+        state: LegadoJsEngine.JsState,
+    ): com.movieshell.core.net.SearchRequest? {
+        val template = if (searchUrlNeedsJs(source.searchUrl)) {
+            evalSearchUrl(source, ctx, state) ?: return null
+        } else {
+            val resolved = resolveSearchUrlTemplate(source.searchUrl.trim(), source.url)
+            if (!resolved.startsWith("http://") && !resolved.startsWith("https://")) {
+                LogBus.w(TAG, "搜索地址无效 ${source.name}，跳过本次搜索")
+                return null
+            }
+            resolved
+        }
+        return buildSearchRequest(template, keyword)
+    }
+
+    /**
+     * v1.2.23：JSON 搜索列表的结果映射（`$.data.content[*]` 这类 API 源）。
+     * 条目是 JSON 对象，字段规则走 evalJsonField（`$.` 取值 / `@js:` 拼接 / `##` 去标签）。
+     */
+    private fun searchJsonItems(
+        html: String,
+        pageUrl: String,
+        source: BookSource,
+        ctx: LegadoJsEngine.JsCtx,
+        state: LegadoJsEngine.JsState,
+    ): List<NovelSearchResult> {
+        val items = LegadoJsEngine.evalJsonListRule(html, source.ruleSearchList, ctx, state)
+        return items.mapNotNull { item ->
+            val name = LegadoJsEngine.evalJsonField(item, source.ruleSearchName.ifBlank { "@text" }, ctx, state)
+            val bookUrl = LegadoJsEngine.evalJsonField(item, source.ruleSearchBookUrl.ifBlank { "a@href" }, ctx, state)
+            if (name.isBlank() || bookUrl.isBlank()) return@mapNotNull null
+            NovelSearchResult(
+                sourceKey = source.key,
+                remoteId = absUrl(pageUrl, bookUrl),
+                title = name,
+                author = LegadoJsEngine.evalJsonField(item, source.ruleSearchAuthor, ctx, state).ifBlank { null },
+                cover = LegadoJsEngine.evalJsonField(item, source.ruleSearchCover, ctx, state).ifBlank { null },
+            )
+        }
     }
 
     /** 在单个书源里搜书。v0.197.0：搜索走 POST 感知的请求（老 GET 源行为不变）。v0.199.0：JS 源走 LegadoJsEngine。 */
@@ -195,15 +354,33 @@ object NovelSourceEngine {
         applySourceNetConfig(source)
         if (source.searchUrl.isBlank() || source.ruleSearchList.isBlank()) return emptyList()
         if (!isJsSource(source)) {
-            val req = buildSearchRequest(source.searchUrl, keyword)
-            val html = gatedFetch(source, null, source.url, allowGate) {
-                BookRuleEngine.fetchSearchPageOutcome(req, options = fetchOptions(source))
-            }?.body ?: run {
-                // v1.1.12：页没抓到是搜失败了，不是“没书”——记一笔，搜书页据此分开说。
+            val state = LegadoJsEngine.JsState(source.key)
+            val ctx = LegadoJsEngine.JsCtx(source = source.toJsRuleSource(), baseUrl = source.url, keyword = keyword, page = 1)
+            val req = buildSearchReq(source, keyword, ctx, state) ?: run {
+                // v1.1.12：搜索地址算不出来是搜失败了，不是“没书”。
                 failedSearchNames.add(source.name)
                 return emptyList()
             }
+            val searchHost = hostOf(req.url)
+            if (isHostDead(searchHost)) {
+                failedSearchNames.add(source.name)
+                return emptyList()
+            }
+            var lastOutcome: BookRuleEngine.FetchOutcome? = null
+            val html = gatedFetch(source, null, source.url, allowGate) {
+                BookRuleEngine.fetchSearchPageOutcome(req, options = fetchOptions(source))
+                    .also { lastOutcome = it }
+            }?.body ?: run {
+                // v1.1.12：页没抓到是搜失败了，不是“没书”——记一笔，搜书页据此分开说。
+                failedSearchNames.add(source.name)
+                markDeadHostIfConnectivityError(searchHost, lastOutcome)
+                return emptyList()
+            }
             val url = req.url
+            // v1.2.23：JSON 搜索列表（$.data.content[*] 这类 API 源）走 JSON 解析，不走 CSS
+            if (isJsonListRule(source.ruleSearchList)) {
+                return searchJsonItems(html, url, source, ctx, state)
+            }
             return BookRuleEngine.selectList(html, source.ruleSearchList).mapNotNull { el ->
                 val name = BookRuleEngine.extract(el, url, source.ruleSearchName.ifBlank { "@text" })
                 val bookUrl = BookRuleEngine.extract(el, url, source.ruleSearchBookUrl.ifBlank { "a@href" })
@@ -221,38 +398,50 @@ object NovelSourceEngine {
             val ua = uaOf(source)
             val state = LegadoJsEngine.JsState(source.key)
             val ctx = LegadoJsEngine.JsCtx(source = source.toJsRuleSource(), baseUrl = source.url, keyword = keyword, page = 1)
-            val urlStr = evalSearchUrl(source, ctx, state)
-            if (urlStr == null) {
+            val req = buildSearchReq(source, keyword, ctx, state) ?: run {
                 // v1.1.12：搜索地址算不出来是搜失败了，不是“没书”。
                 failedSearchNames.add(source.name)
                 return@withContext emptyList()
             }
-            val req = buildSearchRequest(urlStr, keyword)
+            val searchHost = hostOf(req.url)
+            if (isHostDead(searchHost)) {
+                failedSearchNames.add(source.name)
+                return@withContext emptyList()
+            }
+            var lastOutcome: BookRuleEngine.FetchOutcome? = null
             var page = gatedFetch(source, ua, source.url, allowGate) {
                 BookRuleEngine.fetchSearchPageOutcome(req, ua, options = fetchOptions(source))
+                    .also { lastOutcome = it }
             }
             if (page == null) {
                 // v0.223.0：搜书诊断——未抓到页以前是静默空，记一行才能分清是请求问题还是解析问题。
                 LogBus.w(TAG, "搜书诊断 ${source.name} 未抓到页")
                 // v1.1.12：同上，记一笔失败。
                 failedSearchNames.add(source.name)
+                markDeadHostIfConnectivityError(searchHost, lastOutcome)
                 return@withContext emptyList()
             }
             // v0.209.0：登录后重抓也过验证通道——999 这类源先握手再被墙时，
             // 原直接重抓拿不到页又不弹窗，搜索静默为空。
             val beforeLoginLen = page.body.length
             page = LegadoJsEngine.runLoginCheck(source.toJsRuleSource(), page, ctx, state, refetch = {
-                val urlStr2 = evalSearchUrl(source, ctx, state)
-                if (urlStr2 == null) {
+                val req2 = buildSearchReq(source, keyword, ctx, state)
+                if (req2 == null) {
                     null
                 } else {
-                    val req2 = buildSearchRequest(urlStr2, keyword)
                     gatedFetch(source, ua, source.url, allowGate) {
                         BookRuleEngine.fetchSearchPageOutcome(req2, ua, options = fetchOptions(source))
+                            .also { lastOutcome = it }
                     }
                 }
             })
             val pageCtx = ctx.copy(baseUrl = page.url)
+            // v1.2.23：JSON 搜索列表（$.data.content[*] 这类 API 源）走 JSON 解析，不走 CSS
+            if (isJsonListRule(source.ruleSearchList)) {
+                val results = searchJsonItems(page.body, page.url, source, pageCtx, state)
+                LogBus.d(TAG, "搜书诊断 ${source.name} 校验前长=$beforeLoginLen 校验后长=${page.body.length} JSON 解析出 ${results.size} 条")
+                return@withContext results
+            }
             val items = LegadoJsEngine.evalListRule(page.body, page.url, source.ruleSearchList, pageCtx, state)
             // v0.223.0：搜书诊断——只记长度与条数，不记正文；校验前后长度一变就说明 1234 握手改写了页。
             LogBus.d(TAG, "搜书诊断 ${source.name} 校验前长=$beforeLoginLen 校验后长=${page.body.length} 解析出 ${items.size} 条")
@@ -271,29 +460,55 @@ object NovelSourceEngine {
         }
     }
 
-    /** 多源并发搜，结果按源分组返回。v0.101.0：Semaphore(4) 限流防反爬封 IP。 */
+    /**
+     * 多源并发搜，结果按源分组返回。v0.101.0：Semaphore(4) 限流防反爬封 IP。
+     * v1.2.23：聚合搜索永不弹验证窗——2000+ 源时每个失败源都弹一次全屏验证，
+     * 搜索永远跑不完、用户被弹窗淹没（2026-11-17 用户报障实证）。验证只留给
+     * 单源搜索（search(allowGate=true)），聚合入口一律强制关掉。
+     * 批量版仍保留（换源弹窗等调用方过渡用），内部走流式版收集。
+     */
     suspend fun searchAll(
         sources: List<BookSource>,
         keyword: String,
         allowGate: Boolean = false,
-    ): List<Pair<BookSource, List<NovelSearchResult>>> = coroutineScope {
-        sources.map { s ->
-            async {
-                s to searchSemaphore.withPermit {
-                    runCatching { search(s, keyword, allowGate) }
-                        .onFailure {
-                            // v0.247.0（取消语义）：取消不算源失败——原样抛出，
-                            // 让协程正常取消（v0.230.0 bookDetail 同款）；否则旧搜索
-                            // 被取消后仍正常返回空结果，覆盖新搜索的结果。
-                            if (it is CancellationException) throw it
-                            // v1.1.12：记一笔失败，搜书页据此区分“真没书”和“搜失败了”。
-                            failedSearchNames.add(s.name)
-                            LogBus.w(TAG, "搜索失败 ${s.name}: ${it.message}")
+    ): List<Pair<BookSource, List<NovelSearchResult>>> {
+        // 聚合搜索强制不弹验证（见上），allowGate 参数仅为兼容旧调用方保留
+        return searchAllFlow(sources, keyword).toList()
+    }
+
+    /**
+     * v1.2.23：多源流式搜——每源出结果就发一个，不等 2000+ 源全跑完。
+     * 找书页/换源弹窗改走它：首批结果 1~2 秒即现，不再白屏几分钟。
+     * - 验证强制关（见 searchAll 注释）；- 单源 30 秒超时丢弃；
+     * - 整轮 120 秒封顶，到点收尾、已出结果保留；- 取消原样抛出（v0.247.0 语义）。
+     */
+    fun searchAllFlow(
+        sources: List<BookSource>,
+        keyword: String,
+    ): Flow<Pair<BookSource, List<NovelSearchResult>>> = channelFlow {
+        withTimeoutOrNull(SEARCH_GLOBAL_BUDGET_MS) {
+            val jobs = sources.map { s ->
+                launch {
+                    val result = withTimeoutOrNull(SEARCH_SOURCE_TIMEOUT_MS) {
+                        searchSemaphore.withPermit {
+                            runCatching { search(s, keyword, allowGate = false) }
+                                .onFailure {
+                                    // v0.247.0（取消语义）：取消不算源失败——原样抛出，
+                                    // 让协程正常取消（v0.230.0 bookDetail 同款）；否则旧搜索
+                                    // 被取消后仍正常返回空结果，覆盖新搜索的结果。
+                                    if (it is CancellationException) throw it
+                                    // v1.1.12：记一笔失败，搜书页据此区分“真没书”和“搜失败了”。
+                                    failedSearchNames.add(s.name)
+                                    LogBus.w(TAG, "搜索失败 ${s.name}: ${it.message}")
+                                }
+                                .getOrDefault(emptyList())
                         }
-                        .getOrDefault(emptyList())
+                    } ?: emptyList()
+                    if (result.isNotEmpty()) send(s to result)
                 }
             }
-        }.awaitAll()
+            jobs.joinAll()
+        }
     }
 
     /**

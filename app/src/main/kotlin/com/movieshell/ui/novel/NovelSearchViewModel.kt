@@ -16,6 +16,7 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.Dispatchers
@@ -195,10 +196,9 @@ class NovelSearchViewModel(app: Application) : AndroidViewModel(app) {
             try {
                 _loading.value = true
                 _searched.value = true
-                _results.value = coroutineScope {
                 // v0.66.0：锁定单 PY 源 → 只搜它
                 if (locked != null) {
-                    NovelSourceEngine.searchAllPy(getApplication(), listOf(locked), kw)
+                    _results.value = NovelSourceEngine.searchAllPy(getApplication(), listOf(locked), kw)
                         .filter { it.second.isNotEmpty() }
                         .map { (r, books) ->
                             SourceGroup(
@@ -211,25 +211,40 @@ class NovelSearchViewModel(app: Application) : AndroidViewModel(app) {
                     val enabledSources = BookSourceManager.sources.value.filter { it.enabled }
                     val enabledPyRules = PyBookSourceManager.rules.value
                         .filter { it.name in PyBookSourceManager.enabled.value }
-                    val jsonJob = async {
-                        NovelSourceEngine.searchAll(enabledSources, kw, allowGate = true)
-                            .filter { it.second.isNotEmpty() }
-                            .map { (s, books) -> SourceGroup(s.key, s.name, books) }
+                    // v1.2.23：流式搜——每源出结果就地追加，不等 2000+ 源全轮跑完；
+                    // 首批 1~2 秒即现。v1.1.12 语义保留：旧结果留到首批新结果到来才
+                    // 替换；全轮无结果则旧结果照旧留着，只置失败汇总。
+                    var firstBatch = true
+                    fun append(groups: List<SourceGroup>) {
+                        if (groups.isEmpty()) return
+                        _results.value = if (firstBatch) {
+                            firstBatch = false
+                            groups
+                        } else {
+                            _results.value + groups
+                        }
                     }
-                    val pyJob = async {
-                        NovelSourceEngine.searchAllPy(getApplication(), enabledPyRules, kw)
-                            .filter { it.second.isNotEmpty() }
-                            .map { (r, books) ->
-                                SourceGroup(
-                                    PyBookSourceManager.SOURCE_KEY_PREFIX + r.name,
-                                    "${r.title}（本地PY）",
-                                    books,
-                                )
+                    coroutineScope {
+                        val flowJob = launch {
+                            NovelSourceEngine.searchAllFlow(enabledSources, kw).collect { (s, books) ->
+                                append(listOf(SourceGroup(s.key, s.name, books)))
                             }
+                        }
+                        val pyJob = async {
+                            NovelSourceEngine.searchAllPy(getApplication(), enabledPyRules, kw)
+                                .filter { it.second.isNotEmpty() }
+                                .map { (r, books) ->
+                                    SourceGroup(
+                                        PyBookSourceManager.SOURCE_KEY_PREFIX + r.name,
+                                        "${r.title}（本地PY）",
+                                        books,
+                                    )
+                                }
+                        }
+                        append(pyJob.await())
+                        flowJob.join()
                     }
-                    jsonJob.await() + pyJob.await()
                 }
-            }
             // v1.1.12：搜完读一遍失败汇总——有失败才置标，无失败保持 null。
             _failedLabel.value = NovelSourceEngine.failedSearchLabel()
             } catch (e: CancellationException) {

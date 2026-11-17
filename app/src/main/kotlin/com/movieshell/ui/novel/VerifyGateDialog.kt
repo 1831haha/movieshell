@@ -6,11 +6,13 @@ import android.webkit.WebViewClient
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -37,6 +39,11 @@ import org.json.JSONObject
  * 有请求时弹全屏 WebView：用户在页里手动过验证（滑验证码/点确认），再点
  * 「验证完成」——取整页 HTML + WebView Cookie 回填给引擎；取消/返回则回填 null。
  * 不自动判定验证成功（Cloudflare 形态多变，误判比让用户点一下更糟）。
+ * v1.2.23：改小窗（94% 宽 × 78% 高、16dp 圆角居中，不再全屏）+「验证完成」
+ * 按钮随时可点——原先按钮要等 onPageFinished 才启用，站方页面一直转圈加载时
+ * 按钮永远是灰的，用户明明过了验证也点不了（2026-11-17 用户报障实证）。
+ * 用户本人判断验证做完了，点按钮即取当前页 HTML + Cookie；页还没加载完时取到的
+ * 是当前内容，引擎拿不到页会按失败处理，不比原来更糟。
  */
 @Composable
 fun VerifyGateDialog() {
@@ -48,8 +55,10 @@ fun VerifyGateDialog() {
     ) {
         var webView by remember(cur.url) { mutableStateOf<WebView?>(null) }
         var pageUrl by remember(cur.url) { mutableStateOf(cur.url) }
-        var loaded by remember(cur.url) { mutableStateOf(false) }
-        Surface(Modifier.fillMaxSize()) {
+        Surface(
+            Modifier.fillMaxWidth(0.94f).fillMaxHeight(0.78f),
+            shape = RoundedCornerShape(16.dp),
+        ) {
             Column(Modifier.fillMaxSize()) {
                 Row(
                     Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
@@ -78,7 +87,6 @@ fun VerifyGateDialog() {
                                 webViewClient = object : WebViewClient() {
                                     override fun onPageFinished(view: WebView, url: String) {
                                         pageUrl = url
-                                        loaded = true
                                     }
                                 }
                                 loadUrl(cur.url)
@@ -100,7 +108,6 @@ fun VerifyGateDialog() {
                     )
                     Spacer(Modifier.width(8.dp))
                     Button(
-                        enabled = loaded,
                         onClick = {
                             val view = webView ?: run {
                                 VerifyGate.complete(null)

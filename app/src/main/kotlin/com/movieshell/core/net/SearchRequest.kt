@@ -17,6 +17,62 @@ data class SearchRequest(
 )
 
 /**
+ * v1.2.23：searchUrl 是否需要 JS 求值。
+ * - `<js>` / `@js:` 前缀：整段是 JS（如 Lofter/123读书的 searchUrl）。
+ * - `{{...}}` 表达式块：除 `{{key}}` / `{{page}}`（buildSearchRequest 直接替换）
+ *   之外的块都要跑 JS（如读零零小说的 `{{url=source.getKey(); ...}}`）。
+ * 纯 URL 或只含 `{{key}}`/`{{page}}` 的模板返回 false。
+ */
+fun searchUrlNeedsJs(template: String): Boolean {
+    val t = template.trim()
+    if (t.startsWith("<js>") || t.startsWith("@js:")) return true
+    return jsTemplateBlocks(t).isNotEmpty()
+}
+
+/** v1.2.23：searchUrl 里除 {{key}}/{{page}} 之外的 {{...}} 表达式块内容。 */
+fun jsTemplateBlocks(template: String): List<String> {
+    val out = mutableListOf<String>()
+    var idx = 0
+    while (true) {
+        val start = template.indexOf("{{", idx)
+        if (start < 0) break
+        val end = template.indexOf("}}", start + 2)
+        if (end < 0) break
+        val inner = template.substring(start + 2, end).trim()
+        if (inner.isNotEmpty() && inner != "key" && inner != "page") out.add(inner)
+        idx = end + 2
+    }
+    return out
+}
+
+/**
+ * v1.2.23：searchUrl 相对地址按源地址补全（阅读式同款语义）。
+ * `,{...}` 选项后缀先剥掉、只补 URL 部分、再拼回去；绝对地址原样返回。
+ * 补不出来（如源地址本身非法）返回原模板，调用方再按 scheme 校验丢弃。
+ */
+fun resolveSearchUrlTemplate(template: String, baseUrl: String): String {
+    val optStart = template.indexOf(",{")
+    val urlPart = if (optStart < 0) template else template.substring(0, optStart)
+    val suffix = if (optStart < 0) "" else template.substring(optStart)
+    if (urlPart.startsWith("http://") || urlPart.startsWith("https://")) return template
+    if (urlPart.isBlank() || baseUrl.isBlank()) return template
+    val resolved = runCatching {
+        java.net.URL(java.net.URL(baseUrl), urlPart).toString()
+    }.getOrNull() ?: return template
+    return resolved + suffix
+}
+
+/** v1.2.23：列表规则是不是 JSON 路径（`$.data.content[*]` 这类 API 源）。 */
+fun isJsonListRule(rule: String): Boolean {
+    val r = rule.trim()
+    if (r.startsWith("$.")) return true
+    if (!r.startsWith("<js>")) return false
+    val end = r.indexOf("</js>")
+    val rest = if (end < 0) "" else r.substring(end + 5).trim()
+    return rest.startsWith("$.")
+}
+
+/**
  * v0.197.0：解析 searchUrl。
  * - 无 `,{...}` 后缀：老行为，GET，{{key}} 按 UTF-8 编码。
  * - 有后缀：按 method/body/charset/headers 解析；body 里的 {{key}} 按 charset

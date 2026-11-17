@@ -145,6 +145,8 @@ object LegadoJsEngine {
     }
 
     class SourceBridge(private val sourceKey: String, private val state: JsState) {
+        /** v1.2.23：阅读式 `source.getKey()`（如读零零小说 searchUrl 的 `{{url=source.getKey(); ...}}`）。 */
+        fun getKey(): String = sourceKey
         fun getVariable(): String = SourceVariableStore.get(sourceKey)
         fun setVariable(value: String) {
             if (SourceVariableStore.set(sourceKey, value)) state.variableChanged = true
@@ -738,6 +740,173 @@ object LegadoJsEngine {
                 else -> cur.toString()
             }
         }.getOrDefault("")
+    }
+
+    /**
+     * v1.2.23：JSON 路径求值（列表用）。
+     * 支持 `$.data.content[*]`（取数组全部元素）、`$.a[0].b`、`$.a.b`。
+     * 目标是数组时返回其元素；是单个对象/标量时包成一项；路径走不通返回空列。
+     * org.json 在单测里可用（testImplementation 有 org.json:json），可直接单测。
+     */
+    fun jsonPathQuery(root: Any?, path: String): List<Any?> {
+        val clean = path.trim().removePrefix("$.").removePrefix("$")
+        if (clean.isBlank()) return listOfNotNull(root)
+        var cur: List<Any?> = listOf(root)
+        for (token in clean.split(".")) {
+            if (token.isBlank()) continue
+            val key = token.substringBefore("[")
+            val brackets = Regex("\\[([^\\]]*)\\]").findAll(token).map { it.groupValues[1] }.toList()
+            val next = mutableListOf<Any?>()
+            for (item in cur) {
+                var v: Any? = item
+                if (key.isNotEmpty()) {
+                    v = when (v) {
+                        is JSONObject -> if (v.has(key)) v.get(key) else null
+                        is Map<*, *> -> v[key]
+                        else -> null
+                    }
+                    if (v == null || v === JSONObject.NULL) continue
+                }
+                for (b in brackets) {
+                    v = when {
+                        b == "*" -> when (v) {
+                            is org.json.JSONArray -> {
+                                for (i in 0 until v.length()) next.add(v.get(i))
+                                v = TAKEN
+                            }
+                            is List<*> -> {
+                                next.addAll(v)
+                                v = TAKEN
+                            }
+                            else -> null
+                        }
+                        else -> {
+                            val idx = b.toIntOrNull() ?: return emptyList()
+                            when (v) {
+                                is org.json.JSONArray -> if (idx < v.length()) v.get(idx) else null
+                                is List<*> -> v.getOrNull(idx)
+                                else -> null
+                            }
+                        }
+                    }
+                    if (v == null || v === JSONObject.NULL) break
+                    if (v === TAKEN) break
+                }
+                if (v !== TAKEN && v != null && v !== JSONObject.NULL) next.add(v)
+            }
+            cur = next
+            if (cur.isEmpty()) return emptyList()
+        }
+        return cur.filter { it != null && it !== JSONObject.NULL }
+    }
+
+    /** v1.2.23：jsonPathQuery 的取值哨兵（`[*]` 展开时元素已直接进结果，不再重复加）。 */
+    private val TAKEN = Any()
+
+    /** v1.2.23：JSON 文本解析为 JSONObject / JSONArray，解析失败返回 null。 */
+    fun parseJson(text: String): Any? {
+        val t = text.trim()
+        if (t.isEmpty()) return null
+        return runCatching {
+            when {
+                t.startsWith("{") -> JSONObject(t)
+                t.startsWith("[") -> org.json.JSONArray(t)
+                else -> null
+            }
+        }.getOrNull()
+    }
+
+    /** v1.2.23：JSON 路径取单个值并转字符串（数字/布尔取字面值，对象取 JSON 文本）。 */
+    fun jsonPathString(root: Any?, path: String): String {
+        val v = jsonPathQuery(root, path).firstOrNull() ?: return ""
+        return when (v) {
+            is String -> v
+            is Number, is Boolean -> v.toString()
+            else -> v.toString()
+        }
+    }
+
+    /**
+     * v1.2.23：JSON 搜索列表求值（`$.data.content[*]` 这类 API 源）。
+     * 与 evalListRule 同结构：`<js>` 前缀先跑（result=整页文本），余下按 JSON 路径取数组。
+     */
+    fun evalJsonListRule(
+        json: String,
+        rule: String,
+        ctx: JsCtx,
+        state: JsState,
+    ): List<Any?> {
+        var h = json
+        var r = substituteTemplates(rule.trim(), ctx)
+        val (js, rest) = splitJsPrefix(r)
+        if (js != null) {
+            val out = evalJs(js, ctx, state, result = h, src = h)
+            h = toJsString(out)
+            r = rest
+        }
+        if (r.isBlank()) return emptyList()
+        val root = parseJson(h) ?: return emptyList()
+        val found = jsonPathQuery(root, r.trim())
+        // 路径直接指到数组（没写 [*]）时同样展开成元素列，与阅读式行为一致
+        return found.flatMap { v ->
+            when (v) {
+                is org.json.JSONArray -> (0 until v.length()).map { v.get(it) }
+                is List<*> -> v.filterNotNull()
+                else -> listOf(v)
+            }
+        }
+    }
+
+    /**
+     * v1.2.23：JSON 条目的字段求值。
+     * - `$.path`：直接取值；- `$.path@js:代码`：取值后以 result 跑 JS（如黑岩
+     *   `$.id@js:'https://www.heiyan.com/book/'+result`）；- `##正则` 或
+     *   `##正则##替换`：取值后按正则替换（如 `$.authorname##<.*?>` 去标签）；
+     * - `<js>` 前缀：整段 JS，result=该条目 JSON 文本。
+     * 非 `$.` 开头的纯 CSS 规则在 JSON 条目上无意义，返回空串。
+     */
+    fun evalJsonField(
+        item: Any?,
+        rule: String,
+        ctx: JsCtx,
+        state: JsState,
+    ): String {
+        val r = substituteTemplates(rule.trim(), ctx)
+        if (r.isBlank()) return ""
+        val (js, rest) = splitJsPrefix(r)
+        if (js != null) {
+            val itemJson = when (item) {
+                is String -> item
+                null -> ""
+                else -> item.toString()
+            }
+            val out = evalJs(js, ctx, state, result = itemJson, src = itemJson)
+            val s = toJsString(out)
+            if (rest.isBlank()) return s
+            if (rest.trimStart().startsWith("$.")) return jsonPathString(parseJson(s), rest.trim())
+            return s
+        }
+        val hashParts = r.split("##")
+        val core = hashParts[0]
+        val regex = hashParts.getOrNull(1).orEmpty()
+        val replacement = hashParts.getOrNull(2).orEmpty()
+        val atJs = core.indexOf("@js:")
+        var value: String
+        if (atJs >= 0) {
+            val path = core.substring(0, atJs).trim()
+            val code = core.substring(atJs + 4)
+            value = jsonPathString(item, path)
+            val out = evalJs(code, ctx, state, result = value, src = value)
+            value = toJsString(out)
+        } else if (core.trimStart().startsWith("$.")) {
+            value = jsonPathString(item, core.trim())
+        } else {
+            return ""
+        }
+        if (regex.isNotEmpty()) {
+            value = runCatching { value.replace(Regex(regex), replacement) }.getOrDefault(value)
+        }
+        return value
     }
 
     /**

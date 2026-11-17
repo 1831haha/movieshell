@@ -54,6 +54,7 @@ import com.movieshell.ui.components.StatusRing
 import com.movieshell.ui.components.StatusRingState
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 
 /**
@@ -99,11 +100,16 @@ fun ChangeSourceDialog(
             val enabledPy = PyBookSourceManager.rules.value.filter {
                 it.name in PyBookSourceManager.enabled.value
             }
-            val result = coroutineScope {
-                val jsonJob = async {
-                    NovelSourceEngine.searchAll(enabledSources, kw, allowGate = true)
-                        .filter { it.second.isNotEmpty() }
-                        .map { (s, books) -> ChangeSourceGroup(s.key, s.name, books) }
+            // v1.2.23：流式搜——每源出结果就地追加、当前源置顶，不等全轮跑完
+            //（聚合搜索永不弹验证窗，见 NovelSourceEngine.searchAll）。
+            val currentFirst = { list: List<ChangeSourceGroup> ->
+                list.sortedByDescending { it.key == novel.sourceKey }
+            }
+            coroutineScope {
+                val flowJob = launch {
+                    NovelSourceEngine.searchAllFlow(enabledSources, kw).collect { (s, books) ->
+                        groups = currentFirst(groups + ChangeSourceGroup(s.key, s.name, books))
+                    }
                 }
                 val pyJob = async {
                     NovelSourceEngine.searchAllPy(context, enabledPy, kw)
@@ -116,10 +122,10 @@ fun ChangeSourceDialog(
                             )
                         }
                 }
-                jsonJob.await() + pyJob.await()
+                val pyGroups = pyJob.await()
+                if (pyGroups.isNotEmpty()) groups = currentFirst(groups + pyGroups)
+                flowJob.join()
             }
-            // 当前源排最前
-            groups = result.sortedByDescending { it.key == novel.sourceKey }
             searching = false
         }
     }
