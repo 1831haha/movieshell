@@ -2978,7 +2978,7 @@ fun PlayerScreen(
                             color = androidx.compose.material3.MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                         androidx.compose.foundation.layout.Row(
-                            verticalAlignment = androidx.compose.foundation.layout.Alignment.CenterVertically,
+                            verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
                         ) {
                             androidx.compose.material3.Text(
                                 text = if (customHosts.isEmpty()) "未添加" else "已加 ${customHosts.size} 个",
