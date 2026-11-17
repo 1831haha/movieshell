@@ -72,4 +72,37 @@ class JsonSearchTest {
         val item = LegadoJsEngine.jsonPathQuery(root, "$.data.content[0]").first()
         assertEquals("佚名", LegadoJsEngine.evalJsonField(item, "$.authorname##<.*?>", ctx(), state()))
     }
+
+    // v1.2.24：`||` 备选——第一个取到值的分支胜出。
+    @Test fun evalJsonFieldOrFallback() {
+        val root = LegadoJsEngine.parseJson(heiyanJson)!!
+        val item = LegadoJsEngine.jsonPathQuery(root, "$.data.content[0]").first()
+        assertEquals("我的三个姐姐", LegadoJsEngine.evalJsonField(item, "$.nickname || $.name", ctx(), state()))
+        assertEquals("", LegadoJsEngine.evalJsonField(item, "$.nickname || $.alias", ctx(), state()))
+    }
+
+    @Test fun evalJsonListRuleOrFallback() {
+        val items = LegadoJsEngine.evalJsonListRule(
+            heiyanJson, "$.data.nothing || $.data.content[*]", ctx(), state(),
+        )
+        assertEquals(2, items.size)
+        val items2 = LegadoJsEngine.evalJsonListRule(
+            heiyanJson, "$.data.content[*] || $.data.nothing", ctx(), state(),
+        )
+        assertEquals(2, items2.size)
+    }
+
+    // v1.2.24：`{$.x}` 内嵌——一处字段的值嵌进另一处 @js: 拼接。
+    @Test fun evalJsonFieldInterpolatesOtherField() {
+        val root = LegadoJsEngine.parseJson(heiyanJson)!!
+        val item = LegadoJsEngine.jsonPathQuery(root, "$.data.content[0]").first()
+        assertEquals(
+            "https://x.com/我的三个姐姐/143131",
+            LegadoJsEngine.evalJsonField(
+                item,
+                "$.id@js:'https://x.com/' + '{$.name}' + '/' + result",
+                ctx(), state(),
+            ),
+        )
+    }
 }

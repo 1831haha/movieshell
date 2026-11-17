@@ -827,8 +827,98 @@ object LegadoJsEngine {
     }
 
     /**
+     * v1.2.24：顶层 `||` 拆分（阅读 AnalyzeByJSonPath.splitRule("&&","||") 同款，
+     * 只做 `||` 备选：第一个取到值的分支即胜出）。
+     * `<js>...</js>` 段内、引号内、`{...}` 内含的 `||` 不拆——那是 JS 逻辑或、
+     * 字符串内容或 `{$.x}` 内嵌，不是备选分隔。
+     */
+    private fun splitTopLevelOr(rule: String): List<String> {
+        val out = mutableListOf<String>()
+        var depth = 0
+        var inSingle = false
+        var inDouble = false
+        var jsDepth = 0
+        var i = 0
+        var start = 0
+        while (i < rule.length) {
+            if (!inSingle && !inDouble) {
+                if (rule.startsWith("<js>", i)) {
+                    jsDepth++
+                    i += 4
+                    continue
+                }
+                if (jsDepth > 0 && rule.startsWith("</js>", i)) {
+                    jsDepth--
+                    i += 5
+                    continue
+                }
+            }
+            if (jsDepth > 0) {
+                i++
+                continue
+            }
+            val c = rule[i]
+            when {
+                c == '\\' && (inSingle || inDouble) -> i += 2
+                c == '\'' && !inDouble -> {
+                    inSingle = !inSingle
+                    i++
+                }
+                c == '"' && !inSingle -> {
+                    inDouble = !inDouble
+                    i++
+                }
+                !inSingle && !inDouble && (c == '{' || c == '[' || c == '(') -> {
+                    depth++
+                    i++
+                }
+                !inSingle && !inDouble && (c == '}' || c == ']' || c == ')') -> {
+                    depth--
+                    i++
+                }
+                !inSingle && !inDouble && depth == 0 && rule.startsWith("||", i) -> {
+                    out.add(rule.substring(start, i))
+                    i += 2
+                    start = i
+                }
+                else -> i++
+            }
+        }
+        out.add(rule.substring(start))
+        return out.map { it.trim() }.filter { it.isNotEmpty() }
+    }
+
+    /**
+     * v1.2.24：`{$.path}` 内嵌替换（阅读 AnalyzeByJSonPath.innerRule("{$.") 同款）。
+     * 规则里一处字段的值嵌进另一处路径/JS，如 `$.data[?(@.pid=='{$.id}')]`
+     * 或 `$.id@js:'https://x.com/b/'+'{$.name}'`；取不到时嵌空串。
+     */
+    private fun interpolateJsonPaths(rule: String, item: Any?, ctx: JsCtx, state: JsState): String {
+        if (!rule.contains("{$.", ignoreCase = false)) return rule
+        val sb = StringBuilder()
+        var idx = 0
+        while (true) {
+            val start = rule.indexOf("{$.", idx)
+            if (start < 0) {
+                sb.append(rule.substring(idx))
+                break
+            }
+            val end = rule.indexOf('}', start + 3)
+            if (end < 0) {
+                sb.append(rule.substring(idx))
+                break
+            }
+            sb.append(rule.substring(idx, start))
+            sb.append(jsonPathString(item, rule.substring(start + 1, end).trim()))
+            idx = end + 1
+        }
+        return sb.toString()
+    }
+
+    /**
      * v1.2.23：JSON 搜索列表求值（`$.data.content[*]` 这类 API 源）。
      * 与 evalListRule 同结构：`<js>` 前缀先跑（result=整页文本），余下按 JSON 路径取数组。
+     * v1.2.24：`||` 备选（第一个取到值的分支胜出）+ `{$.x}` 内嵌。
      */
     fun evalJsonListRule(
         json: String,
@@ -836,8 +926,24 @@ object LegadoJsEngine {
         ctx: JsCtx,
         state: JsState,
     ): List<Any?> {
+        val r0 = substituteTemplates(rule.trim(), ctx)
+        if (r0.isBlank()) return emptyList()
+        val root = parseJson(json)
+        for (alt in splitTopLevelOr(r0)) {
+            val items = evalJsonListRuleSingle(json, interpolateJsonPaths(alt, root, ctx, state), ctx, state)
+            if (items.isNotEmpty()) return items
+        }
+        return emptyList()
+    }
+
+    private fun evalJsonListRuleSingle(
+        json: String,
+        rule: String,
+        ctx: JsCtx,
+        state: JsState,
+    ): List<Any?> {
         var h = json
-        var r = substituteTemplates(rule.trim(), ctx)
+        var r = rule.trim()
         val (js, rest) = splitJsPrefix(r)
         if (js != null) {
             val out = evalJs(js, ctx, state, result = h, src = h)
@@ -864,6 +970,7 @@ object LegadoJsEngine {
      *   `##正则##替换`：取值后按正则替换（如 `$.authorname##<.*?>` 去标签）；
      * - `<js>` 前缀：整段 JS，result=该条目 JSON 文本。
      * 非 `$.` 开头的纯 CSS 规则在 JSON 条目上无意义，返回空串。
+     * v1.2.24：`||` 备选（第一个取到值的分支胜出）+ `{$.x}` 内嵌。
      */
     fun evalJsonField(
         item: Any?,
@@ -871,7 +978,22 @@ object LegadoJsEngine {
         ctx: JsCtx,
         state: JsState,
     ): String {
-        val r = substituteTemplates(rule.trim(), ctx)
+        val r0 = substituteTemplates(rule.trim(), ctx)
+        if (r0.isBlank()) return ""
+        for (alt in splitTopLevelOr(r0)) {
+            val v = evalJsonFieldSingle(item, interpolateJsonPaths(alt, item, ctx, state), ctx, state)
+            if (v.isNotEmpty()) return v
+        }
+        return ""
+    }
+
+    private fun evalJsonFieldSingle(
+        item: Any?,
+        rule: String,
+        ctx: JsCtx,
+        state: JsState,
+    ): String {
+        val r = rule.trim()
         if (r.isBlank()) return ""
         val (js, rest) = splitJsPrefix(r)
         if (js != null) {

@@ -117,6 +117,11 @@ fun NovelSearchScreen(
     val searched by vm.searched.collectAsState()
     // v1.1.12：本次搜书的失败汇总（null=本次无书源失败），失败与“真没书”分开说。
     val failedLabel by vm.failedLabel.collectAsState()
+    // v1.2.24：精准开关、过滤条数、单源加载更多状态。
+    val precisionSearch by vm.precisionSearch.collectAsState()
+    val filteredCount by vm.filteredCount.collectAsState()
+    val loadingMore by vm.loadingMore.collectAsState()
+    val exhaustedGroups by vm.exhaustedGroups.collectAsState()
     val joining by vm.joining.collectAsState()
     // v0.67.0：小说搜索历史（独立作用域）
     val history by vm.history.collectAsState()
@@ -143,17 +148,38 @@ fun NovelSearchScreen(
     }
     // v1.2.1：两种视图切换——按源分组（可折叠）/ 全部合并按书名排序；切 tab 回来不丢。
     var mergeMode by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }
-    // 合并视图：各源结果放一起按书名排（中文按拼音，Collator）；同源内先按 remoteId 去重，与分组视图一致。
-    val mergedBooks = remember(results) {
+    // v1.2.24：合并视图按阅读 rebuildAggregate 分层排序去重——同名同作者只留
+    // 一行（记它来自几个源），精确等于关键词的在最前，其次含关键词，最后其他；
+    // 同层源多的排前面（越多源有这本书越可能是正版/热门），再按书名拼音。
+    val mergedBooks = remember(results, keyword) {
+        val kw = keyword.trim()
         val collator = Collator.getInstance(Locale.CHINA)
-        results.flatMap { group ->
-            group.books.distinctBy { it.remoteId }.map { book -> group to book }
-        }.sortedWith(compareBy(collator) { (_, book) -> book.title })
+        val byIdentity = linkedMapOf<Pair<String, String>, MutableList<Pair<SourceGroup, NovelSearchResult>>>()
+        results.forEach { group ->
+            group.books.distinctBy { it.remoteId }.forEach { book ->
+                byIdentity.getOrPut(book.title to (book.author ?: "")) { mutableListOf() }
+                    .add(group to book)
+            }
+        }
+        byIdentity.values.map { origins ->
+            val first = origins.first().second
+            MergedBook(first.title, first.author, first.cover, origins)
+        }.sortedWith(
+            compareByDescending<MergedBook> {
+                when {
+                    it.title == kw || it.author == kw -> 2
+                    it.title.contains(kw) || (it.author?.contains(kw) == true) -> 1
+                    else -> 0
+                }
+            }.thenByDescending { it.origins.size }
+                .thenBy(collator) { it.title },
+        )
     }
     // v1.2.1：两种视图共用的结果卡片——合并视图多一行“来自某源”，分组视图不画。
     // 局部函数先声明后调用（声明在 LazyColumn 之前）。
+    // v1.2.24：sourceLabel 供合并视图用（“来自 A 等 N 个源”），不传时沿用“来自某源”。
     @Composable
-    fun BookCard(group: SourceGroup, item: NovelSearchResult, showSource: Boolean) {
+    fun BookCard(group: SourceGroup, item: NovelSearchResult, showSource: Boolean, sourceLabel: String? = null) {
         AppCard {
             Row(
                 modifier = Modifier.fillMaxWidth()
@@ -211,7 +237,7 @@ fun NovelSearchScreen(
                     if (showSource) {
                         Spacer(Modifier.height(2.dp))
                         Text(
-                            "来自 ${group.name}",
+                            sourceLabel ?: "来自 ${group.name}",
                             fontSize = 12.sp,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             maxLines = 1,
@@ -300,25 +326,10 @@ fun NovelSearchScreen(
         Spacer(Modifier.height(12.dp))
         }
         when {
-            loading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    // v0.223.0：加载圈专业化——细环 32dp、无中央点（颜色语义不动，
-                    // 黄仍是加载中）；主副两行文案，不再是大黄圈 + 一行小字。
-                    StatusRing(
-                        state = StatusRingState.Loading,
-                        diameter = 32.dp,
-                        showDot = false,
-                        strokeWidth = 2.5.dp,
-                    )
-                    Spacer(Modifier.height(12.dp))
-                    Text("正在搜索…", fontSize = 15.sp,
-                        color = MaterialTheme.colorScheme.onSurface)
-                    Spacer(Modifier.height(4.dp))
-                    Text("$totalEnabled 个书源", fontSize = 12.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-            }
-            searched && results.isEmpty() -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            // v1.2.24：搜完且 0 条才进空态——之前 loading 时整屏转圈，流式回来的
+            // 结果要等全轮跑完才看得见，1.2.23 的流式白做了；加载中改走结果区的顶行细状态。
+            // searched 守门：没搜过时走历史臂，不进空态。
+            searched && !loading && results.isEmpty() -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 Column(
                     horizontalAlignment = Alignment.CenterHorizontally,
                     modifier = Modifier.padding(horizontal = 32.dp),
@@ -344,6 +355,13 @@ fun NovelSearchScreen(
                             "没找到，换个关键词或换个书源试试",
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
+                        // v1.2.24：精准开着搜不到，先给一键关精准再搜（阅读空结果确认同款）。
+                        if (precisionSearch) {
+                            Spacer(Modifier.height(8.dp))
+                            TextButton(onClick = { vm.setPrecision(false) }) {
+                                Text("关闭精准搜索再试一次")
+                            }
+                        }
                     }
                     TextButton(onClick = onManageSources) {
                         Text("去书源管理")
@@ -416,7 +434,13 @@ fun NovelSearchScreen(
                         modifier = Modifier.weight(1f),
                     )
                     // v1.2.22：分段按钮换双胶囊——Material3 分段按钮带勾、跟 App 胶囊风不搭。
+                    // v1.2.24：加“精准”胶囊（阅读 precisionSearch 同款开关，默认关）。
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        SearchViewCapsule(
+                            text = "精准",
+                            selected = precisionSearch,
+                            onClick = { vm.setPrecision(!precisionSearch) },
+                        )
                         SearchViewCapsule(
                             text = "按源分组",
                             selected = !mergeMode,
@@ -428,6 +452,40 @@ fun NovelSearchScreen(
                             onClick = { mergeMode = true },
                         )
                     }
+                }
+                // v1.2.24：加载中顶行细状态——细圈 + 已出源数 + 停止（阅读 FAB 停止同款），
+                // 结果列表全程可见，不再整屏转圈。
+                if (loading) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.fillMaxWidth().padding(bottom = 4.dp),
+                    ) {
+                        StatusRing(
+                            state = StatusRingState.Loading,
+                            diameter = 16.dp,
+                            showDot = false,
+                            strokeWidth = 2.dp,
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        Text(
+                            "正在搜索… 已出 ${results.size} 个源",
+                            fontSize = 13.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.weight(1f),
+                        )
+                        TextButton(onClick = { vm.stopSearch() }) {
+                            Text("停止", fontSize = 13.sp)
+                        }
+                    }
+                }
+                // v1.2.24：精准过滤掉的条数（阅读完成时 Toast 同款口径，改顶行常驻）。
+                if (filteredCount > 0) {
+                    Text(
+                        "精准搜索已过滤掉 $filteredCount 条不相关结果",
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(bottom = 4.dp),
+                    )
                 }
                 LazyColumn(
                     modifier = Modifier.weight(1f),
@@ -480,12 +538,41 @@ fun NovelSearchScreen(
                             items(group.books.distinctBy { it.remoteId }, key = { "${group.key}_${it.remoteId}" }) { item ->
                                 BookCard(group, item, showSource = false)
                             }
+                            // v1.2.24：组底加载更多（阅读触底续搜的单源版）——取该源下一页
+                            // 追加到组尾；已到底的源不显示，正在加载时显示细文案。
+                            if (vm.canLoadMore(group.key)) {
+                                item(key = "more_${group.key}") {
+                                    Row(
+                                        Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.Center,
+                                    ) {
+                                        if (group.key in loadingMore) {
+                                            Text(
+                                                "正在加载更多…",
+                                                fontSize = 13.sp,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                modifier = Modifier.padding(vertical = 8.dp),
+                                            )
+                                        } else {
+                                            TextButton(onClick = { vm.loadMore(group.key) }) {
+                                                Text("加载更多", fontSize = 13.sp)
+                                            }
+                                        }
+                                    }
+                                }
+                            }
                         }
                     }
                 } else {
-                    // v1.2.1：合并视图——各源结果放一起按书名排，每行标来源。
-                    items(mergedBooks, key = { (group, book) -> "${group.key}_${book.remoteId}" }) { (group, book) ->
-                        BookCard(group, book, showSource = true)
+                    // v1.2.24：合并视图——同名同作者只留一行，标它来自几个源；点行进第一个源。
+                    items(mergedBooks, key = { it.title + "|" + (it.author ?: "") }) { merged ->
+                        val (group, book) = merged.origins.first()
+                        val label = if (merged.origins.size > 1) {
+                            "来自 ${group.name} 等 ${merged.origins.size} 个源"
+                        } else {
+                            "来自 ${group.name}"
+                        }
+                        BookCard(group, book, showSource = true, sourceLabel = label)
                     }
                 }
             }
@@ -544,6 +631,17 @@ data class SourceGroup(
     val key: String,
     val name: String,
     val books: List<NovelSearchResult>,
+)
+
+/**
+ * v1.2.24：合并视图的一行——同名同作者只留一行，origins 记它来自的所有源
+ * （阅读聚合去重同款）；点行进第一个源，行尾标“来自 A 等 N 个源”。
+ */
+data class MergedBook(
+    val title: String,
+    val author: String?,
+    val cover: String?,
+    val origins: List<Pair<SourceGroup, NovelSearchResult>>,
 )
 
 /** v0.216.0（C10）：书架小说 id——旧拼法是两个 hashCode，撞了会互相覆盖。

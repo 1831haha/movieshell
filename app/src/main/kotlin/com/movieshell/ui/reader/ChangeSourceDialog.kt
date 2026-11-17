@@ -107,8 +107,10 @@ fun ChangeSourceDialog(
             }
             coroutineScope {
                 val flowJob = launch {
-                    NovelSourceEngine.searchAllFlow(enabledSources, kw).collect { (s, books) ->
-                        groups = currentFirst(groups + ChangeSourceGroup(s.key, s.name, books))
+                    NovelSourceEngine.searchAllFlow(enabledSources, kw).collect { res ->
+                        if (res.books.isNotEmpty()) {
+                            groups = currentFirst(groups + ChangeSourceGroup(res.source.key, res.source.name, res.books))
+                        }
                     }
                 }
                 val pyJob = async {

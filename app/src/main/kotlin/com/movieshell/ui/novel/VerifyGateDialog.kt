@@ -3,6 +3,7 @@ package com.movieshell.ui.novel
 import android.webkit.CookieManager
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -13,7 +14,12 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.Button
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -44,6 +50,8 @@ import org.json.JSONObject
  * 按钮永远是灰的，用户明明过了验证也点不了（2026-11-17 用户报障实证）。
  * 用户本人判断验证做完了，点按钮即取当前页 HTML + Cookie；页还没加载完时取到的
  * 是当前内容，引擎拿不到页会按失败处理，不比原来更糟。
+ * v1.2.24：再收小、做精致——88% 宽 × 60% 高、20dp 大圆角、标题行换 X 关闭、
+ * 分隔线、底部只剩「取消 / 验证完成」两个按钮，提示文案去掉（标题+域名已够说明）。
  */
 @Composable
 fun VerifyGateDialog() {
@@ -56,16 +64,17 @@ fun VerifyGateDialog() {
         var webView by remember(cur.url) { mutableStateOf<WebView?>(null) }
         var pageUrl by remember(cur.url) { mutableStateOf(cur.url) }
         Surface(
-            Modifier.fillMaxWidth(0.94f).fillMaxHeight(0.78f),
-            shape = RoundedCornerShape(16.dp),
+            Modifier.fillMaxWidth(0.88f).fillMaxHeight(0.60f),
+            shape = RoundedCornerShape(20.dp),
+            tonalElevation = 6.dp,
         ) {
             Column(Modifier.fillMaxSize()) {
                 Row(
-                    Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
+                    Modifier.fillMaxWidth().padding(start = 16.dp, end = 8.dp, top = 10.dp, bottom = 8.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Column(Modifier.weight(1f)) {
-                        Text(cur.title, style = MaterialTheme.typography.titleMedium)
+                        Text(cur.title, style = MaterialTheme.typography.titleSmall)
                         Spacer(Modifier.height(2.dp))
                         Text(
                             runCatching { java.net.URL(pageUrl).host }.getOrDefault(pageUrl),
@@ -73,8 +82,11 @@ fun VerifyGateDialog() {
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
-                    TextButton(onClick = { VerifyGate.complete(null) }) { Text("取消") }
+                    IconButton(onClick = { VerifyGate.complete(null) }) {
+                        Icon(Icons.Filled.Close, contentDescription = "取消")
+                    }
                 }
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
                 key(cur.url) {
                     AndroidView(
                         modifier = Modifier.weight(1f),
@@ -96,16 +108,13 @@ fun VerifyGateDialog() {
                         onRelease = { it.destroy() },
                     )
                 }
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
                 Row(
-                    Modifier.fillMaxWidth().padding(12.dp),
+                    Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
+                    horizontalArrangement = Arrangement.End,
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Text(
-                        "在上方页面完成验证，再点验证完成。",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.weight(1f),
-                    )
+                    TextButton(onClick = { VerifyGate.complete(null) }) { Text("取消") }
                     Spacer(Modifier.width(8.dp))
                     Button(
                         onClick = {

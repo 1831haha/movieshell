@@ -1,6 +1,7 @@
 package com.movieshell.ui.novel
 
 import android.app.Application
+import android.content.Context
 import com.movieshell.ui.components.AppToast
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
@@ -55,6 +56,34 @@ class NovelSearchViewModel(app: Application) : AndroidViewModel(app) {
     private val _failedLabel = MutableStateFlow<String?>(null)
     val failedLabel: StateFlow<String?> = _failedLabel
 
+    /**
+     * v1.2.24：精准搜索（阅读 precisionSearch 同款，默认关）——只留书名/作者
+     * 含关键词的书，杂结果直接滤掉。开关持久化，切换后按同一词重搜一次。
+     */
+    private val searchPrefs by lazy {
+        getApplication<Application>().getSharedPreferences("novel_search_prefs", Context.MODE_PRIVATE)
+    }
+    private val _precisionSearch = MutableStateFlow(false)
+    val precisionSearch: StateFlow<Boolean> = _precisionSearch
+
+    /** v1.2.24：本轮精准过滤掉的总条数（>0 时界面顶行提示）。 */
+    private val _filteredCount = MutableStateFlow(0)
+    val filteredCount: StateFlow<Int> = _filteredCount
+
+    /** v1.2.24：单源加载更多——正在加载下一页的源 key。 */
+    private val _loadingMore = MutableStateFlow<Set<String>>(emptySet())
+    val loadingMore: StateFlow<Set<String>> = _loadingMore
+
+    /** v1.2.24：单源加载更多——已翻到底（某页 0 条新书）的源 key，不再显示加载更多。 */
+    private val _exhaustedGroups = MutableStateFlow<Set<String>>(emptySet())
+    val exhaustedGroups: StateFlow<Set<String>> = _exhaustedGroups
+
+    /** v1.2.24：本轮搜索的关键词（加载更多沿用它，不读可能已被用户改过的输入框）。 */
+    private var searchedKeyword: String = ""
+
+    /** v1.2.24：各源下一页页码（新一轮搜索时清空）。 */
+    private val nextPageBySource = mutableMapOf<String, Int>()
+
     // v0.220.0：忙状态改集合——连点多本时每本各管各的“加入中”，原来单槽位
     // 会让先点的那本弹回“加入书架”。
     private val _joining = MutableStateFlow<Set<String>>(emptySet())
@@ -81,6 +110,7 @@ class NovelSearchViewModel(app: Application) : AndroidViewModel(app) {
     private var loadFailed = false
 
     init {
+        _precisionSearch.value = searchPrefs.getBoolean("precision_search", false)
         // v0.217.0（F39）：载入句柄留下来给 doSearch 等——原来 fire-and-forget，
         // 用户一进页就搜时读到的是空表，误报“没有启用的书源”。
         loadJob = viewModelScope.launch {
@@ -106,6 +136,67 @@ class NovelSearchViewModel(app: Application) : AndroidViewModel(app) {
             _keyword.value = ""
         }
     }
+
+    /** v1.2.24：精准开关——写盘持久化；已搜过时按同一词重搜一次。 */
+    fun setPrecision(value: Boolean) {
+        if (_precisionSearch.value == value) return
+        _precisionSearch.value = value
+        searchPrefs.edit().putBoolean("precision_search", value).apply()
+        if (_searched.value) doSearch()
+    }
+
+    /** v1.2.24：手动停止搜索（阅读 FAB 停止同款）——已出的结果留着，不清空。 */
+    fun stopSearch() {
+        searchJob?.cancel()
+        searchJob = null
+        _loading.value = false
+    }
+
+    /**
+     * v1.2.24：单源加载更多（阅读触底续搜的单源版）——取该源下一页追加到组尾，
+     * 按 remoteId 去重；某页 0 条新书即判该源已到底，不再显示加载更多。
+     * PY 源无分页（searchAllPy 只抓一页），不处理。
+     */
+    fun loadMore(groupKey: String) {
+        if (groupKey.startsWith(PyBookSourceManager.SOURCE_KEY_PREFIX)) return
+        if (groupKey in _loadingMore.value || groupKey in _exhaustedGroups.value) return
+        val kw = searchedKeyword
+        if (kw.isEmpty()) return
+        val source = BookSourceManager.sources.value.find { it.key == groupKey } ?: return
+        val page = nextPageBySource[groupKey] ?: 2
+        viewModelScope.launch {
+            _loadingMore.value = _loadingMore.value + groupKey
+            try {
+                val books = NovelSourceEngine.search(source, kw, allowGate = false, pageNum = page)
+                val (kept, dropped) = NovelSourceEngine.applyPrecisionFilter(
+                    books, kw, _precisionSearch.value,
+                )
+                _filteredCount.value += dropped
+                val group = _results.value.find { it.key == groupKey } ?: return@launch
+                val seen = group.books.map { it.remoteId }.toHashSet()
+                val newBooks = kept.filter { seen.add(it.remoteId) }
+                if (newBooks.isEmpty()) {
+                    _exhaustedGroups.value = _exhaustedGroups.value + groupKey
+                } else {
+                    _results.value = _results.value.map { g ->
+                        if (g.key == groupKey) g.copy(books = g.books + newBooks) else g
+                    }
+                    nextPageBySource[groupKey] = page + 1
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                AppToast.show(getApplication(), "加载更多失败", long = false)
+            } finally {
+                _loadingMore.value = _loadingMore.value - groupKey
+            }
+        }
+    }
+
+    /** v1.2.24：该组是否可加载更多（PY 源无分页、已到底的不显示）。 */
+    fun canLoadMore(groupKey: String): Boolean =
+        !groupKey.startsWith(PyBookSourceManager.SOURCE_KEY_PREFIX) &&
+            groupKey !in _exhaustedGroups.value
 
     fun setKeyword(k: String) {
         _keyword.value = k
@@ -191,6 +282,12 @@ class NovelSearchViewModel(app: Application) : AndroidViewModel(app) {
         // 上次的结果”；成功的新结果回来自然覆盖。失败汇总也在此清掉，旧汇总不串到新一轮。
         _failedLabel.value = null
         NovelSourceEngine.clearSearchFailures()
+        // v1.2.24：新一轮清掉过滤计数与加载更多状态（页码/到底标记按源记）。
+        _filteredCount.value = 0
+        _loadingMore.value = emptySet()
+        _exhaustedGroups.value = emptySet()
+        nextPageBySource.clear()
+        searchedKeyword = kw
         searchJob = viewModelScope.launch {
             val myJob = coroutineContext[Job]
             try {
@@ -214,7 +311,11 @@ class NovelSearchViewModel(app: Application) : AndroidViewModel(app) {
                     // v1.2.23：流式搜——每源出结果就地追加，不等 2000+ 源全轮跑完；
                     // 首批 1~2 秒即现。v1.1.12 语义保留：旧结果留到首批新结果到来才
                     // 替换；全轮无结果则旧结果照旧留着，只置失败汇总。
+                    // v1.2.24：阅读式 500ms 节流——2000+ 源逐个追加会让列表每秒重组
+                    // 几百次；先攒着，每 400ms 批量刷一次（首批立即刷）。
                     var firstBatch = true
+                    var lastFlushMs = 0L
+                    val pending = mutableListOf<SourceGroup>()
                     fun append(groups: List<SourceGroup>) {
                         if (groups.isEmpty()) return
                         _results.value = if (firstBatch) {
@@ -224,11 +325,24 @@ class NovelSearchViewModel(app: Application) : AndroidViewModel(app) {
                             _results.value + groups
                         }
                     }
+                    fun flushPending() {
+                        if (pending.isEmpty()) return
+                        append(pending.toList())
+                        pending.clear()
+                        lastFlushMs = System.currentTimeMillis()
+                    }
                     coroutineScope {
                         val flowJob = launch {
-                            NovelSourceEngine.searchAllFlow(enabledSources, kw).collect { (s, books) ->
-                                append(listOf(SourceGroup(s.key, s.name, books)))
+                            NovelSourceEngine.searchAllFlow(
+                                enabledSources, kw, precision = _precisionSearch.value,
+                            ).collect { res ->
+                                _filteredCount.value += res.filtered
+                                if (res.books.isNotEmpty()) {
+                                    pending.add(SourceGroup(res.source.key, res.source.name, res.books))
+                                    if (System.currentTimeMillis() - lastFlushMs >= 400) flushPending()
+                                }
                             }
+                            flushPending()
                         }
                         val pyJob = async {
                             NovelSourceEngine.searchAllPy(getApplication(), enabledPyRules, kw)

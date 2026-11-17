@@ -75,4 +75,43 @@ class SearchRequestTest {
         val req = buildSearchRequest("https://x.com/s?q={{key}}&page={{page}}", "我的")
         assertEquals("https://x.com/s?q=%E6%88%91%E7%9A%84&page=1", req.url)
     }
+
+    // v1.2.24：GBK 站查询段关键词按 GBK 编码（阅读 encodeUrlParams 同款），
+    // 路径段仍按 UTF-8 编码；{{page}} 按传入页码替换。
+    @Test fun gbkQueryKeyUsesCharset() {
+        val req = buildSearchRequest(
+            "https://x.com/s/{{key}}?q={{key}},{\"charset\":\"GBK\"}",
+            "我的",
+        )
+        assertEquals("https://x.com/s/%E6%88%91%E7%9A%84?q=%CE%D2%B5%C4", req.url)
+        assertEquals("GBK", req.charsetName)
+    }
+
+    @Test fun buildSearchRequestPageParam() {
+        val req = buildSearchRequest("https://x.com/s?q={{key}}&page={{page}}", "我的", 3)
+        assertEquals("https://x.com/s?q=%E6%88%91%E7%9A%84&page=3", req.url)
+    }
+
+    @Test fun buildSearchRequestParsesRetryAndJsOption() {
+        val req = buildSearchRequest(
+            "https://x.com/s?q={{key}},{\"retry\":2,\"js\":\"result\"}",
+            "a",
+        )
+        assertEquals(2, req.retry)
+        assertEquals("result", req.jsOption)
+        assertEquals("https://x.com/s?q=a", req.url)
+    }
+
+    @Test fun midStringJsNeedsJs() {
+        assertTrue(searchUrlNeedsJs("https://x.com/s/@js:result+encodeURIComponent(key)"))
+        assertTrue(searchUrlNeedsJs("https://x.com/s/<js>result+key</js>/more"))
+    }
+
+    @Test fun formatJsTemplateValueDropsDecimal() {
+        assertEquals("2", formatJsTemplateValue(2.0))
+        assertEquals("2.5", formatJsTemplateValue(2.5))
+        assertEquals("abc", formatJsTemplateValue("abc"))
+        assertEquals("", formatJsTemplateValue(null))
+        assertEquals("3", formatJsTemplateValue(3))
+    }
 }

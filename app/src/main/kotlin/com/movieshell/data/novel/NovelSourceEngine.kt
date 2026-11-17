@@ -7,6 +7,7 @@ import com.movieshell.core.net.HttpClient
 import com.movieshell.core.net.PageResult
 import com.movieshell.core.net.SourceThrottle
 import com.movieshell.core.net.buildSearchRequest
+import com.movieshell.core.net.formatJsTemplateValue
 import com.movieshell.core.net.isJsonListRule
 import com.movieshell.core.net.resolveSearchUrlTemplate
 import com.movieshell.core.net.searchUrlNeedsJs
@@ -28,6 +29,7 @@ import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.channelFlow
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.joinAll
 import kotlinx.coroutines.launch
@@ -165,6 +167,9 @@ object NovelSourceEngine {
      * 青羽阅读整段都是 JS）、`{{...}}` 表达式块（读零零小说的
      * `{{url=source.getKey(); cookie.removeCookie(url)}}`）、相对地址（旧时光的
      * `/modules/article/search.php`、无忧小说网的 `/search.html` 等，按源地址补全）。
+     * v1.2.24：JS 段式求值（阅读 AnalyzeUrlCore.analyzeJs 同款）——`<js>...</js>`
+     * 可在串中任意位置、`@js:` 吃到串尾；每段 JS 之前字面量当 result 传进去，
+     * JS 结果成为新串、段后字面量拼在后面；`{{...}}` 数字结果去 `.0`。
      * 求不出有效 http(s) 地址返回 null，调用方直接跳过该源、不弹验证窗。
      */
     private fun evalSearchUrl(
@@ -175,63 +180,38 @@ object NovelSourceEngine {
         val raw = source.searchUrl.trim()
         if (raw.isBlank()) return null
         var template = raw
-        // 1. <js> 前缀：原逻辑
-        val (js, _) = LegadoJsEngine.splitJsPrefix(template)
-        if (js != null) {
-            val out = LegadoJsEngine.evalScript(
-                js,
-                LegadoJsEngine.bindings(ctx, state, result = "", src = ""),
-                LegadoJsEngine.jsLibPrelude(ctx.source),
-            )
-            val urlStr = LegadoJsEngine.toJsString(out)
-            // v0.226.0：求值失败时旧逻辑回退原串，OkHttp 再以“无 scheme”炸掉，
-            // 白白走 30 秒验证；求值失败直接判空，调用方跳过验证。
-            if (urlStr.isBlank() || urlStr.trimStart().startsWith("<js>")) {
-                LogBus.w(TAG, "搜索地址 JS 求值失败 ${source.name}，跳过本次搜索")
-                return null
-            }
-            template = urlStr
-        } else if (template.startsWith("@js:")) {
-            // 2. @js: 前缀：去前缀后整段求值（与 <js> 同一套绑定与完成值语义）
-            val out = LegadoJsEngine.evalScript(
-                template.removePrefix("@js:"),
-                LegadoJsEngine.bindings(ctx, state, result = "", src = ""),
-                LegadoJsEngine.jsLibPrelude(ctx.source),
-            )
-            val urlStr = LegadoJsEngine.toJsString(out)
-            if (urlStr.isBlank() || urlStr.trimStart().startsWith("@js:")) {
-                LogBus.w(TAG, "搜索地址 JS 求值失败 ${source.name}，跳过本次搜索")
-                return null
-            }
-            template = urlStr
-        } else {
-            // 3. {{...}} 表达式块：逐块跑 JS 求值替换（{{key}}/{{page}} 留给 buildSearchRequest）。
-            // 按位置替换，不按内容拼串——块内带空格（如 {{ url=... }}）也能对上。
-            var failed = false
-            template = Regex("\\{\\{([^{}]+)\\}\\}").replace(template) { m ->
-                val inner = m.groupValues[1].trim()
-                if (inner == "key" || inner == "page") {
-                    m.value
+        // 1. JS 段式求值：<js>...</js> / @js:（段式，不只限前缀）
+        template = evalJsSegments(template, ctx, state) ?: run {
+            LogBus.w(TAG, "搜索地址 JS 求值失败 ${source.name}，跳过本次搜索")
+            return null
+        }
+        // 2. {{...}} 表达式块：逐块跑 JS 求值替换（{{key}}/{{page}} 留给 buildSearchRequest）。
+        // 按位置替换，不按内容拼串——块内带空格（如 {{ url=... }}）也能对上。
+        var failed = false
+        template = Regex("\\{\\{([^{}]+)\\}\\}").replace(template) { m ->
+            val inner = m.groupValues[1].trim()
+            if (inner == "key" || inner == "page") {
+                m.value
+            } else {
+                val out = LegadoJsEngine.evalScript(
+                    inner,
+                    LegadoJsEngine.bindings(ctx, state, result = "", src = ""),
+                    LegadoJsEngine.jsLibPrelude(ctx.source),
+                )
+                if (out == null) {
+                    failed = true
+                    ""
                 } else {
-                    val out = LegadoJsEngine.evalScript(
-                        inner,
-                        LegadoJsEngine.bindings(ctx, state, result = "", src = ""),
-                        LegadoJsEngine.jsLibPrelude(ctx.source),
-                    )
-                    if (out == null) {
-                        failed = true
-                        ""
-                    } else {
-                        LegadoJsEngine.toJsString(out)
-                    }
+                    // v1.2.24：数字结果去 .0（{{page+1}} 得 "2" 不是 "2.0"）
+                    formatJsTemplateValue(out)
                 }
             }
-            if (failed) {
-                LogBus.w(TAG, "搜索地址模板求值失败 ${source.name}，跳过本次搜索")
-                return null
-            }
         }
-        // 4. 相对地址按源地址补全；补完仍不是 http(s) 直接判空
+        if (failed) {
+            LogBus.w(TAG, "搜索地址模板求值失败 ${source.name}，跳过本次搜索")
+            return null
+        }
+        // 3. 相对地址按源地址补全；补完仍不是 http(s) 直接判空
         template = resolveSearchUrlTemplate(template, source.url)
         if (!template.startsWith("http://") && !template.startsWith("https://")) {
             LogBus.w(TAG, "搜索地址无效 ${source.name}，跳过本次搜索")
@@ -241,15 +221,66 @@ object NovelSourceEngine {
     }
 
     /**
+     * v1.2.24：searchUrl 里的 JS 段求值（阅读 analyzeJs 段式语义）。
+     * `<js>code</js>` 取 code，`@js:code` 取串尾 code；段前字面量当 result 传进
+     * JS（JS 里用 result 拼前缀，如 `@js:result+encodeURIComponent(key)`）；
+     * JS 输出成为新串，段后字面量拼在后面。任一段求值失败或 `<js>` 未闭合
+     * 返回 null。无 JS 段时原样返回。
+     */
+    private fun evalJsSegments(
+        template: String,
+        ctx: LegadoJsEngine.JsCtx,
+        state: LegadoJsEngine.JsState,
+    ): String? {
+        if (!template.contains("<js>") && !template.contains("@js:")) return template
+        val out = StringBuilder()
+        var pendingLiteral = StringBuilder()
+        var i = 0
+        fun evalOne(code: String, resultValue: String): String? {
+            val r = LegadoJsEngine.evalScript(
+                code,
+                LegadoJsEngine.bindings(ctx, state, result = resultValue, src = resultValue),
+                LegadoJsEngine.jsLibPrelude(ctx.source),
+            ) ?: return null
+            return LegadoJsEngine.toJsString(r)
+        }
+        while (i < template.length) {
+            if (template.startsWith("<js>", i)) {
+                val end = template.indexOf("</js>", i + 4)
+                if (end < 0) return null
+                val jsOut = evalOne(template.substring(i + 4, end), pendingLiteral.toString())
+                    ?: return null
+                out.append(jsOut)
+                pendingLiteral = StringBuilder()
+                i = end + 5
+            } else if (template.startsWith("@js:", i)) {
+                val jsOut = evalOne(template.substring(i + 4), pendingLiteral.toString())
+                    ?: return null
+                out.append(jsOut)
+                pendingLiteral = StringBuilder()
+                i = template.length
+            } else {
+                pendingLiteral.append(template[i])
+                i++
+            }
+        }
+        out.append(pendingLiteral)
+        return out.toString()
+    }
+
+    /**
      * v1.2.23：单源搜索的请求构造（求值 + 补全 + 校验一次做完）。
      * 返回 null = 该源本次搜不了（地址求不出/无效），调用方记失败、不发请求、不弹验证。
      * ctx/state 由调用方传（JS 分支复用同一份，供后续解析与登录校验用）。
+     * v1.2.24：page 透传（{{page}} 按页码替换，分出第 2 页起）；选项 `js`
+     * 求值后替换最终 URL（阅读 UrlOption.js 同款）。
      */
     private fun buildSearchReq(
         source: BookSource,
         keyword: String,
         ctx: LegadoJsEngine.JsCtx,
         state: LegadoJsEngine.JsState,
+        page: Int = 1,
     ): com.movieshell.core.net.SearchRequest? {
         val template = if (searchUrlNeedsJs(source.searchUrl)) {
             evalSearchUrl(source, ctx, state) ?: return null
@@ -261,12 +292,43 @@ object NovelSourceEngine {
             }
             resolved
         }
-        return buildSearchRequest(template, keyword)
+        val req = buildSearchRequest(template, keyword, page)
+        val jsCode = req.jsOption ?: return req
+        val out = LegadoJsEngine.evalScript(
+            jsCode,
+            LegadoJsEngine.bindings(ctx, state, result = req.url, src = req.url),
+            LegadoJsEngine.jsLibPrelude(ctx.source),
+        )
+        val newUrl = out?.let { LegadoJsEngine.toJsString(it) }.orEmpty()
+        if (newUrl.isBlank() || (!newUrl.startsWith("http://") && !newUrl.startsWith("https://"))) {
+            LogBus.w(TAG, "搜索地址选项 js 求值失败 ${source.name}，跳过本次搜索")
+            return null
+        }
+        return req.copy(url = newUrl)
+    }
+
+    /**
+     * v1.2.24：首抓失败重发（阅读 UrlOption.retry 同款，`retry` 写在 searchUrl
+     * 的 `,{...}` 后缀里，默认 0 即不重发）。只重发首抓，不碰验证流程；
+     * 次数封顶 3 次，防源里写个大数把搜索拖死。
+     */
+    private suspend fun fetchWithRetry(
+        times: Int,
+        fetch: suspend () -> BookRuleEngine.FetchOutcome,
+    ): BookRuleEngine.FetchOutcome {
+        var last: BookRuleEngine.FetchOutcome? = null
+        repeat(times.coerceIn(0, 3) + 1) {
+            last = fetch()
+            if (last?.page != null) return last!!
+        }
+        return last!!
     }
 
     /**
      * v1.2.23：JSON 搜索列表的结果映射（`$.data.content[*]` 这类 API 源）。
      * 条目是 JSON 对象，字段规则走 evalJsonField（`$.` 取值 / `@js:` 拼接 / `##` 去标签）。
+     * v1.2.24：组内按 remoteId 去重（阅读 mergeGroup/distinctBy bookUrl 同款，
+     * 劣质源翻页会重复返回上一页的书）。
      */
     private fun searchJsonItems(
         html: String,
@@ -287,7 +349,7 @@ object NovelSourceEngine {
                 author = LegadoJsEngine.evalJsonField(item, source.ruleSearchAuthor, ctx, state).ifBlank { null },
                 cover = LegadoJsEngine.evalJsonField(item, source.ruleSearchCover, ctx, state).ifBlank { null },
             )
-        }
+        }.distinctBy { it.remoteId }
     }
 
     /** 在单个书源里搜书。v0.197.0：搜索走 POST 感知的请求（老 GET 源行为不变）。v0.199.0：JS 源走 LegadoJsEngine。 */
@@ -350,13 +412,18 @@ object NovelSourceEngine {
         return again.page
     }
 
-    suspend fun search(source: BookSource, keyword: String, allowGate: Boolean = false): List<NovelSearchResult> {
+    suspend fun search(
+        source: BookSource,
+        keyword: String,
+        allowGate: Boolean = false,
+        pageNum: Int = 1,
+    ): List<NovelSearchResult> {
         applySourceNetConfig(source)
         if (source.searchUrl.isBlank() || source.ruleSearchList.isBlank()) return emptyList()
         if (!isJsSource(source)) {
             val state = LegadoJsEngine.JsState(source.key)
-            val ctx = LegadoJsEngine.JsCtx(source = source.toJsRuleSource(), baseUrl = source.url, keyword = keyword, page = 1)
-            val req = buildSearchReq(source, keyword, ctx, state) ?: run {
+            val ctx = LegadoJsEngine.JsCtx(source = source.toJsRuleSource(), baseUrl = source.url, keyword = keyword, page = pageNum)
+            val req = buildSearchReq(source, keyword, ctx, state, pageNum) ?: run {
                 // v1.1.12：搜索地址算不出来是搜失败了，不是“没书”。
                 failedSearchNames.add(source.name)
                 return emptyList()
@@ -368,8 +435,10 @@ object NovelSourceEngine {
             }
             var lastOutcome: BookRuleEngine.FetchOutcome? = null
             val html = gatedFetch(source, null, source.url, allowGate) {
-                BookRuleEngine.fetchSearchPageOutcome(req, options = fetchOptions(source))
-                    .also { lastOutcome = it }
+                fetchWithRetry(req.retry) {
+                    BookRuleEngine.fetchSearchPageOutcome(req, options = fetchOptions(source))
+                        .also { lastOutcome = it }
+                }
             }?.body ?: run {
                 // v1.1.12：页没抓到是搜失败了，不是“没书”——记一笔，搜书页据此分开说。
                 failedSearchNames.add(source.name)
@@ -392,13 +461,13 @@ object NovelSourceEngine {
                     author = BookRuleEngine.extract(el, url, source.ruleSearchAuthor).ifBlank { null },
                     cover = BookRuleEngine.extract(el, url, source.ruleSearchCover).ifBlank { null },
                 )
-            }
+            }.distinctBy { it.remoteId }
         }
         return withContext(Dispatchers.IO) {
             val ua = uaOf(source)
             val state = LegadoJsEngine.JsState(source.key)
-            val ctx = LegadoJsEngine.JsCtx(source = source.toJsRuleSource(), baseUrl = source.url, keyword = keyword, page = 1)
-            val req = buildSearchReq(source, keyword, ctx, state) ?: run {
+            val ctx = LegadoJsEngine.JsCtx(source = source.toJsRuleSource(), baseUrl = source.url, keyword = keyword, page = pageNum)
+            val req = buildSearchReq(source, keyword, ctx, state, pageNum) ?: run {
                 // v1.1.12：搜索地址算不出来是搜失败了，不是“没书”。
                 failedSearchNames.add(source.name)
                 return@withContext emptyList()
@@ -410,8 +479,10 @@ object NovelSourceEngine {
             }
             var lastOutcome: BookRuleEngine.FetchOutcome? = null
             var page = gatedFetch(source, ua, source.url, allowGate) {
-                BookRuleEngine.fetchSearchPageOutcome(req, ua, options = fetchOptions(source))
-                    .also { lastOutcome = it }
+                fetchWithRetry(req.retry) {
+                    BookRuleEngine.fetchSearchPageOutcome(req, ua, options = fetchOptions(source))
+                        .also { lastOutcome = it }
+                }
             }
             if (page == null) {
                 // v0.223.0：搜书诊断——未抓到页以前是静默空，记一行才能分清是请求问题还是解析问题。
@@ -425,13 +496,15 @@ object NovelSourceEngine {
             // 原直接重抓拿不到页又不弹窗，搜索静默为空。
             val beforeLoginLen = page.body.length
             page = LegadoJsEngine.runLoginCheck(source.toJsRuleSource(), page, ctx, state, refetch = {
-                val req2 = buildSearchReq(source, keyword, ctx, state)
+                val req2 = buildSearchReq(source, keyword, ctx, state, pageNum)
                 if (req2 == null) {
                     null
                 } else {
                     gatedFetch(source, ua, source.url, allowGate) {
-                        BookRuleEngine.fetchSearchPageOutcome(req2, ua, options = fetchOptions(source))
-                            .also { lastOutcome = it }
+                        fetchWithRetry(req2.retry) {
+                            BookRuleEngine.fetchSearchPageOutcome(req2, ua, options = fetchOptions(source))
+                                .also { lastOutcome = it }
+                        }
                     }
                 }
             })
@@ -456,8 +529,31 @@ object NovelSourceEngine {
                     author = LegadoJsEngine.evalTextRule(el, page.url, source.ruleSearchAuthor, pageCtx, state).ifBlank { null },
                     cover = LegadoJsEngine.evalTextRule(el, page.url, source.ruleSearchCover, pageCtx, state).ifBlank { null },
                 )
-            }
+            }.distinctBy { it.remoteId }
         }
+    }
+
+    /**
+     * v1.2.24：单源搜索结果（带精准过滤掉的条数，供界面提示“已过滤 N 条”）。
+     */
+    data class SourceSearchResult(
+        val source: BookSource,
+        val books: List<NovelSearchResult>,
+        val filtered: Int = 0,
+    )
+
+    /**
+     * v1.2.24：精准过滤（阅读 precisionSearch 同款：只留书名/作者含关键词的书）。
+     * 返回（留下的书，被滤掉的条数）。默认关，开关在找书页、持久化在 VM。
+     */
+    fun applyPrecisionFilter(
+        books: List<NovelSearchResult>,
+        keyword: String,
+        precision: Boolean,
+    ): Pair<List<NovelSearchResult>, Int> {
+        if (!precision) return books to 0
+        val kept = books.filter { it.title.contains(keyword) || (it.author?.contains(keyword) == true) }
+        return kept to (books.size - kept.size)
     }
 
     /**
@@ -473,19 +569,23 @@ object NovelSourceEngine {
         allowGate: Boolean = false,
     ): List<Pair<BookSource, List<NovelSearchResult>>> {
         // 聚合搜索强制不弹验证（见上），allowGate 参数仅为兼容旧调用方保留
-        return searchAllFlow(sources, keyword).toList()
+        return searchAllFlow(sources, keyword).map { it.source to it.books }.toList()
     }
 
     /**
      * v1.2.23：多源流式搜——每源出结果就发一个，不等 2000+ 源全跑完。
      * 找书页/换源弹窗改走它：首批结果 1~2 秒即现，不再白屏几分钟。
-     * - 验证强制关（见 searchAll 注释）；- 单源 30 秒超时丢弃；
+     * - 验证强制关（见 searchAll 注释）；- 单源 15 秒超时丢弃；
      * - 整轮 120 秒封顶，到点收尾、已出结果保留；- 取消原样抛出（v0.247.0 语义）。
+     * v1.2.24：precision 开时按阅读口径滤掉书名/作者不含关键词的书，
+     * 滤掉数随结果一起发（界面汇总提示）；全滤光的源也发一条（只带 filtered），
+     * 免得过滤数丢了。
      */
     fun searchAllFlow(
         sources: List<BookSource>,
         keyword: String,
-    ): Flow<Pair<BookSource, List<NovelSearchResult>>> = channelFlow {
+        precision: Boolean = false,
+    ): Flow<SourceSearchResult> = channelFlow {
         withTimeoutOrNull(SEARCH_GLOBAL_BUDGET_MS) {
             val jobs = sources.map { s ->
                 launch {
@@ -504,7 +604,8 @@ object NovelSourceEngine {
                                 .getOrDefault(emptyList())
                         }
                     } ?: emptyList()
-                    if (result.isNotEmpty()) send(s to result)
+                    val (kept, dropped) = applyPrecisionFilter(result, keyword, precision)
+                    if (kept.isNotEmpty() || dropped > 0) send(SourceSearchResult(s, kept, dropped))
                 }
             }
             jobs.joinAll()
