@@ -789,10 +789,13 @@ object LegadoJsEngine {
      * 引擎此前只会 Jsoup CSS，// 开头的规则一律选空——黑岩 chapterList //li[span]/a、
      * tocUrl //a[text()="开始阅读"]/@href 全是 XPath，目录兜底抓对了页也解析出 0 章。
      * 只转常见形状，转不了返回 null（调用方用原规则，行为与之前一致，不引入新失败）。
-     * 支持：//tag、/ 与 // 步进（> 与后代）、[@attr="v"]、[@attr]、[N]（:eq）、
+     * 支持：//tag、/ 与 // 步进（> 与后代）、[@attr="v"]、[@attr]、[N]（:nth-of-type，* 步进用 :nth-child）、
      * [子元素]（:has）、[text()="v"]（:containsOwn）、[contains(text(),"v")]（:contains）、
-     * [position()>N]/[position()>=N]/[position()<N]/[position()<=N]（:gt/:lt）、
+     * [position()>N]/[position()>=N]（:nth-of-type(n+…)）、[position()<N]/[position()<=N]（:lt，见下）、
      * following-sibling::X（~ X）。不支持：..、last()、||、<js>、其它轴与函数。
+     * 注意：[N] 与 position() 绝不能用 :eq/:gt（Jsoup 里它们按全部兄弟序号算，dt/dd 混排时选空，
+     * #664 实证）；[position()<N]/[position()<=N] 因 Jsoup 1.17.2 不支持 -n+b 形式只能保留 :lt，
+     * 同标签兄弟节点时正确，混排时是已知局限。
      */
     fun xpathToCss(selector: String): String? {
         var s = selector.trim()
@@ -897,19 +900,26 @@ object LegadoJsEngine {
                 k++
             }
             if (d != 0) return null
-            sb.append(convertXpathPredicate(preds.substring(j + 1, k - 1)) ?: return null)
+            sb.append(convertXpathPredicate(preds.substring(j + 1, k - 1), tag) ?: return null)
             j = k
         }
         return sb.toString() to sibling
     }
 
-    /** 转单个 XPath 谓词为 CSS 伪类 / 属性选择器。 */
-    private fun convertXpathPredicate(inner: String): String? {
+    /**
+     * 转单个 XPath 谓词为 CSS 伪类 / 属性选择器。
+     * tag 为当前步进的标签名（"*" 或具体标签）：XPath 的 [N] / position() 是“同标签兄弟里的第几个”，
+     * Jsoup 的 :eq/:gt/:lt 却是“全部兄弟里的序号”，混排兄弟节点（dt/dd 交错）时直接选空，
+     * 所以序号类谓词一律用 :nth-of-type（* 步进用 :nth-child）。
+     */
+    private fun convertXpathPredicate(inner: String, tag: String): String? {
         val p = inner.trim()
+        // 同标签第 N 个（XPath [N] 从 1 计）；* 步进是“任意标签第 N 个孩子”。
+        val nth = if (tag == "*") "nth-child" else "nth-of-type"
         if (p.matches(Regex("\\d+"))) {
             val n = p.toIntOrNull() ?: return null
             if (n < 1) return null
-            return ":eq(${n - 1})"
+            return ":$nth($n)"
         }
         if (p.startsWith("@")) {
             val m = Regex("^@([A-Za-z_][A-Za-z0-9_:.\\-]*)(\\s*=\\s*([\"'])(.*)\\3)?$").find(p)
@@ -937,8 +947,10 @@ object LegadoJsEngine {
             val m = Regex("^position\\(\\)\\s*(>=|<=|>|<)\\s*(\\d+)$").find(p) ?: return null
             val n = m.groupValues[2].toIntOrNull() ?: return null
             return when (m.groupValues[1]) {
-                ">" -> ":gt(${n - 1})"
-                ">=" -> ":gt(${n - 2})"
+                ">" -> ":$nth(n+${n + 1})"
+                ">=" -> ":$nth(n+$n)"
+                // Jsoup 1.17.2 实测：:nth-of-type(-n+N) 会被当成 n+N（取后段），负系数形式不可用；
+                // < / <= 只能保留 :lt（兄弟序号），同标签兄弟节点时与 XPath 一致，混排时是已知局限。
                 "<" -> ":lt(${n - 1})"
                 "<=" -> ":lt($n)"
                 else -> null

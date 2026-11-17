@@ -36,16 +36,16 @@ class XpathToCssTest {
     }
 
     @Test fun indexAndPositionPredicates() {
-        assertEquals("ul[class=\"chapter\"]:eq(1) > li > a", LegadoJsEngine.xpathToCss("//ul[@class='chapter'][2]/li/a"))
+        assertEquals("ul[class=\"chapter\"]:nth-of-type(2) > li > a", LegadoJsEngine.xpathToCss("//ul[@class='chapter'][2]/li/a"))
         assertEquals(
-            "div[class=\"directoryArea\"] > p:gt(4) > a",
+            "div[class=\"directoryArea\"] > p:nth-of-type(n+6) > a",
             LegadoJsEngine.xpathToCss("//div[@class=\"directoryArea\"]/p[position()>5]/a"),
         )
     }
 
     @Test fun followingSiblingAxis() {
         assertEquals(
-            "[id=\"list\"] dt:eq(1) ~ dd > a",
+            "[id=\"list\"] dt:nth-of-type(2) ~ dd > a",
             LegadoJsEngine.xpathToCss("//*[@id=\"list\"]//dt[2]/following-sibling::dd/a"),
         )
     }
