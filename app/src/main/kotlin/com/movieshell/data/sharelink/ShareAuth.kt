@@ -114,6 +114,7 @@ object ShareAuth {
 /** Cookie 落盘小件（夸克/UC/百度三家共用）。 */
 internal object CookieStore {
 
+    private const val TAG = "ShareAuth"
     private const val FILE_NAME = "cookie.txt"
     private const val EXPIRED_NAME = "expired"
 
@@ -172,6 +173,7 @@ internal object CookieStore {
 /** token 落盘小件（阿里/光鸭/迅雷三家共用）。 */
 internal object TokenStore {
 
+    private const val TAG = "ShareAuth"
     private const val FILE_NAME = "token.json"
 
     private var appContext: Context? = null

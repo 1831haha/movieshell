@@ -140,6 +140,8 @@ dependencies {
 
     // 网络 / JSON
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
+    // v1.3.5：ShareQrLogin 用 JavaNetCookieJar（OkHttp 4.x 里它在 okhttp-urlconnection 模块，不在 okhttp 本体里）
+    implementation("com.squareup.okhttp3:okhttp-urlconnection:4.12.0")
     implementation("org.jsoup:jsoup:1.17.2")
     // v0.202.0：小说通用正文兜底——Mozilla Readability 的 Kotlin 移植（Apache 2.0），规则提空时从整页提正文
     implementation("net.dankito.readability4j:readability4j:1.0.8")
