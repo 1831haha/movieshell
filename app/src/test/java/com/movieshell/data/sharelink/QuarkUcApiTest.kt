@@ -184,7 +184,9 @@ class QuarkUcApiTest {
         }
         server.enqueue(json("""{"code":0,"data":{"save_as":{"save_as_top_fids":["saved9"]}}}"""))
 
-        val fid = QuarkUcApi.pollTask(ShareHttp.defaultClient(), cfg, "", "task9") { /* 不睡，快进 */ }
+        // v1.3.12 修：pollTask 的 sleep 不是尾参（后面还有 maxPolls），尾随
+        // lambda 会绑到 maxPolls(Int) 上，sleep 拿不到值——必须具名传。
+        val fid = QuarkUcApi.pollTask(ShareHttp.defaultClient(), cfg, "", "task9", sleep = { /* 不睡，快进 */ })
 
         assertEquals("saved9", fid)
     }
