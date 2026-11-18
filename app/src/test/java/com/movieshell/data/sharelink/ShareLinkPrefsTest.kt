@@ -38,4 +38,23 @@ class ShareLinkPrefsTest {
         val existing = listOf("https://pan.quark.cn/s/aaa")
         assertEquals(existing, ShareLinkPrefs.mergeHistory(existing, "   "))
     }
+
+    @Test
+    fun dropHistory_removesOneAndKeepsOrder() {
+        val existing = listOf(
+            "https://pan.quark.cn/s/aaa",
+            "https://pan.quark.cn/s/bbb",
+            "https://pan.quark.cn/s/ccc",
+        )
+        assertEquals(
+            listOf("https://pan.quark.cn/s/aaa", "https://pan.quark.cn/s/ccc"),
+            ShareLinkPrefs.dropHistory(existing, "https://pan.quark.cn/s/bbb"),
+        )
+    }
+
+    @Test
+    fun dropHistory_absentUrlKeepsExisting() {
+        val existing = listOf("https://pan.quark.cn/s/aaa")
+        assertEquals(existing, ShareLinkPrefs.dropHistory(existing, "https://pan.quark.cn/s/zzz"))
+    }
 }

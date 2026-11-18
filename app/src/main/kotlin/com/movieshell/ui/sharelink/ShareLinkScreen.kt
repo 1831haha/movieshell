@@ -410,6 +410,7 @@ fun ShareLinkScreen(
                 ) {
                     // v1.3.10：历史记录——解析成功的链接，点一条直接再解析，
                     // 长按复制链接；“清空”清掉全部历史。输入框进页是空的。
+                    // v1.3.11：每条行尾加 ×，单条删除。
                     if (history.isNotEmpty()) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text(
@@ -453,6 +454,20 @@ fun ShareLinkScreen(
                                     overflow = TextOverflow.Ellipsis,
                                     modifier = Modifier.weight(1f),
                                 )
+                                IconButton(
+                                    onClick = {
+                                        ShareLinkPrefs.removeHistory(context, url)
+                                        history = ShareLinkPrefs.loadHistory(context)
+                                    },
+                                    modifier = Modifier.size(32.dp),
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Filled.Close,
+                                        contentDescription = "删除这条",
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier.size(16.dp),
+                                    )
+                                }
                             }
                         }
                         Spacer(Modifier.height(12.dp))
@@ -562,6 +577,7 @@ fun ShareLinkScreen(
                                 ) {
                                     row.forEach { file ->
                                         EpisodeChip(
+                                            modifier = Modifier.weight(1f),
                                             file = file,
                                             resolving = resolvingFid == file.fid,
                                             onClick = { playFile(file) },
@@ -645,10 +661,10 @@ private fun EpisodeChip(
     resolving: Boolean,
     onClick: () -> Unit,
     onLongClick: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     Box(
-        modifier = Modifier
-            .weight(1f)
+        modifier = modifier
             .height(44.dp)
             .clip(RoundedCornerShape(10.dp))
             .background(MaterialTheme.colorScheme.surfaceVariant)

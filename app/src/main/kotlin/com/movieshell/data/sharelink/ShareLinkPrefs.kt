@@ -35,6 +35,17 @@ object ShareLinkPrefs {
             .edit().remove(KEY_HISTORY).apply()
     }
 
+    /** 删历史里的一条（点行尾 ×）。 */
+    fun removeHistory(context: Context, url: String) {
+        val updated = dropHistory(loadHistory(context), url)
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .edit().putString(KEY_HISTORY, updated.joinToString("\n")).apply()
+    }
+
+    /** 删一条的纯逻辑（load/remove 要走真 SharedPreferences，纯 JUnit 测它）。 */
+    fun dropHistory(existing: List<String>, url: String): List<String> =
+        existing.filter { it != url.trim() }
+
     /** 历史记录的纯拼装逻辑（load/add 要走真 SharedPreferences，纯 JUnit 测它）。 */
     fun mergeHistory(existing: List<String>, url: String): List<String> {
         val trimmed = url.trim()
