@@ -25,6 +25,21 @@ import org.json.JSONObject
  * - fidToken 与 stoken 是同一会话配对的，混用新 stoken 报 41020。
  * 登录后全程（转存/转码）沙箱验不了（无登录 Cookie），单测用
  * MockWebServer 覆盖，真机登录后待验。
+ *
+ * v1.3.8（2026-11-18 真机故障复盘）：
+ * - 播放 Referer 按播放地址的 host 家族取：预览/转码 m3u8 在 video-play-*
+ *   主机上，CDN 只认同族 drive 域名作 Referer（drive.uc.cn 的地址配
+ *   https://drive.uc.cn/，drive.quark.cn 的配 https://drive.quark.cn/）；
+ *   之前一律发 pan.quark.cn，m3u8 与分片双双 403，播放器报
+ *   ERROR_CODE_IO_BAD_HTTP_STATUS。沙箱实测：换 Referer 后 m3u8 与首个
+ *   分片都回 200。直链（dl-*）仍用配置 Referer。
+ * - video_preview 与 file/v2/play 响应下发的 __pugs 不再丢掉，透传给播放器。
+ * - downloadSaved 兼容 data 的两种形态：对象数组取 download_url，
+ *   字符串数组取字符串本身。
+ * - 转存轮询 3 次×1 秒根本不够大文件服务端复制（真机 4 次超时）：
+ *   首轮 30 次×2 秒（60 秒），同一 resolve 内不再重建任务，超时后对
+ *   同一 task_id 再轮询 15 次×2 秒；TV 目录里已有同名同大小文件时
+ *   直接复用，不清空重转。
  */
 object QuarkUcApi {
 
@@ -230,13 +245,13 @@ object QuarkUcApi {
         return Triple(url, resp.pugs, 0)
     }
 
-    /** 游客 2 分钟预览 m3u8（sharepage/video_preview，2026-11-17 沙箱实测）。 */
-    private fun videoPreview(
+    /** 游客 2 分钟预览 m3u8（sharepage/video_preview，2026-11-17 沙箱实测）。返回（m3u8，pugs）。 */
+    internal fun videoPreview(
         client: OkHttpClient,
         cfg: Config,
         session: ShareSession.QuarkUc,
         file: ShareFile,
-    ): String {
+    ): Pair<String, String> {
         // v1.3.6：fid_token 与 stoken 常含 +/=，查询串里的值一律编码。
         val url = "${cfg.apiBase}/share/sharepage/video_preview?fid=${ShareHttp.enc(file.fid)}" +
             "&fid_token=${ShareHttp.enc(file.fidToken)}&pwd_id=${ShareHttp.enc(session.pwdId)}" +
@@ -245,17 +260,36 @@ object QuarkUcApi {
             client, url, "", cfg.ua, cfg.referer,
             extraHeaders = mapOf("x-clouddrive-st" to session.stoken),
         )
-        val json = resp.json ?: return ""
-        if (json.optInt("code", -1) != 0) return ""
-        val data = json.optJSONObject("data") ?: return ""
+        val json = resp.json ?: return "" to ""
+        if (json.optInt("code", -1) != 0) return "" to ""
+        val data = json.optJSONObject("data") ?: return "" to ""
         val playInfo = data.optJSONObject("play_info")
         val m3u8 = playInfo?.optString("url").orEmpty()
-        if (m3u8.isNotBlank()) return m3u8
-        return data.optString("preview_url").orEmpty()
+        // v1.3.8：响应下发的 __pugs 别丢，播放时一并带上（直链裸 URL 回 403 的同款规矩）。
+        if (m3u8.isNotBlank()) return m3u8 to resp.pugs
+        return data.optString("preview_url").orEmpty() to resp.pugs
     }
 
-    private fun playHeaders(cfg: Config, pugs: String): Map<String, String> {
-        val headers = mutableMapOf("Referer" to cfg.referer, "User-Agent" to cfg.ua)
+    /**
+     * v1.3.8：播放 Referer 按播放地址的 host 家族取——预览/转码 m3u8 在
+     * video-play-* 主机上，CDN 只认同族 drive 域名作 Referer；之前一律发
+     * pan.quark.cn，m3u8 与分片双双 403（2026-11-18 沙箱实测，换 Referer
+     * 后 m3u8 与首个分片都回 200）。直链（dl-*）仍用配置 Referer。
+     */
+    internal fun playRefererFor(url: String, cfg: Config): String {
+        val host = runCatching { java.net.URI(url).host }.getOrNull().orEmpty()
+        if ("video-play" in host) {
+            return when {
+                host.endsWith(".drive.uc.cn") -> "https://drive.uc.cn/"
+                host.endsWith(".drive.quark.cn") -> "https://drive.quark.cn/"
+                else -> cfg.referer
+            }
+        }
+        return cfg.referer
+    }
+
+    private fun playHeaders(cfg: Config, pugs: String, url: String): Map<String, String> {
+        val headers = mutableMapOf("Referer" to playRefererFor(url, cfg), "User-Agent" to cfg.ua)
         if (pugs.isNotBlank()) headers["Cookie"] = "__pugs=$pugs"
         return headers
     }
@@ -275,15 +309,16 @@ object QuarkUcApi {
             ?: return ShareResult.Err("会话丢了，重新打开这个分享再试")
         val cookie = ShareAuth.getCookie(platform)
         val name = platform.displayName
+        var saved = SaveOutcome("", "", "", "")
         if (cookie.isNotBlank() && file.size > LARGE_SIZE) {
-            val saved = saveFlowWithTranscode(client, cfg, session, file, cookie)
+            saved = saveFlowWithTranscode(client, cfg, session, file, cookie)
             if (saved.url.isNotBlank()) {
-                return ShareResult.Ok(PlayLink(saved.url, playHeaders(cfg, saved.cookie)))
+                return ShareResult.Ok(PlayLink(saved.url, playHeaders(cfg, saved.cookie, saved.url)))
             }
         }
         val (url, pugs, code) = download(client, cfg, session, file, "")
         if (url.isNotBlank()) {
-            return ShareResult.Ok(PlayLink(url, playHeaders(cfg, pugs)))
+            return ShareResult.Ok(PlayLink(url, playHeaders(cfg, pugs, url)))
         }
         if (code == 31001) {
             ShareAuth.markExpired(platform)
@@ -293,7 +328,7 @@ object QuarkUcApi {
             if (cookie.isNotBlank()) {
                 val (url2, pugs2, code2) = download(client, cfg, session, file, cookie)
                 if (url2.isNotBlank()) {
-                    return ShareResult.Ok(PlayLink(url2, playHeaders(cfg, pugs2)))
+                    return ShareResult.Ok(PlayLink(url2, playHeaders(cfg, pugs2, url2)))
                 }
                 if (code2 == 31001) {
                     ShareAuth.markExpired(platform)
@@ -302,15 +337,21 @@ object QuarkUcApi {
             }
         }
         if (cookie.isNotBlank()) {
-            val saved = saveFlowWithTranscode(client, cfg, session, file, cookie)
-            if (saved.url.isNotBlank()) {
-                return ShareResult.Ok(PlayLink(saved.url, playHeaders(cfg, saved.cookie)))
+            // v1.3.8：首轮转存已建任务但轮询超时时，不重建任务、不清空 TV 目录，
+            // 直接对同一 task_id 再轮询一轮；小文件（首轮没走转存）才新起转存。
+            val saved2 = if (saved.taskId.isNotBlank()) {
+                repollSave(client, cfg, cookie, saved.taskId)
+            } else {
+                saveFlowWithTranscode(client, cfg, session, file, cookie)
+            }
+            if (saved2.url.isNotBlank()) {
+                return ShareResult.Ok(PlayLink(saved2.url, playHeaders(cfg, saved2.cookie, saved2.url)))
             }
         }
-        val preview = videoPreview(client, cfg, session, file)
+        val (preview, previewPugs) = videoPreview(client, cfg, session, file)
         if (preview.isNotBlank()) {
             val note = if (cookie.isBlank()) "没登录，只能看前 2 分钟，登录后看全集" else "直链没拿到，先看 2 分钟预览"
-            return ShareResult.Ok(PlayLink(preview, playHeaders(cfg, ""), isPreview = true, note = note))
+            return ShareResult.Ok(PlayLink(preview, playHeaders(cfg, previewPugs, preview), isPreview = true, note = note))
         }
         return if (cookie.isBlank()) {
             ShareResult.Err("这个${name}分享要先登录才能播：大文件必须登录", needLogin = true)
@@ -321,14 +362,25 @@ object QuarkUcApi {
 
     // ---------------- 转存原画 + 转码（登录态，照搬 PanSaveApi） ----------------
 
-    private data class SaveOutcome(val url: String, val cookie: String, val savedFid: String, val error: String)
+    /** internal：saveFlow 单测要读 url/savedFid。 */
+    internal data class SaveOutcome(
+        val url: String,
+        val cookie: String,
+        val savedFid: String,
+        val error: String,
+        val taskId: String = "",
+    )
 
     private const val SAVE_DIR_NAME = "TV"
-    private const val POLL_MAX = 3
-    private const val POLL_INTERVAL_MS = 1000L
+    // v1.3.8：3 次×1 秒根本不够大文件服务端复制（真机 4 次超时）。首轮 30 次×2 秒。
+    private const val POLL_MAX = 30
+    private const val POLL_INTERVAL_MS = 2000L
+    // 同一 task_id 的第二轮轮询预算（再 30 秒）。
+    private const val REPOLL_MAX = 15
     private val RESOLUTION_RANK = listOf("4k", "2k", "super", "high", "normal", "low")
 
-    private fun saveFlow(
+    /** internal：单测覆盖转存整链（建目录→复用→保存→轮询→直链解析）。 */
+    internal fun saveFlow(
         client: OkHttpClient,
         cfg: Config,
         session: ShareSession.QuarkUc,
@@ -337,16 +389,40 @@ object QuarkUcApi {
         sleep: (Long) -> Unit = Thread::sleep,
     ): SaveOutcome {
         if (cookie.isBlank()) return SaveOutcome("", "", "", "need_login")
-        val dirId = ensureSaveDir(client, cfg, cookie)
+        val (dirId, existingFid) = ensureSaveDir(client, cfg, cookie, file)
             ?: return SaveOutcome("", "", "", "save_dir_failed")
-        val taskId = save(client, cfg, cookie, session, file, dirId)
-            ?: return SaveOutcome("", "", "", "save_failed")
-        if (taskId == "need_login") return SaveOutcome("", "", "", "need_login")
-        val savedFid = pollTask(client, cfg, cookie, taskId, sleep)
-            ?: return SaveOutcome("", "", "", "save_timeout")
+        val savedFid = if (existingFid != null) {
+            // v1.3.8：TV 目录里已有同名同大小的文件（上一轮转存超时后服务端
+            // 其实已完成），直接复用，不重建任务、不清空重转。
+            existingFid
+        } else {
+            val taskId = save(client, cfg, cookie, session, file, dirId)
+                ?: return SaveOutcome("", "", "", "save_failed")
+            if (taskId == "need_login") return SaveOutcome("", "", "", "need_login")
+            pollTask(client, cfg, cookie, taskId, sleep)
+                ?: return SaveOutcome("", "", "", "save_timeout", taskId)
+        }
         val down = downloadSaved(client, cfg, cookie, savedFid)
         if (down.first.isBlank()) return SaveOutcome("", down.second, savedFid, "download_failed")
         return SaveOutcome(down.first, down.second, savedFid, "")
+    }
+
+    /** 首轮转存建了任务但轮询超时：不对同一文件重建任务，直接对同一 task_id 再轮询一轮。 */
+    private fun repollSave(
+        client: OkHttpClient,
+        cfg: Config,
+        cookie: String,
+        taskId: String,
+    ): SaveOutcome {
+        val savedFid = pollTask(client, cfg, cookie, taskId, Thread::sleep, REPOLL_MAX)
+            ?: return SaveOutcome("", "", "", "save_timeout", taskId)
+        val down = downloadSaved(client, cfg, cookie, savedFid)
+        if (down.first.isBlank()) {
+            val transcoded = transcode(client, cfg, cookie, savedFid)
+            if (transcoded.url.isNotBlank()) return transcoded
+            return SaveOutcome("", down.second, savedFid, "download_failed", taskId)
+        }
+        return SaveOutcome(down.first, down.second, savedFid, "", taskId)
     }
 
     private fun transcode(
@@ -381,7 +457,8 @@ object QuarkUcApi {
             LogBus.w(TAG, "转码无可用档位")
             return SaveOutcome("", "", savedFid, "transcode_failed")
         }
-        return SaveOutcome(bestUrl, "", savedFid, "")
+        // v1.3.8：file/v2/play 响应下发的 __pugs 别丢，转码 m3u8 回源也要带它。
+        return SaveOutcome(bestUrl, resp.pugs, savedFid, "")
     }
 
     /** 转存成功但直取失败时再试转码。 */
@@ -397,7 +474,16 @@ object QuarkUcApi {
         return transcode(client, cfg, cookie, saved.savedFid)
     }
 
-    private fun ensureSaveDir(client: OkHttpClient, cfg: Config, cookie: String): String? {
+    /**
+     * 找 TV 转存目录。返回（dirId，TV 目录里已有的同名同大小文件的 fid 或 null）：
+     * 同名同大小视为同一文件，调用方直接复用它，不重建转存任务。
+     */
+    private fun ensureSaveDir(
+        client: OkHttpClient,
+        cfg: Config,
+        cookie: String,
+        file: ShareFile,
+    ): Pair<String, String?>? {
         val sort = ShareHttp.getJson(
             client,
             "${cfg.apiBase}/file/sort?${cfg.pr}&pdir_fid=0&_page=1&_size=200&_sort=file_type:asc,updated_at:desc",
@@ -409,8 +495,10 @@ object QuarkUcApi {
             if (item.optString("file_name") == SAVE_DIR_NAME) {
                 val dirId = item.optString("fid")
                 if (dirId.isNotBlank()) {
+                    val existing = findSameFile(client, cfg, cookie, dirId, file)
+                    if (existing != null) return dirId to existing
                     clearSaveDir(client, cfg, cookie, dirId)
-                    return dirId
+                    return dirId to null
                 }
             }
         }
@@ -421,7 +509,31 @@ object QuarkUcApi {
             .put("dir_init_lock", "false")
         val created = ShareHttp.postJson(client, "${cfg.apiBase}/file?${cfg.pr}", cookie, cfg.ua, cfg.referer, body).json
             ?: return null
-        return created.optJSONObject("data")?.optString("fid")?.takeIf { it.isNotBlank() }
+        val dirId = created.optJSONObject("data")?.optString("fid")?.takeIf { it.isNotBlank() } ?: return null
+        return dirId to null
+    }
+
+    /** TV 目录里找与目标同名同大小的文件（上一轮转存超时后服务端其实已完成时复用）。 */
+    private fun findSameFile(
+        client: OkHttpClient,
+        cfg: Config,
+        cookie: String,
+        dirId: String,
+        file: ShareFile,
+    ): String? {
+        val sort = ShareHttp.getJson(
+            client,
+            "${cfg.apiBase}/file/sort?${cfg.pr}&pdir_fid=${ShareHttp.enc(dirId)}&_page=1&_size=200&_sort=file_type:asc,updated_at:desc",
+            cookie, cfg.ua, cfg.referer,
+        ).json ?: return null
+        val list = sort.optJSONObject("data")?.optJSONArray("list") ?: JSONArray()
+        for (i in 0 until list.length()) {
+            val item = list.optJSONObject(i) ?: continue
+            if (item.optString("file_name") == file.name && item.optLong("size", -1L) == file.size) {
+                return item.optString("fid").takeIf { it.isNotBlank() }
+            }
+        }
+        return null
     }
 
     private fun clearSaveDir(client: OkHttpClient, cfg: Config, cookie: String, dirId: String) {
@@ -466,14 +578,16 @@ object QuarkUcApi {
         return json.optJSONObject("data")?.optString("task_id")?.takeIf { it.isNotBlank() }
     }
 
-    private fun pollTask(
+    /** internal：单测覆盖轮询次数。maxPolls 默认 POLL_MAX，复轮询传更小的预算。 */
+    internal fun pollTask(
         client: OkHttpClient,
         cfg: Config,
         cookie: String,
         taskId: String,
         sleep: (Long) -> Unit,
+        maxPolls: Int = POLL_MAX,
     ): String? {
-        for (retry in 0 until POLL_MAX) {
+        for (retry in 0 until maxPolls) {
             val json = ShareHttp.getJson(
                 client,
                 "${cfg.apiBase}/task?${cfg.pr}&task_id=${ShareHttp.enc(taskId)}&retry_index=$retry",
@@ -484,7 +598,7 @@ object QuarkUcApi {
             if (fids != null && fids.length() > 0) {
                 return fids.optString(0).takeIf { it.isNotBlank() }
             }
-            if (retry < POLL_MAX - 1) sleep(POLL_INTERVAL_MS)
+            if (retry < maxPolls - 1) sleep(POLL_INTERVAL_MS)
         }
         LogBus.w(TAG, "转存轮询超时")
         return null
@@ -501,9 +615,15 @@ object QuarkUcApi {
         val resp = ShareHttp.postJson(client, "${cfg.apiBase}/file/download?${cfg.pr}&uc_param_str=", cookie, cfg.ua, cfg.referer, body)
         val json = resp.json ?: return "" to ""
         val data = json.opt("data") ?: return "" to ""
+        // v1.3.8：data 有两种形态——对象数组取 download_url（与分享端 download 同款），
+        // 字符串数组取字符串本身；只按一种取会把另一种判成失败。
         val url = when (data) {
-            is JSONArray -> if (data.length() > 0) data.optString(0) else ""
+            is JSONArray -> if (data.length() > 0) {
+                data.optJSONObject(0)?.optString("download_url").orEmpty()
+                    .ifBlank { (data.opt(0) as? String).orEmpty() }
+            } else ""
             is JSONObject -> data.optString("download_url")
+            is String -> data
             else -> ""
         }
         return url to resp.pugs

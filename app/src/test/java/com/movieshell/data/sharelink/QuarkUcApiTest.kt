@@ -136,6 +136,125 @@ class QuarkUcApiTest {
     }
 
     @Test
+    fun playRefererFor_previewUcHostUsesDriveUc() {
+        // 2026-11-18 沙箱实测：预览 m3u8 在 drive.uc.cn 主机上，Referer 配
+        // pan.quark.cn 回 403，配 https://drive.uc.cn/ 回 200。
+        assertEquals(
+            "https://drive.uc.cn/",
+            QuarkUcApi.playRefererFor(
+                "https://video-play-h-share-preview-zb.drive.uc.cn/share/video/preview/qv/x/media.m3u8",
+                cfg,
+            ),
+        )
+    }
+
+    @Test
+    fun playRefererFor_transcodeQuarkHostUsesDriveQuark() {
+        assertEquals(
+            "https://drive.quark.cn/",
+            QuarkUcApi.playRefererFor(
+                "https://video-play-h-zb.drive.quark.cn/qv/x/db4aa08.m3u8",
+                cfg,
+            ),
+        )
+    }
+
+    @Test
+    fun playRefererFor_downloadHostKeepsConfigReferer() {
+        // 直链（dl-*）仍用配置 Referer，不动已验通过的口径。
+        assertEquals(
+            "https://pan.quark.cn/",
+            QuarkUcApi.playRefererFor("https://dl-guest-zb-u.drive.quark.cn/xxx/01.mp4", cfg),
+        )
+    }
+
+    @Test
+    fun playRefererFor_unknownHostKeepsConfigReferer() {
+        assertEquals(
+            "https://pan.quark.cn/",
+            QuarkUcApi.playRefererFor("https://example.com/x.m3u8", cfg),
+        )
+    }
+
+    @Test
+    fun pollTask_returnsFidAfterFourEmptyPolls() {
+        // 旧轮询 3 次×1 秒到这里就超时返回 null；新轮询 30 次×2 秒必须等到第 5 次。
+        repeat(4) {
+            server.enqueue(json("""{"code":0,"data":{"save_as":{"save_as_top_fids":[]}}}"""))
+        }
+        server.enqueue(json("""{"code":0,"data":{"save_as":{"save_as_top_fids":["saved9"]}}}"""))
+
+        val fid = QuarkUcApi.pollTask(ShareHttp.defaultClient(), cfg, "", "task9") { /* 不睡，快进 */ }
+
+        assertEquals("saved9", fid)
+    }
+
+    @Test
+    fun videoPreview_returnsPugsFromSetCookie() {
+        server.enqueue(
+            MockResponse()
+                .setBody(
+                    """{"code":0,"data":{"play_info":{"url":"https://video-play-h-share-preview-zb.drive.uc.cn/share/video/preview/qv/x/media.m3u8"}}}""",
+                )
+                .setHeader("Content-Type", "application/json; charset=utf-8")
+                .setHeader("Set-Cookie", "__pugs=PUGS123; Path=/"),
+        )
+
+        val (url, pugs) = QuarkUcApi.videoPreview(
+            ShareHttp.defaultClient(), cfg,
+            ShareSession.QuarkUc("pwd1", "st1", ""),
+            ShareFile(fid = "f1", name = "01.mp4", size = 1L, fidToken = "tok1"),
+        )
+
+        assertTrue(url.contains("video-play-h-share-preview-zb.drive.uc.cn"))
+        assertEquals("PUGS123", pugs)
+    }
+
+    /** 转存整链的 mock 排队：根目录有 TV → TV 为空 → 保存 → 轮询两次出 fid → 直链。 */
+    private fun enqueueSaveFlowChain(downloadDataJson: String) {
+        server.enqueue(json("""{"code":0,"data":{"list":[{"fid":"tvdir","file_name":"TV"}]}}"""))
+        server.enqueue(json("""{"code":0,"data":{"list":[]}}"""))
+        server.enqueue(json("""{"code":0,"data":{"list":[]}}"""))
+        server.enqueue(json("""{"code":0,"data":{"task_id":"task1"}}"""))
+        server.enqueue(json("""{"code":0,"data":{"save_as":{"save_as_top_fids":[]}}}"""))
+        server.enqueue(json("""{"code":0,"data":{"save_as":{"save_as_top_fids":["saved1"]}}}"""))
+        server.enqueue(json("""{"code":0,"data":$downloadDataJson}"""))
+    }
+
+    @Test
+    fun saveFlow_objectArrayDownloadUrlReturnsDirectLink() {
+        // 回归 1.3.8：自有盘 file/download 的 data 是对象数组时，之前只按
+        // 字符串数组取，拿到的 URL 是空的，直取失败只能走转码。
+        enqueueSaveFlowChain("""[{"download_url":"https://dl.example.com/01.mp4"}]""")
+
+        val outcome = QuarkUcApi.saveFlow(
+            ShareHttp.defaultClient(), cfg,
+            ShareSession.QuarkUc("pwd1", "st1", ""),
+            ShareFile(fid = "f1", name = "01.mp4", size = 123456L, fidToken = "tok1"),
+            "cookie123",
+        ) { /* 不睡，快进 */ }
+
+        assertEquals("https://dl.example.com/01.mp4", outcome.url)
+        assertEquals("saved1", outcome.savedFid)
+    }
+
+    @Test
+    fun saveFlow_stringArrayDownloadUrlReturnsDirectLink() {
+        // 字符串数组形态是旧口径，改完不能丢。
+        enqueueSaveFlowChain("""["https://dl.example.com/02.mp4"]""")
+
+        val outcome = QuarkUcApi.saveFlow(
+            ShareHttp.defaultClient(), cfg,
+            ShareSession.QuarkUc("pwd1", "st1", ""),
+            ShareFile(fid = "f1", name = "02.mp4", size = 123456L, fidToken = "tok1"),
+            "cookie123",
+        ) { /* 不睡，快进 */ }
+
+        assertEquals("https://dl.example.com/02.mp4", outcome.url)
+        assertEquals("saved1", outcome.savedFid)
+    }
+
+    @Test
     fun listDir_specialCharStokenReturnsFolderNotEmpty() {
         // token 回假 stoken（含 +、/、=），detail 回一个文件夹：回归 1.3.6，
         // 不编码时服务端报 14001、listDir 报“这个分享里是空的”。
