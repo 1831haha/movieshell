@@ -40,6 +40,15 @@ import org.json.JSONObject
  *   首轮 30 次×2 秒（60 秒），同一 resolve 内不再重建任务，超时后对
  *   同一 task_id 再轮询 15 次×2 秒；TV 目录里已有同名同大小文件时
  *   直接复用，不清空重转。
+ *
+ * v1.3.13（2026-11-18 真机故障复盘）：转码 m3u8 仍播不了——Media3 与
+ * libmpv 双双 412，黑屏。根因：夸克缺 __pugs 时 CDN 回 412（研究笔记
+ * 云X口径；沙箱拿真机日志里的同一条转码地址复现：无 Cookie 时换什么
+ * Referer/UA 都是 412）。1.3.8 只认 file/v2/play 响应里下发的 __pugs，
+ * 该响应未必下发，拿不到就等于没带 Cookie。修法：播放 Cookie 改由
+ * playbackCookie 拼——响应下发的 __pugs 优先，其次登录 Cookie 里的
+ * __pugs，再其次整串会话 Cookie 一并带上（同属夸克自家域名）。
+ * Cookie 值绝不写日志，只记有无。
  */
 object QuarkUcApi {
 
@@ -288,9 +297,41 @@ object QuarkUcApi {
         return cfg.referer
     }
 
-    private fun playHeaders(cfg: Config, pugs: String, url: String): Map<String, String> {
+    /**
+     * v1.3.13：拼播放用的 Cookie 头值。响应下发的 __pugs 优先；没有就取
+     * 登录 Cookie 里带的 __pugs；再没有就把整串会话 Cookie 一并带上
+     * （同属夸克自家域名，会话绑定也一并满足）。两者都空返回 ""。
+     * 只拼值，不记日志——调用方只记有无，绝不记值。
+     */
+    internal fun playbackCookie(apiPugs: String, sessionCookie: String): String {
+        val pairs = sessionCookie.split(';')
+            .map { it.trim() }
+            .filter { it.isNotEmpty() && '=' in it }
+        var sessionPugs = ""
+        val rest = ArrayList<String>(pairs.size)
+        for (pair in pairs) {
+            val key = pair.substringBefore('=').trim()
+            if (key.equals("__pugs", ignoreCase = true)) {
+                if (sessionPugs.isEmpty()) sessionPugs = pair.substringAfter('=', "").trim()
+            } else {
+                rest.add(pair)
+            }
+        }
+        val pugs = apiPugs.trim().ifBlank { sessionPugs }
+        val out = ArrayList<String>(rest.size + 1)
+        if (pugs.isNotEmpty()) out.add("__pugs=$pugs")
+        out.addAll(rest)
+        return out.joinToString("; ")
+    }
+
+    private fun playHeaders(cfg: Config, pugs: String, url: String, sessionCookie: String = ""): Map<String, String> {
         val headers = mutableMapOf("Referer" to playRefererFor(url, cfg), "User-Agent" to cfg.ua)
-        if (pugs.isNotBlank()) headers["Cookie"] = "__pugs=$pugs"
+        val cookie = playbackCookie(pugs, sessionCookie)
+        if (cookie.isNotBlank()) headers["Cookie"] = cookie
+        // v1.3.13：只记有无，绝不记 Cookie 值（字符串模板里不嵌套引号，
+        // 否则自查脚本的去字符串会把 Cookie 当成漏 import 的符号）。
+        val hasCookie = headers.containsKey("Cookie")
+        LogBus.d(TAG, "播放头 Cookie=" + if (hasCookie) "已带" else "无")
         return headers
     }
 
@@ -313,12 +354,12 @@ object QuarkUcApi {
         if (cookie.isNotBlank() && file.size > LARGE_SIZE) {
             saved = saveFlowWithTranscode(client, cfg, session, file, cookie)
             if (saved.url.isNotBlank()) {
-                return ShareResult.Ok(PlayLink(saved.url, playHeaders(cfg, saved.cookie, saved.url)))
+                return ShareResult.Ok(PlayLink(saved.url, playHeaders(cfg, saved.cookie, saved.url, cookie)))
             }
         }
         val (url, pugs, code) = download(client, cfg, session, file, "")
         if (url.isNotBlank()) {
-            return ShareResult.Ok(PlayLink(url, playHeaders(cfg, pugs, url)))
+            return ShareResult.Ok(PlayLink(url, playHeaders(cfg, pugs, url, cookie)))
         }
         if (code == 31001) {
             ShareAuth.markExpired(platform)
@@ -328,7 +369,7 @@ object QuarkUcApi {
             if (cookie.isNotBlank()) {
                 val (url2, pugs2, code2) = download(client, cfg, session, file, cookie)
                 if (url2.isNotBlank()) {
-                    return ShareResult.Ok(PlayLink(url2, playHeaders(cfg, pugs2, url2)))
+                    return ShareResult.Ok(PlayLink(url2, playHeaders(cfg, pugs2, url2, cookie)))
                 }
                 if (code2 == 31001) {
                     ShareAuth.markExpired(platform)
@@ -345,7 +386,7 @@ object QuarkUcApi {
                 saveFlowWithTranscode(client, cfg, session, file, cookie)
             }
             if (saved2.url.isNotBlank()) {
-                return ShareResult.Ok(PlayLink(saved2.url, playHeaders(cfg, saved2.cookie, saved2.url)))
+                return ShareResult.Ok(PlayLink(saved2.url, playHeaders(cfg, saved2.cookie, saved2.url, cookie)))
             }
         }
         val (preview, previewPugs) = videoPreview(client, cfg, session, file)

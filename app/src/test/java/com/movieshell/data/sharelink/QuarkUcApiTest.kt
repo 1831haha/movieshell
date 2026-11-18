@@ -177,6 +177,39 @@ class QuarkUcApiTest {
     }
 
     @Test
+    fun playbackCookie_apiPugsWinsOverSessionPugs() {
+        // 响应下发的 __pugs 优先，会话里的旧 __pugs 不盖它，其余会话 Cookie 保留。
+        assertEquals(
+            "__pugs=new123; __puus=aaa; _UP_A=bbb",
+            QuarkUcApi.playbackCookie("new123", "__puus=aaa; __pugs=old456; _UP_A=bbb"),
+        )
+    }
+
+    @Test
+    fun playbackCookie_fallsBackToSessionPugs() {
+        // 响应没下发 __pugs（file/v2/play 未必下发）时，取登录 Cookie 里的。
+        assertEquals(
+            "__pugs=sess789; __puus=aaa",
+            QuarkUcApi.playbackCookie("", "__puus=aaa; __pugs=sess789"),
+        )
+    }
+
+    @Test
+    fun playbackCookie_noPugsSendsWholeSessionCookie() {
+        // 两边都没有 __pugs 时整串会话 Cookie 一并带上，会话绑定也满足。
+        assertEquals(
+            "__puus=aaa; _UP_A=bbb",
+            QuarkUcApi.playbackCookie("", "__puus=aaa; _UP_A=bbb"),
+        )
+    }
+
+    @Test
+    fun playbackCookie_bothEmptyReturnsEmpty() {
+        assertEquals("", QuarkUcApi.playbackCookie("", ""))
+        assertEquals("", QuarkUcApi.playbackCookie("  ", " ; "))
+    }
+
+    @Test
     fun pollTask_returnsFidAfterFourEmptyPolls() {
         // 旧轮询 3 次×1 秒到这里就超时返回 null；新轮询 30 次×2 秒必须等到第 5 次。
         repeat(4) {
