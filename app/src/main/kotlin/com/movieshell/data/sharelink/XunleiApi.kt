@@ -110,12 +110,12 @@ object XunleiApi {
     ): Triple<List<JSONObject>, String, String> {
         val path = if (parentId.isBlank()) "/drive/v1/share" else "/drive/v1/share/detail"
         val query = StringBuilder(path)
-            .append("?share_id=").append(shareId)
-            .append("&pass_code=").append(code)
-            .append("&pass_code_token=").append(passCodeToken)
+            .append("?share_id=").append(ShareHttp.enc(shareId))
+            .append("&pass_code=").append(ShareHttp.enc(code))
+            .append("&pass_code_token=").append(ShareHttp.enc(passCodeToken))
             .append("&limit=100&space=&thumbnail_size=SIZE_MEDIUM&scene=NORMAL")
-            .append("&page_token=").append(pageToken)
-        if (parentId.isNotBlank()) query.append("&parent_id=").append(parentId)
+            .append("&page_token=").append(ShareHttp.enc(pageToken))
+        if (parentId.isNotBlank()) query.append("&parent_id=").append(ShareHttp.enc(parentId))
         val resp = ShareHttp.getJson(
             client, API + query.toString(), "", UA, REFERER,
             extraHeaders = shareHeaders(deviceId, captchaToken),
@@ -210,9 +210,11 @@ object XunleiApi {
         session: ShareSession.Xunlei,
         file: ShareFile,
     ): Triple<String, String, String> {
-        val query = "/drive/v1/share/file_info?share_id=${session.shareId}" +
-            "&file_id=${file.fid}&pass_code=${session.code}" +
-            "&pass_code_token=${session.passCodeToken}&folder_id=${file.folderId}&space=&scene=NORMAL"
+        // v1.3.6：查询串里的值一律编码——pass_code_token 常含 +/=，不编码会被截断。
+        val query = "/drive/v1/share/file_info?share_id=${ShareHttp.enc(session.shareId)}" +
+            "&file_id=${ShareHttp.enc(file.fid)}&pass_code=${ShareHttp.enc(session.code)}" +
+            "&pass_code_token=${ShareHttp.enc(session.passCodeToken)}" +
+            "&folder_id=${ShareHttp.enc(file.folderId)}&space=&scene=NORMAL"
         val resp = ShareHttp.getJson(
             client, API + query, "", UA, REFERER,
             extraHeaders = shareHeaders(deviceId, captchaToken),

@@ -112,12 +112,9 @@ fun MediaServerScreen(
 
     var formName by remember { mutableStateOf("") }
     var formType by remember { mutableStateOf("emby") }
-    // v1.2.14：地址拆三格填（主机 / 路径 / 端口），反代 /proxy 友好；保存时拼回整 URL。
-    var formScheme by remember { mutableStateOf("http") }
-    var formHost by remember { mutableStateOf("") }
-    var formPort by remember { mutableStateOf("") }
-    var formPath by remember { mutableStateOf("") }
-    var formRemark by remember { mutableStateOf("") }
+    // v1.3.6：单地址框——整段粘贴什么都认（带协议/裸域名/带端口/带路径），
+    // 协议与端口路径由 EmbyApi.parseAddress 在后台拆，没写协议先 https 后 http 试。
+    var formAddress by remember { mutableStateOf("") }
     var formIgnoreCert by remember { mutableStateOf(false) }
     var formUser by remember { mutableStateOf("") }
     var formPass by remember { mutableStateOf("") }
@@ -125,6 +122,11 @@ fun MediaServerScreen(
     var formApiKey by remember { mutableStateOf("") }
     var formError by remember { mutableStateOf("") }
     var formTesting by remember { mutableStateOf(false) }
+    // v1.3.6：测试结果弹窗（成功/失败都弹，调用处受 if (showResult) 守卫）。
+    var showResult by remember { mutableStateOf(false) }
+    var resultSuccess by remember { mutableStateOf(false) }
+    var resultTitle by remember { mutableStateOf("") }
+    var resultMessage by remember { mutableStateOf("") }
 
     val level = stack.last()
     val title = when (level) {
@@ -287,11 +289,7 @@ fun MediaServerScreen(
         editing = null
         formName = ""
         formType = "emby"
-        formScheme = "http"
-        formHost = ""
-        formPort = ""
-        formPath = ""
-        formRemark = ""
+        formAddress = ""
         formIgnoreCert = false
         formUser = ""
         formPass = ""
@@ -299,6 +297,7 @@ fun MediaServerScreen(
         formApiKey = ""
         formError = ""
         formTesting = false
+        showResult = false
         showAdd = true
     }
 
@@ -306,13 +305,9 @@ fun MediaServerScreen(
         editing = server
         formName = server.name
         formType = server.type
-        // v1.2.14：旧的整 URL 拆回三格（没写端口/路径的格留空，不丢数据）。
+        // v1.3.6：旧的整 URL 拼回单个地址框（双协议坏地址先由 normalizeBase 自愈）。
         val split = EmbyApi.splitBaseUrl(server.baseUrl)
-        formScheme = split.scheme
-        formHost = split.host
-        formPort = split.port
-        formPath = split.path
-        formRemark = server.remark
+        formAddress = EmbyApi.joinAddress(split.scheme, split.host, split.port, split.path)
         formIgnoreCert = server.ignoreCert
         formUser = server.username
         formPass = ""
@@ -320,19 +315,38 @@ fun MediaServerScreen(
         formApiKey = ""
         formError = ""
         formTesting = false
+        showResult = false
         showAdd = true
     }
 
+    fun showResultDialog(success: Boolean, title: String, message: String) {
+        resultSuccess = success
+        resultTitle = title
+        resultMessage = message
+        showResult = true
+    }
+
+    fun dismissResult() {
+        showResult = false
+        // 成功才关表单：失败留在表单里改地址账号。
+        if (resultSuccess) {
+            showAdd = false
+            editing = null
+        }
+    }
+
     fun saveForm() {
-        // v1.2.14：三格拼回整 URL 再保存（端口只认数字、路径自动补斜杠）。
-        val address = EmbyApi.joinAddress(formScheme, formHost, formPort, formPath)
-        if (formHost.isBlank()) {
-            formError = "请填写服务器主机"
+        // v1.3.6：单地址框解析出候选地址表，依次试登录；没写协议先 https 后 http。
+        val candidates = EmbyApi.candidateBases(formAddress)
+        if (candidates.isEmpty()) {
+            formError = "请填写服务器地址"
+            showResultDialog(false, "连接失败", "请填写服务器地址")
             return
         }
         // v1.2.14：Emby 允许无密码用户——密码为空也走账号登录，不再强制填密码。
         if (formApiKey.isBlank() && formUser.isBlank()) {
             formError = "请填写用户名，或填写 API Key"
+            showResultDialog(false, "连接失败", "请填写用户名，或填写 API Key")
             return
         }
         formTesting = true
@@ -340,40 +354,78 @@ fun MediaServerScreen(
         scope.launch {
             val type = if (formType == "jellyfin") EmbyApi.ServerType.JELLYFIN else EmbyApi.ServerType.EMBY
             val deviceId = EmbyStore.deviceId(context)
-            var auth = if (formApiKey.isNotBlank()) {
-                EmbyApi.loginByApiKey(address, type, deviceId, formApiKey.trim(), formIgnoreCert)
-            } else {
-                null
-            }
-            var usedApiKey = auth != null && formApiKey.isNotBlank()
-            // v1.1.31 补：API Key 失败但账号密码也填了时，改走账号密码再试一次——
-            // API Key 框里误留几个字符不该直接判死刑（2026-11-12 真机实证：框里 3 个字符
-            // 导致一直走 API Key 路径拿 401，账号密码一次都没试过）。
-            if (auth == null && formUser.isNotBlank()) {
-                auth = EmbyApi.loginByPassword(address, type, deviceId, formUser.trim(), formPass, formIgnoreCert)
-                usedApiKey = false
+            var successAuth: EmbyApi.Auth? = null
+            var usedApiKey = false
+            var usedBase = ""
+            var lastFailure: EmbyApi.LoginFailure? = null
+            // 候选逐个试：账号错（401/400）说明服务器通了，不用再换候选；
+            // 连不上才试下一个候选（https 不通回落 http）。
+            for (base in candidates) {
+                var outcome: EmbyApi.LoginOutcome? = null
+                var triedApiKey = false
+                if (formApiKey.isNotBlank()) {
+                    triedApiKey = true
+                    outcome = EmbyApi.loginByApiKeyResult(base, type, deviceId, formApiKey.trim(), formIgnoreCert)
+                    if (outcome is EmbyApi.LoginOutcome.Success) {
+                        successAuth = outcome.auth
+                        usedApiKey = true
+                        usedBase = base
+                        break
+                    }
+                }
+                // v1.1.31 补：API Key 失败但账号密码也填了时，改走账号密码再试一次——
+                // API Key 框里误留几个字符不该直接判死刑（2026-11-12 真机实证：框里 3 个字符
+                // 导致一直走 API Key 路径拿 401，账号密码一次都没试过）。
+                // API Key 连不上（不是 401）时同地址的账号登录也连不上，直接换下一个候选。
+                if (formUser.isNotBlank()) {
+                    val apiFailed = outcome as? EmbyApi.LoginOutcome.Failed
+                    if (!triedApiKey || apiFailed == null ||
+                        apiFailed.failure == EmbyApi.LoginFailure.Unauthorized
+                    ) {
+                        outcome = EmbyApi.loginByPasswordResult(
+                            base, type, deviceId, formUser.trim(), formPass, formIgnoreCert,
+                        )
+                        if (outcome is EmbyApi.LoginOutcome.Success) {
+                            successAuth = outcome.auth
+                            usedApiKey = false
+                            usedBase = base
+                            break
+                        }
+                    }
+                }
+                val failed = outcome as? EmbyApi.LoginOutcome.Failed
+                if (failed != null) {
+                    lastFailure = failed.failure
+                    // 账号错或回的不是 Emby：服务器通了，换候选也没用，直接停。
+                    if (failed.failure != EmbyApi.LoginFailure.Unreachable) break
+                }
             }
             formTesting = false
+            val auth = successAuth
             if (auth == null) {
-                formError = "登录失败：检查地址、账号或 API Key"
+                val message = when (lastFailure) {
+                    EmbyApi.LoginFailure.Unauthorized -> "用户名或密码不对"
+                    EmbyApi.LoginFailure.BadResponse -> "该地址不是 Emby/Jellyfin 服务器"
+                    else -> "检查网络或地址是否写对"
+                }
+                formError = "登录失败：$message"
+                showResultDialog(false, "连接失败", message)
                 return@launch
             }
             val base = (editing ?: EmbyServer()).copy(
                 name = formName.trim().ifBlank { if (type == EmbyApi.ServerType.JELLYFIN) "Jellyfin" else "Emby" },
                 type = formType,
-                baseUrl = EmbyApi.normalizeBase(address),
+                baseUrl = EmbyApi.normalizeBase(usedBase),
                 username = formUser.trim(),
                 authMode = if (usedApiKey) "apikey" else "password",
                 token = auth.token,
                 userId = auth.userId,
-                remark = formRemark.trim(),
+                remark = editing?.remark.orEmpty(),
                 ignoreCert = formIgnoreCert,
             )
             if (editing == null) EmbyStore.add(context, base) else EmbyStore.update(context, base)
             EmbyStore.setActive(context, base.id)
-            showAdd = false
-            editing = null
-            AppToast.show(context, "服务器已添加", long = false)
+            showResultDialog(true, "连接成功", "服务器已保存：${base.baseUrl}")
         }
     }
 
@@ -676,14 +728,12 @@ fun MediaServerScreen(
             confirmEnabled = !formTesting,
             onConfirm = { if (!formTesting) saveForm() },
             dismissText = "取消",
+            // v1.3.6：紧凑模式 + 内容精简到 7 行以内，一屏放下。
+            compact = true,
         ) {
-            // v1.2.15：输入框统一样式（全胶囊、淡描边、底色对比、收窄）+ 表单收窄到
-            // 标题宽度附近，内容区滚动、按钮常驻。
-            // v1.2.16：160dp 太窄、长提示在胶囊里折成两三行（密码那行折了三行）——
-            // 放宽到 240dp，长提示改短、说明挪到框外小字，框里不再折行。
             Column(
                 modifier = Modifier.width(240.dp),
-                verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(8.dp),
+                verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(6.dp),
             ) {
                 TechTextField(
                     value = formName,
@@ -691,6 +741,14 @@ fun MediaServerScreen(
                     modifier = Modifier.fillMaxWidth(),
                     placeholder = "名称（可空）",
                     singleLine = true,
+                )
+                TechTextField(
+                    value = formAddress,
+                    onValueChange = { formAddress = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    placeholder = "粘贴地址，如 https://emby.fool.im:443 或 emby.fool.im:8096",
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
                 )
                 SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
                     SegmentedButton(
@@ -704,54 +762,6 @@ fun MediaServerScreen(
                         shape = SegmentedButtonDefaults.itemShape(index = 1, count = 2),
                     ) { Text("Jellyfin") }
                 }
-                TechTextField(
-                    value = formRemark,
-                    onValueChange = { formRemark = it },
-                    modifier = Modifier.fillMaxWidth(),
-                    placeholder = "备注（可空）",
-                    singleLine = true,
-                )
-                SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
-                    SegmentedButton(
-                        selected = formScheme == "http",
-                        onClick = { formScheme = "http" },
-                        shape = SegmentedButtonDefaults.itemShape(index = 0, count = 2),
-                    ) { Text("http") }
-                    SegmentedButton(
-                        selected = formScheme == "https",
-                        onClick = { formScheme = "https" },
-                        shape = SegmentedButtonDefaults.itemShape(index = 1, count = 2),
-                    ) { Text("https") }
-                }
-                TechTextField(
-                    value = formHost,
-                    onValueChange = { formHost = it },
-                    modifier = Modifier.fillMaxWidth(),
-                    placeholder = "主机",
-                    singleLine = true,
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
-                )
-                TechTextField(
-                    value = formPort,
-                    onValueChange = { formPort = it.filter { c -> c.isDigit() } },
-                    modifier = Modifier.fillMaxWidth(),
-                    placeholder = "端口",
-                    singleLine = true,
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                )
-                TechTextField(
-                    value = formPath,
-                    onValueChange = { formPath = it },
-                    modifier = Modifier.fillMaxWidth(),
-                    placeholder = "路径（可空）",
-                    singleLine = true,
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
-                )
-                Text(
-                    "拼成完整地址：协议://主机:端口/路径。",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier.fillMaxWidth(),
@@ -766,12 +776,6 @@ fun MediaServerScreen(
                         onCheckedChange = { formIgnoreCert = it },
                     )
                 }
-                Text(
-                    "账号登录",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(top = 8.dp),
-                )
                 TechTextField(
                     value = formUser,
                     onValueChange = { formUser = it },
@@ -783,7 +787,7 @@ fun MediaServerScreen(
                     value = formPass,
                     onValueChange = { formPass = it },
                     modifier = Modifier.fillMaxWidth(),
-                    placeholder = "密码",
+                    placeholder = "密码（无密码用户留空）",
                     singleLine = true,
                     visualTransformation = if (formPassVisible) VisualTransformation.None else PasswordVisualTransformation(),
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
@@ -796,22 +800,11 @@ fun MediaServerScreen(
                         }
                     },
                 )
-                Text(
-                    "无密码用户留空",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Text(
-                    "或用 API Key（可选，填了可免密码）",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(top = 8.dp),
-                )
                 TechTextField(
                     value = formApiKey,
                     onValueChange = { formApiKey = it },
                     modifier = Modifier.fillMaxWidth(),
-                    placeholder = "API Key",
+                    placeholder = "API Key（可空，填了可免密码）",
                     singleLine = true,
                     visualTransformation = PasswordVisualTransformation(),
                 )
@@ -826,6 +819,19 @@ fun MediaServerScreen(
                         Text(formError, color = MaterialTheme.colorScheme.error)
                     }
                 }
+            }
+        }
+        // v1.3.6：测试结果弹窗——成功/失败都弹，调用处受 if (showResult) 守卫；
+        // 成功点确定才关表单，失败留在表单里改地址账号。
+        if (showResult) {
+            TechDialog(
+                onDismissRequest = { dismissResult() },
+                title = resultTitle,
+                confirmText = "确定",
+                dismissText = null,
+                onConfirm = { dismissResult() },
+            ) {
+                Text(resultMessage, style = MaterialTheme.typography.bodyMedium)
             }
         }
     }

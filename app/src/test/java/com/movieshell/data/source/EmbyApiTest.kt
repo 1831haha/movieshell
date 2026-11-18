@@ -228,6 +228,57 @@ class EmbyApiTest {
     }
 
     @Test
+    fun `normalizeBase heals doubled scheme from old three field form`() {
+        // v1.3.6：1.2.14 三格表单把带协议的主机又拼一遍协议，拼出 http://https//host。
+        assertEquals("https://emby.fool.im", EmbyApi.normalizeBase("http://https//emby.fool.im"))
+        assertEquals("https://emby.fool.im", EmbyApi.normalizeBase("https://https://emby.fool.im"))
+        assertEquals("https://emby.fool.im", EmbyApi.normalizeBase("http://https://emby.fool.im"))
+        // 主机本身以 http 开头（如 httpbin.org）不算协议，不能误剥。
+        assertEquals("http://httpbin.org", EmbyApi.normalizeBase("http://httpbin.org"))
+        assertEquals("http://httpbin.org", EmbyApi.normalizeBase("httpbin.org"))
+    }
+
+    @Test
+    fun `parseAddress reads full url and numeric path as port`() {
+        val plain = EmbyApi.parseAddress("https://emby.fool.im")
+        assertEquals("https", plain.scheme)
+        assertEquals("emby.fool.im", plain.host)
+        assertEquals("", plain.port)
+        assertEquals("", plain.path)
+        assertTrue(plain.hasScheme)
+        // 路径里的纯数字是端口（用户常把 443 填进路径框）。
+        val pathPort = EmbyApi.parseAddress("https://emby.fool.im/443")
+        assertEquals("443", pathPort.port)
+        assertEquals("", pathPort.path)
+        // 尾部 /emby 是类型前缀，不由用户地址带。
+        val embySuffix = EmbyApi.parseAddress("http://192.168.1.10:8096/emby")
+        assertEquals("", embySuffix.path)
+        assertEquals("8096", embySuffix.port)
+    }
+
+    @Test
+    fun `candidateBases tries https first without scheme and drops default port`() {
+        // https 默认端口 443 拼回时去掉。
+        val withPort = EmbyApi.parseAddress("https://emby.fool.im:443")
+        assertEquals("443", withPort.port)
+        assertEquals(listOf("https://emby.fool.im"), EmbyApi.candidateBases("https://emby.fool.im:443"))
+        // 没写协议：先 https 后 http。
+        val bare = EmbyApi.parseAddress("emby.fool.im:8096")
+        assertTrue(!bare.hasScheme)
+        assertEquals(
+            listOf("https://emby.fool.im:8096", "http://emby.fool.im:8096"),
+            EmbyApi.candidateBases("emby.fool.im:8096"),
+        )
+        // 写了协议只试该协议；空地址没候选。
+        assertEquals(
+            listOf("http://192.168.1.10:8096"),
+            EmbyApi.candidateBases("http://192.168.1.10:8096/emby"),
+        )
+        assertEquals(listOf("https://emby.fool.im"), EmbyApi.candidateBases("https://emby.fool.im/443"))
+        assertTrue(EmbyApi.candidateBases("   ").isEmpty())
+    }
+
+    @Test
     fun `findSkipTarget is case insensitive and ignores unknown duration`() {
         val target = EmbyApi.findSkipTarget(
             chapters("INTRODUCTION" to 0L, "Main" to 900_000_000L),

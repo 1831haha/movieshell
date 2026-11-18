@@ -6,6 +6,7 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONObject
+import java.net.URLEncoder
 import java.util.concurrent.TimeUnit
 
 /**
@@ -20,6 +21,13 @@ object ShareHttp {
     private val JSON = "application/json; charset=utf-8".toMediaType()
 
     data class Resp(val json: JSONObject?, val pugs: String)
+
+    /**
+     * 查询串值编码（v1.3.6）：URLEncoder 把空格编成 +，服务端按 + 读会错意，
+     * 改回 %20；字面 + 编 %2B。stoken 这类服务端发的 token 常含 +/=，
+     * 不编码会被截断（夸克 detail 回 14001“非法token”，目录报空）。
+     */
+    fun enc(v: String): String = URLEncoder.encode(v, "UTF-8").replace("+", "%20")
 
     fun defaultClient(): OkHttpClient = OkHttpClient.Builder()
         .connectTimeout(15, TimeUnit.SECONDS)

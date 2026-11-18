@@ -103,4 +103,64 @@ class QuarkUcApiTest {
             QuarkUcApi.check(SharePlatform.QUARK, "https://example.com/not-a-share"),
         )
     }
+
+    @Test
+    fun shareHttpEnc_encodesPlusSlashEqualsAndSpace() {
+        // 假 token：含 +、/、=，服务端收到裸值会被截断；空格编 %20 不是 +。
+        assertEquals("Ab%2BC%2FdEf%3D12", ShareHttp.enc("Ab+C/dEf=12"))
+        assertEquals("a%20b", ShareHttp.enc("a b"))
+        assertEquals("abcdef1234", ShareHttp.enc("abcdef1234"))
+    }
+
+    @Test
+    fun detailPage_encodesSpecialCharStokenInQuery() {
+        server.enqueue(
+            json(
+                """{"code":0,"data":{"list":[
+                    {"fid":"d1","file_name":"G gǔ yǔ","size":0,"dir":true}
+                ]}}""",
+            ),
+        )
+
+        // 假 stoken：含 +、/、=，不编码服务端回 14001、目录报空。
+        val files = QuarkUcApi.detailPage(
+            ShareHttp.defaultClient(), cfg, "abcdef1234", "Ab+C/dEf=12", "0", 1,
+        )
+
+        assertEquals(1, files.size)
+        assertTrue(files[0].isDir)
+        val req = server.takeRequest(5, TimeUnit.SECONDS)!!
+        val path = req.path!!
+        assertTrue(path.contains("stoken=Ab%2BC%2FdEf%3D12"))
+        assertTrue(!path.contains("stoken=Ab+C/dEf=12"))
+    }
+
+    @Test
+    fun listDir_specialCharStokenReturnsFolderNotEmpty() {
+        // token 回假 stoken（含 +、/、=），detail 回一个文件夹：回归 1.3.6，
+        // 不编码时服务端报 14001、listDir 报“这个分享里是空的”。
+        server.enqueue(json("""{"code":0,"data":{"stoken":"Ab+C/dEf=12","title":"G gǔ yǔ"}}"""))
+        server.enqueue(
+            json(
+                """{"code":0,"data":{"list":[
+                    {"fid":"d1","file_name":"G gǔ yǔ","size":0,"dir":true}
+                ]}}""",
+            ),
+        )
+
+        val result = QuarkUcApi.listDir(
+            SharePlatform.QUARK, "https://pan.quark.cn/s/abcdef1234", "0",
+            ShareHttp.defaultClient(), cfg,
+        )
+
+        assertTrue(result is ShareResult.Ok)
+        val listing = (result as ShareResult.Ok).value
+        assertEquals(1, listing.files.size)
+        assertEquals("G gǔ yǔ", listing.files[0].name)
+        assertTrue(listing.files[0].isDir)
+        // detail 那次请求里的 stoken 必须是编码后的。
+        server.takeRequest(5, TimeUnit.SECONDS)!!
+        val detailReq = server.takeRequest(5, TimeUnit.SECONDS)!!
+        assertTrue(detailReq.path!!.contains("stoken=Ab%2BC%2FdEf%3D12"))
+    }
 }

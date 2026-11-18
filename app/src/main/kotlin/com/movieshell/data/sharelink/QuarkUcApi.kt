@@ -134,8 +134,11 @@ object QuarkUcApi {
         pdirFid: String,
         page: Int,
     ): List<ShareFile> {
-        val url = "${cfg.apiBase}/share/sharepage/detail?ver=2&pwd_id=$pwdId&stoken=$stoken" +
-            "&pdir_fid=$pdirFid&force=0&_page=$page&_size=50" +
+        // v1.3.6：查询串里的值一律编码——stoken 常含 +/=，不编码会被截断，
+        // 服务端回 14001“非法token”，目录报空。
+        val url = "${cfg.apiBase}/share/sharepage/detail?ver=2&pwd_id=${ShareHttp.enc(pwdId)}" +
+            "&stoken=${ShareHttp.enc(stoken)}" +
+            "&pdir_fid=${ShareHttp.enc(pdirFid)}&force=0&_page=$page&_size=50" +
             "&_fetch_banner=${if (pdirFid == "0") 1 else 0}" +
             "&_fetch_share=${if (pdirFid == "0") 1 else 0}" +
             "&fetch_relate_conversation=${if (pdirFid == "0") 1 else 0}" +
@@ -169,8 +172,9 @@ object QuarkUcApi {
         shareUrl: String,
         dirFid: String,
         client: OkHttpClient = ShareHttp.defaultClient(),
+        // v1.3.6：cfg 默认按平台取，单测可传 MockWebServer 的 cfg。
+        cfg: Config = configOf(platform),
     ): ShareResult<ShareListing> {
-        val cfg = configOf(platform)
         val (pwdId, passcode) = ShareLink.parse(shareUrl)
             ?: return ShareResult.Err("这个链接认不出来，换个分享链接再试")
         val (stoken, title) = fetchToken(client, cfg, pwdId, passcode)
@@ -233,8 +237,10 @@ object QuarkUcApi {
         session: ShareSession.QuarkUc,
         file: ShareFile,
     ): String {
-        val url = "${cfg.apiBase}/share/sharepage/video_preview?fid=${file.fid}" +
-            "&fid_token=${file.fidToken}&pwd_id=${session.pwdId}&stoken=${session.stoken}&is_share_preview=true"
+        // v1.3.6：fid_token 与 stoken 常含 +/=，查询串里的值一律编码。
+        val url = "${cfg.apiBase}/share/sharepage/video_preview?fid=${ShareHttp.enc(file.fid)}" +
+            "&fid_token=${ShareHttp.enc(file.fidToken)}&pwd_id=${ShareHttp.enc(session.pwdId)}" +
+            "&stoken=${ShareHttp.enc(session.stoken)}&is_share_preview=true"
         val resp = ShareHttp.getJson(
             client, url, "", cfg.ua, cfg.referer,
             extraHeaders = mapOf("x-clouddrive-st" to session.stoken),
@@ -421,7 +427,7 @@ object QuarkUcApi {
     private fun clearSaveDir(client: OkHttpClient, cfg: Config, cookie: String, dirId: String) {
         val sort = ShareHttp.getJson(
             client,
-            "${cfg.apiBase}/file/sort?${cfg.pr}&pdir_fid=$dirId&_page=1&_size=200&_sort=file_type:asc,updated_at:desc",
+            "${cfg.apiBase}/file/sort?${cfg.pr}&pdir_fid=${ShareHttp.enc(dirId)}&_page=1&_size=200&_sort=file_type:asc,updated_at:desc",
             cookie, cfg.ua, cfg.referer,
         ).json ?: return
         val list = sort.optJSONObject("data")?.optJSONArray("list") ?: JSONArray()
@@ -470,7 +476,7 @@ object QuarkUcApi {
         for (retry in 0 until POLL_MAX) {
             val json = ShareHttp.getJson(
                 client,
-                "${cfg.apiBase}/task?${cfg.pr}&task_id=$taskId&retry_index=$retry",
+                "${cfg.apiBase}/task?${cfg.pr}&task_id=${ShareHttp.enc(taskId)}&retry_index=$retry",
                 cookie, cfg.ua, cfg.referer,
             ).json
             val fids = json?.optJSONObject("data")?.optJSONObject("save_as")

@@ -153,8 +153,9 @@ object BaiduApi {
         nolimit: Boolean,
         cookie: String,
     ): String {
+        // v1.3.6：查询串里的 sign 常含 +/=，一律编码（表单体由 FormBody 自动编码，不动）。
         val params = "channel=chunlei&clienttype=$clienttype&app_id=250528" +
-            "&sign=$sign&timestamp=$timestamp&web=1" + if (nolimit) "&type=nolimit" else ""
+            "&sign=${ShareHttp.enc(sign)}&timestamp=${ShareHttp.enc(timestamp)}&web=1" + if (nolimit) "&type=nolimit" else ""
         val form = FormBody.Builder()
             .add("encrypt", "0").add("product", "share")
             .add("primaryid", session.shareId).add("shareid", session.shareId)

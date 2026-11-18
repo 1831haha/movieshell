@@ -18,7 +18,6 @@ import java.net.CookieManager
 import java.net.CookiePolicy
 import java.net.URI
 import java.net.URLDecoder
-import java.net.URLEncoder
 import java.util.UUID
 import java.util.concurrent.TimeUnit
 
@@ -83,7 +82,8 @@ object ShareQrLogin {
     private fun longPollClient(base: OkHttpClient): OkHttpClient =
         base.newBuilder().readTimeout(40, TimeUnit.SECONDS).build()
 
-    private fun enc(v: String): String = URLEncoder.encode(v, "UTF-8")
+    // v1.3.6：与 ShareHttp.enc 同口径——空格编 %20（URLEncoder 原生编 + 会错意）。
+    private fun enc(v: String): String = ShareHttp.enc(v)
 
     private fun getText(client: OkHttpClient, url: String, ua: String? = null, referer: String? = null): String? {
         val req = Request.Builder().url(url).apply {

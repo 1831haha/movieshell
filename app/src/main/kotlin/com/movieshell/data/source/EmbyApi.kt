@@ -112,9 +112,23 @@ object EmbyApi {
     /** 地址归一化：去空白/尾斜杠/尾部 /emby（类型前缀由 [apiBase] 再补，不由用户地址带）。 */
     fun normalizeBase(raw: String): String {
         var u = raw.trim().removeSuffix("/")
-        // v1.1.31：没写协议头的裸地址（如 192.168.1.10:8096）默认补 http://，
-        // 否则 OkHttp 建请求直接炸，登录页只剩一句"登录失败"
-        if (!u.contains("://")) u = "http://$u"
+        // v1.3.6：自愈重复拼上的协议——旧三格表单曾把带协议的主机再拼一遍协议，
+        // 形如 http://https//host、https://https://host；以最后一段有效协议为准。
+        // 注意主机本身可能以 http 开头（如 httpbin.org），协议后必须跟 : 或 / 才算协议。
+        var scheme = ""
+        var rest = u
+        while (true) {
+            val m = Regex("^(https?)[:/]+", RegexOption.IGNORE_CASE).find(rest) ?: break
+            scheme = m.groupValues[1].lowercase()
+            rest = rest.substring(m.range.last + 1)
+        }
+        u = if (scheme.isEmpty()) {
+            // v1.1.31：没写协议头的裸地址（如 192.168.1.10:8096）默认补 http://，
+            // 否则 OkHttp 建请求直接炸，登录页只剩一句"登录失败"
+            "http://$rest"
+        } else {
+            "$scheme://$rest"
+        }
         if (u.endsWith("/emby", ignoreCase = true)) u = u.dropLast(5).removeSuffix("/")
         return u
     }
@@ -176,6 +190,60 @@ object EmbyApi {
             else -> "/$pathRaw"
         }
         return "$s://$h" + (if (p.isBlank()) "" else ":$p") + pa
+    }
+
+    /**
+     * v1.3.6：单地址框的解析结果。整段粘贴什么都认：
+     * 带协议照用、没协议不写死（由 [candidateBases] 先 https 后 http 试），
+     * 路径里纯数字（如 /443）当端口、尾部 /emby 剥掉（类型前缀由 [apiBase] 再补）。
+     */
+    data class ParsedAddress(
+        val scheme: String,
+        val host: String,
+        val port: String,
+        val path: String,
+        val hasScheme: Boolean,
+    )
+
+    /** 单地址框解析（纯函数，可单测）：复用 [splitBaseUrl] 的拆法，再补三处容错。 */
+    fun parseAddress(raw: String): ParsedAddress {
+        val input = raw.trim()
+        // 先判有没有写协议：协议段只认行首的 http/https，后跟 : 或 /（主机本身
+        // 以 http 开头如 httpbin.org 不算协议）。
+        val hasScheme = Regex("^(https?)[:/]+", RegexOption.IGNORE_CASE).containsMatchIn(input)
+        val split = splitBaseUrl(input)
+        var port = split.port
+        var path = split.path
+        // 路径是纯数字时当端口——用户常把 443 填进路径框。
+        if (port.isBlank() && path.length > 1 && path.drop(1).all { it.isDigit() }) {
+            port = path.drop(1)
+            path = ""
+        }
+        // 没写协议时 scheme 留空，不冒充 http——候选表由 hasScheme 决定先 https 后 http。
+        return ParsedAddress(if (hasScheme) split.scheme else "", split.host, port, path, hasScheme)
+    }
+
+    /** 拼回整 URL：默认端口（https 443 / http 80）去掉，拼完与手写短地址一致。 */
+    private fun joinParsed(scheme: String, host: String, port: String, path: String): String {
+        val defaultPort = (scheme == "https" && port == "443") || (scheme == "http" && port == "80")
+        return joinAddress(scheme, host, if (defaultPort) "" else port, path)
+    }
+
+    /**
+     * 登录用的候选地址表（纯函数，可单测）：写了协议只试该协议；没写协议先
+     * https 后 http（公网服多为 https，局域网再回落 http）。空地址返回空表。
+     */
+    fun candidateBases(raw: String): List<String> {
+        val parsed = parseAddress(raw)
+        if (parsed.host.isBlank()) return emptyList()
+        return if (parsed.hasScheme) {
+            listOf(joinParsed(parsed.scheme, parsed.host, parsed.port, parsed.path))
+        } else {
+            listOf(
+                joinParsed("https", parsed.host, parsed.port, parsed.path),
+                joinParsed("http", parsed.host, parsed.port, parsed.path),
+            )
+        }
     }
 
     /** Emby/Jellyfin 用 100 纳秒 tick 计时长：1ms = 10_000 tick。 */
@@ -299,64 +367,139 @@ object EmbyApi {
     }
 
     private suspend fun getText(url: String, deviceId: String, token: String?, ignoreCert: Boolean = false): String? {
+        val result = getTextResult(url, deviceId, token, ignoreCert)
+        return if (result.code != null && result.code in 200..299) result.body else null
+    }
+
+    /** HTTP 结果（v1.3.6）：code 为空表示请求根本没发出去（连不上/超时/SSL 错）。 */
+    private data class HttpResult(val code: Int?, val body: String?)
+
+    private suspend fun getTextResult(
+        url: String, deviceId: String, token: String?, ignoreCert: Boolean = false,
+    ): HttpResult {
         coroutineContext.ensureActive()
         val req = Request.Builder().url(url)
             .header("X-Emby-Authorization", authHeader(deviceId, token))
             .apply { if (token != null) header("X-Emby-Token", token) }
             .build()
-        client(ignoreCert).newCall(req).execute().use { resp ->
-            if (!resp.isSuccessful) {
-                LogBus.w(TAG, "GET ${resp.code} $url")
-                return null
+        return try {
+            client(ignoreCert).newCall(req).execute().use { resp ->
+                if (!resp.isSuccessful) {
+                    LogBus.w(TAG, "GET ${resp.code} $url")
+                    HttpResult(resp.code, null)
+                } else {
+                    HttpResult(resp.code, resp.body?.string())
+                }
             }
-            return resp.body?.string()
+        } catch (e: IOException) {
+            LogBus.w(TAG, "GET fail $url: ${e.message}")
+            HttpResult(null, null)
         }
     }
 
     private suspend fun postJson(
         url: String, deviceId: String, body: String, token: String? = null, ignoreCert: Boolean = false,
     ): String? {
+        val result = postJsonResult(url, deviceId, body, token, ignoreCert)
+        return if (result.code != null && result.code in 200..299) result.body else null
+    }
+
+    private suspend fun postJsonResult(
+        url: String, deviceId: String, body: String, token: String? = null, ignoreCert: Boolean = false,
+    ): HttpResult {
         coroutineContext.ensureActive()
         val req = Request.Builder().url(url)
             .header("X-Emby-Authorization", authHeader(deviceId, token))
             .post(body.toRequestBody("application/json".toMediaType()))
             .build()
-        client(ignoreCert).newCall(req).execute().use { resp ->
-            if (!resp.isSuccessful) {
-                LogBus.w(TAG, "POST ${resp.code} $url")
-                return null
+        return try {
+            client(ignoreCert).newCall(req).execute().use { resp ->
+                if (!resp.isSuccessful) {
+                    LogBus.w(TAG, "POST ${resp.code} $url")
+                    HttpResult(resp.code, null)
+                } else {
+                    HttpResult(resp.code, resp.body?.string())
+                }
             }
-            return resp.body?.string()
+        } catch (e: IOException) {
+            LogBus.w(TAG, "POST fail $url: ${e.message}")
+            HttpResult(null, null)
         }
     }
 
-    /** 用户名密码登录 → token + userId。失败返回 null（密码错/地址错都一样，调用方只报“登录失败”）。 */
+    /** 登录失败分原因（v1.3.6）：连不上与账号错走不同提示，调用方不再只报一句登录失败。 */
+    enum class LoginFailure { Unreachable, Unauthorized, BadResponse }
+
+    /** 登录结果：成功带 Auth，失败带原因。 */
+    sealed interface LoginOutcome {
+        data class Success(val auth: Auth) : LoginOutcome
+        data class Failed(val failure: LoginFailure) : LoginOutcome
+    }
+
+    /** 用户名密码登录 → token + userId。失败返回 null（兼容薄壳，内部调带原因的新函数）。 */
     suspend fun loginByPassword(
         baseUrl: String, type: ServerType, deviceId: String, username: String, password: String,
         ignoreCert: Boolean = false,
-    ): Auth? = ioSafe(TAG, null) {
+    ): Auth? = when (val outcome = loginByPasswordResult(baseUrl, type, deviceId, username, password, ignoreCert)) {
+        is LoginOutcome.Success -> outcome.auth
+        is LoginOutcome.Failed -> null
+    }
+
+    /**
+     * 用户名密码登录（带失败原因，v1.3.6）：400/401 是账号错；请求发不出去
+     * 与 502 等非 2xx 是连不上；200 但解不出 token 是服务器回的不是 Emby。
+     */
+    suspend fun loginByPasswordResult(
+        baseUrl: String, type: ServerType, deviceId: String, username: String, password: String,
+        ignoreCert: Boolean = false,
+    ): LoginOutcome = ioSafe(TAG, LoginOutcome.Failed(LoginFailure.Unreachable)) {
         val url = "${apiBase(baseUrl, type)}/Users/AuthenticateByName"
         val body = buildJsonObject {
             put("Username", username)
             put("Pw", password)
         }.toString()
-        val text = postJson(url, deviceId, body, ignoreCert = ignoreCert) ?: return@ioSafe null
-        val result = jsonLenient.decodeFromString<EmbyAuthResult>(text)
-        val token = result.AccessToken
-        val userId = result.User?.Id.orEmpty()
-        if (token.isBlank() || userId.isBlank()) null else Auth(token, userId)
+        val result = postJsonResult(url, deviceId, body, ignoreCert = ignoreCert)
+        val code = result.code ?: return@ioSafe LoginOutcome.Failed(LoginFailure.Unreachable)
+        if (code == 400 || code == 401) return@ioSafe LoginOutcome.Failed(LoginFailure.Unauthorized)
+        if (code !in 200..299) return@ioSafe LoginOutcome.Failed(LoginFailure.Unreachable)
+        val text = result.body ?: return@ioSafe LoginOutcome.Failed(LoginFailure.BadResponse)
+        val parsed = runCatching { jsonLenient.decodeFromString<EmbyAuthResult>(text) }.getOrNull()
+            ?: return@ioSafe LoginOutcome.Failed(LoginFailure.BadResponse)
+        val token = parsed.AccessToken
+        val userId = parsed.User?.Id.orEmpty()
+        if (token.isBlank() || userId.isBlank()) {
+            LoginOutcome.Failed(LoginFailure.BadResponse)
+        } else {
+            LoginOutcome.Success(Auth(token, userId))
+        }
     }
 
     /** API Key 登录：Key 本身当 token，再用 /Users/Me 换 userId。 */
     suspend fun loginByApiKey(
         baseUrl: String, type: ServerType, deviceId: String, apiKey: String, ignoreCert: Boolean = false,
-    ): Auth? =
-        ioSafe(TAG, null) {
-            val url = "${apiBase(baseUrl, type)}/Users/Me"
-            val text = getText(url, deviceId, apiKey, ignoreCert = ignoreCert) ?: return@ioSafe null
-            val user = jsonLenient.decodeFromString<EmbyUser>(text)
-            if (user.Id.isBlank()) null else Auth(apiKey, user.Id)
+    ): Auth? = when (val outcome = loginByApiKeyResult(baseUrl, type, deviceId, apiKey, ignoreCert)) {
+        is LoginOutcome.Success -> outcome.auth
+        is LoginOutcome.Failed -> null
+    }
+
+    /** API Key 登录（带失败原因，v1.3.6）：与 [loginByPasswordResult] 同一套分原因口径。 */
+    suspend fun loginByApiKeyResult(
+        baseUrl: String, type: ServerType, deviceId: String, apiKey: String, ignoreCert: Boolean = false,
+    ): LoginOutcome = ioSafe(TAG, LoginOutcome.Failed(LoginFailure.Unreachable)) {
+        val url = "${apiBase(baseUrl, type)}/Users/Me"
+        val result = getTextResult(url, deviceId, apiKey, ignoreCert = ignoreCert)
+        val code = result.code ?: return@ioSafe LoginOutcome.Failed(LoginFailure.Unreachable)
+        if (code == 400 || code == 401) return@ioSafe LoginOutcome.Failed(LoginFailure.Unauthorized)
+        if (code !in 200..299) return@ioSafe LoginOutcome.Failed(LoginFailure.Unreachable)
+        val text = result.body ?: return@ioSafe LoginOutcome.Failed(LoginFailure.BadResponse)
+        val user = runCatching { jsonLenient.decodeFromString<EmbyUser>(text) }.getOrNull()
+            ?: return@ioSafe LoginOutcome.Failed(LoginFailure.BadResponse)
+        if (user.Id.isBlank()) {
+            LoginOutcome.Failed(LoginFailure.BadResponse)
+        } else {
+            LoginOutcome.Success(Auth(apiKey, user.Id))
         }
+    }
 
     /** token 是否还有效（GET /Users/{id} 200 即有效）。 */
     suspend fun testAuth(

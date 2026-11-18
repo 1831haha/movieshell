@@ -901,9 +901,15 @@ internal fun WebDavConfigDialog(onDismiss: () -> Unit) {
                             }
                             cloudWorking = true
                             scope.launch {
-                                val err = CloudSyncManager.test(context)
-                                cloudWorking = false
-                                AppToast.show(context, err ?: "连接成功", long = false)
+                                // v1.3.6：try/finally 保底复位——异常时按钮不再全灰、弹窗关不掉。
+                                try {
+                                    val err = CloudSyncManager.test(context)
+                                    AppToast.show(context, err ?: "连接成功", long = false)
+                                } catch (e: Exception) {
+                                    AppToast.show(context, "连接失败：${e.message}", long = true)
+                                } finally {
+                                    cloudWorking = false
+                                }
                             }
                         },
                         modifier = Modifier.weight(1f),
@@ -923,18 +929,22 @@ internal fun WebDavConfigDialog(onDismiss: () -> Unit) {
                             }
                             cloudWorking = true
                             scope.launch {
-                                when (val r = CloudSyncManager.backup(context)) {
-                                    is CloudSyncManager.SyncResult.Ok ->
-                                        AppToast.show(context, "备份已上传", long = false)
-                                    is CloudSyncManager.SyncResult.Failed ->
-                                        AppToast.show(context, r.reason, long = true)
-                                    is CloudSyncManager.SyncResult.Conflict -> {
-                                        cloudConflictText = r.reason
-                                        showCloudConflict = true
+                                // v1.3.6：try/finally 保底复位——异常时按钮不再全灰、弹窗关不掉。
+                                try {
+                                    when (val r = CloudSyncManager.backup(context)) {
+                                        is CloudSyncManager.SyncResult.Ok ->
+                                            AppToast.show(context, "备份已上传", long = false)
+                                        is CloudSyncManager.SyncResult.Failed ->
+                                            AppToast.show(context, r.reason, long = true)
+                                        is CloudSyncManager.SyncResult.Conflict -> {
+                                            cloudConflictText = r.reason
+                                            showCloudConflict = true
+                                        }
                                     }
+                                } finally {
+                                    cloudWorking = false
+                                    lastSyncText = CloudSyncManager.lastSyncText(context)
                                 }
-                                cloudWorking = false
-                                lastSyncText = CloudSyncManager.lastSyncText(context)
                             }
                         },
                         modifier = Modifier.weight(1f),
@@ -956,45 +966,57 @@ internal fun WebDavConfigDialog(onDismiss: () -> Unit) {
                         }
                         cloudWorking = true
                         scope.launch {
-                            when (val r = CloudSyncManager.restore(context)) {
-                                is CloudSyncManager.SyncResult.Ok ->
-                                    AppToast.show(context, "已从云端恢复", long = false)
-                                is CloudSyncManager.SyncResult.Failed ->
-                                    AppToast.show(context, r.reason, long = true)
-                                is CloudSyncManager.SyncResult.Conflict ->
-                                    AppToast.show(context, r.reason, long = true)
+                            // v1.3.6：try/finally 保底复位——异常时按钮不再全灰、弹窗关不掉。
+                            try {
+                                when (val r = CloudSyncManager.restore(context)) {
+                                    is CloudSyncManager.SyncResult.Ok ->
+                                        AppToast.show(context, "已从云端恢复", long = false)
+                                    is CloudSyncManager.SyncResult.Failed ->
+                                        AppToast.show(context, r.reason, long = true)
+                                    is CloudSyncManager.SyncResult.Conflict ->
+                                        AppToast.show(context, r.reason, long = true)
+                                }
+                            } finally {
+                                cloudWorking = false
+                                lastSyncText = CloudSyncManager.lastSyncText(context)
                             }
-                            cloudWorking = false
-                            lastSyncText = CloudSyncManager.lastSyncText(context)
                         }
                     },
                     modifier = Modifier.fillMaxWidth(),
                 )
             }
     }
-    TechDialog(
-        onDismissRequest = { if (!cloudWorking) showCloudConflict = false },
-        title = "云端备份更新",
-        confirmText = "仍要上传",
-        dismissText = "取消",
-        onConfirm = {
-            showCloudConflict = false
-            cloudWorking = true
-            scope.launch {
-                when (val r = CloudSyncManager.backup(context, force = true)) {
-                    is CloudSyncManager.SyncResult.Ok ->
-                        AppToast.show(context, "备份已上传", long = false)
-                    is CloudSyncManager.SyncResult.Failed ->
-                        AppToast.show(context, r.reason, long = true)
-                    is CloudSyncManager.SyncResult.Conflict ->
-                        AppToast.show(context, r.reason, long = true)
+    // v1.3.6：冲突弹窗必须受 if (showCloudConflict) 守卫——之前无条件渲染，
+    // 点取消只改标志位、下一帧又弹出来，关不掉（与 1.2.22 AI 服务商弹窗同病）。
+    if (showCloudConflict) {
+        TechDialog(
+            onDismissRequest = { if (!cloudWorking) showCloudConflict = false },
+            title = "云端备份更新",
+            confirmText = "仍要上传",
+            dismissText = "取消",
+            onConfirm = {
+                showCloudConflict = false
+                cloudWorking = true
+                scope.launch {
+                    // v1.3.6：try/finally 保底复位——异常时按钮不再全灰、弹窗关不掉。
+                    try {
+                        when (val r = CloudSyncManager.backup(context, force = true)) {
+                            is CloudSyncManager.SyncResult.Ok ->
+                                AppToast.show(context, "备份已上传", long = false)
+                            is CloudSyncManager.SyncResult.Failed ->
+                                AppToast.show(context, r.reason, long = true)
+                            is CloudSyncManager.SyncResult.Conflict ->
+                                AppToast.show(context, r.reason, long = true)
+                        }
+                    } finally {
+                        cloudWorking = false
+                        lastSyncText = CloudSyncManager.lastSyncText(context)
+                    }
                 }
-                cloudWorking = false
-                lastSyncText = CloudSyncManager.lastSyncText(context)
-            }
-        },
-    ) {
-        Text(cloudConflictText, style = MaterialTheme.typography.bodySmall)
+            },
+        ) {
+            Text(cloudConflictText, style = MaterialTheme.typography.bodySmall)
+        }
     }
 }
 
