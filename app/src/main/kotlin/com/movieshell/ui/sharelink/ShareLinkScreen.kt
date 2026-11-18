@@ -97,8 +97,10 @@ fun copyTextForLink(input: String): String? = input.takeIf { it.isNotBlank() }
  * 百度没登录基本播不了（取直链要 SVIP），阿里/光鸭/迅雷游客直通。
  * 登录入口在顶栏“登录网盘”，每盘登一次、只存本机。
  * 空态/加载中/失败态都有可见反馈，不静默空白。
- * v1.3.7：进页自动填上次的链接（解析时保存），框内 × 一键清空，
- * 长按输入框复制整段链接，长按文件/文件夹行复制名字。
+ * v1.3.7：框内 × 一键清空，长按输入框复制整段链接，长按文件/文件夹行复制名字。
+ * v1.3.10：上次链接不再自动填回输入框（用户亲令：历史记录留在历史
+ * 记录里，输入框进页是空的）；解析成功的链接记进下方“历史记录”，
+ * 点一条直接再解析，右上角“清空”清掉全部历史。
  * v1.3.9：集数列表改成 6 列小方块网格（文件夹仍是一行一行），文件按
  * 自然顺序排（ShareResolver.listDir 里统一排，六盘都受益），头上显示"共 N 集"。
  */
@@ -112,7 +114,9 @@ fun ShareLinkScreen(
     val scope = rememberCoroutineScope()
     val clipboard = LocalClipboardManager.current
 
-    var linkText by remember { mutableStateOf(ShareLinkPrefs.load(context)) }
+    // v1.3.10：输入框进页是空的（上次链接不再自动填回）；历史记录另放下面。
+    var linkText by remember { mutableStateOf("") }
+    var history by remember { mutableStateOf(ShareLinkPrefs.loadHistory(context)) }
     var busy by remember { mutableStateOf(false) }
     var busyText by remember { mutableStateOf("") }
     var error by remember { mutableStateOf("") }
@@ -148,8 +152,6 @@ fun ShareLinkScreen(
             return
         }
         if (busy) return
-        // v1.3.7：解析时保存上次的链接——进页自动填回，不每敲一个字写一次盘。
-        ShareLinkPrefs.save(context, trimmed)
         busy = true
         busyText = "正在解析分享…"
         error = ""
@@ -162,6 +164,9 @@ fun ShareLinkScreen(
                 is ShareResult.Ok -> {
                     listing = r.value
                     dirStack = listOf(DirCrumb(r.value.title.ifBlank { "分享" }, ""))
+                    // v1.3.10：解析成功才记历史（失败的不记），输入框不留。
+                    ShareLinkPrefs.addHistory(context, trimmed)
+                    history = ShareLinkPrefs.loadHistory(context)
                 }
                 is ShareResult.Err -> {
                     error = r.message
@@ -279,11 +284,10 @@ fun ShareLinkScreen(
         AppToast.show(context, SHARE_LINK_COPY_DONE, long = false)
     }
 
-    // v1.3.7：× 一键清空——输入框 + 已存的上次链接 + 下面的目录与错误，
-    // 回到刚进页的状态。
+    // v1.3.7：× 一键清空——输入框 + 下面的目录与错误，回到刚进页的状态。
+    // v1.3.10：× 只清输入框与目录，不清历史记录（历史另有“清空”）。
     fun clearLink() {
         linkText = ""
-        ShareLinkPrefs.clear(context)
         listing = null
         dirStack = emptyList()
         error = ""
@@ -319,7 +323,7 @@ fun ShareLinkScreen(
                     onValueChange = { linkText = it },
                     placeholder = "粘贴分享链接，如 https://pan.quark.cn/s/…",
                     singleLine = true,
-                    // v1.3.7：有内容时框内右侧显示 ×，一点清空输入框与已存链接。
+                    // v1.3.7：有内容时框内右侧显示 ×，一点清空输入框与目录。
                     trailingIcon = if (linkText.isNotEmpty()) {
                         {
                             IconButton(
@@ -399,21 +403,76 @@ fun ShareLinkScreen(
                 Spacer(Modifier.height(8.dp))
             }
             if (currentListing == null && !busy && error.isBlank()) {
-                AppCard(modifier = Modifier.fillMaxWidth()) {
-                    Column(modifier = Modifier.padding(12.dp)) {
-                        Text(
-                            text = "怎么用",
-                            style = MaterialTheme.typography.titleMedium,
-                            color = MaterialTheme.colorScheme.onSurface,
-                        )
-                        Spacer(Modifier.height(4.dp))
-                        Text(
-                            text = "1. 把群里、网上的分享链接粘进来，点解析\n" +
-                                "2. 有提取码的链接连提取码一起粘过来\n" +
-                                "3. 大文件要先登录对应网盘，不然夸克/UC 只能看前 2 分钟，百度基本播不了",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .verticalScroll(rememberScrollState()),
+                ) {
+                    // v1.3.10：历史记录——解析成功的链接，点一条直接再解析，
+                    // 长按复制链接；“清空”清掉全部历史。输入框进页是空的。
+                    if (history.isNotEmpty()) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                text = "历史记录",
+                                style = MaterialTheme.typography.titleMedium,
+                                color = MaterialTheme.colorScheme.onSurface,
+                                modifier = Modifier.weight(1f),
+                            )
+                            TextButton(
+                                onClick = {
+                                    ShareLinkPrefs.clearHistory(context)
+                                    history = emptyList()
+                                },
+                            ) { Text("清空") }
+                        }
+                        history.forEach { url ->
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .combinedClickable(
+                                        onClick = {
+                                            linkText = url
+                                            parseRoot(url)
+                                        },
+                                        onLongClick = { copyName(url) },
+                                    )
+                                    .padding(vertical = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Text(
+                                    text = ShareLink.platformOf(url)?.displayName ?: "分享",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.padding(end = 8.dp),
+                                )
+                                Text(
+                                    text = url,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier.weight(1f),
+                                )
+                            }
+                        }
+                        Spacer(Modifier.height(12.dp))
+                    }
+                    AppCard(modifier = Modifier.fillMaxWidth()) {
+                        Column(modifier = Modifier.padding(12.dp)) {
+                            Text(
+                                text = "怎么用",
+                                style = MaterialTheme.typography.titleMedium,
+                                color = MaterialTheme.colorScheme.onSurface,
+                            )
+                            Spacer(Modifier.height(4.dp))
+                            Text(
+                                text = "1. 把群里、网上的分享链接粘进来，点解析\n" +
+                                    "2. 有提取码的链接连提取码一起粘过来\n" +
+                                    "3. 大文件要先登录对应网盘，不然夸克/UC 只能看前 2 分钟，百度基本播不了",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
                     }
                 }
             }
