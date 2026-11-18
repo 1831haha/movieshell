@@ -249,41 +249,13 @@ fun ShareLinkScreen(
         }
     }
 
-    fun playFile(file: ShareFile) {
-        val cur = listing ?: return
-        if (resolvingFid != null) return
-        resolvingFid = file.fid
-        error = ""
-        errorNeedLogin = false
-        errorPlatform = null
-        scope.launch {
-            when (val r = ShareResolver.resolve(cur, file)) {
-                is ShareResult.Ok -> {
-                    if (r.value.isPreview) {
-                        pendingPreview = r.value
-                        pendingPreviewTitle = file.name
-                        pendingPreviewFile = file
-                    } else {
-                        startShareSession(cur, file)
-                        onPlay(r.value.url, file.name, r.value.headers)
-                    }
-                }
-                is ShareResult.Err -> {
-                    error = r.message
-                    errorNeedLogin = r.needLogin
-                    errorPlatform = cur.platform
-                }
-            }
-            resolvingFid = null
-        }
-    }
-
     /**
      * v1.3.21：把当前目录的视频文件建成播放会话——播放器内选集抽屉
      * 才有集数可切；之前只传单个地址，抽屉是 0 集、上下集也没有。
      * 选集用 sharefile://<fid> 作占位地址，切集时解析器按 fid 找回
      * 文件再取直链（各集转存/转码单独走，互不干扰）；取不到直链
      * （如未登录的大文件）返回空串，切集无动作。
+     * 局部函数须先声明后调用，故放 playFile 之前。
      */
     fun startShareSession(cur: ShareListing, current: ShareFile) {
         val videos = ShareLink.sortShareFiles(cur.files)
@@ -315,6 +287,35 @@ fun ShareLinkScreen(
                 }
             },
         )
+    }
+
+    fun playFile(file: ShareFile) {
+        val cur = listing ?: return
+        if (resolvingFid != null) return
+        resolvingFid = file.fid
+        error = ""
+        errorNeedLogin = false
+        errorPlatform = null
+        scope.launch {
+            when (val r = ShareResolver.resolve(cur, file)) {
+                is ShareResult.Ok -> {
+                    if (r.value.isPreview) {
+                        pendingPreview = r.value
+                        pendingPreviewTitle = file.name
+                        pendingPreviewFile = file
+                    } else {
+                        startShareSession(cur, file)
+                        onPlay(r.value.url, file.name, r.value.headers)
+                    }
+                }
+                is ShareResult.Err -> {
+                    error = r.message
+                    errorNeedLogin = r.needLogin
+                    errorPlatform = cur.platform
+                }
+            }
+            resolvingFid = null
+        }
     }
 
     fun pasteFromClipboard() {

@@ -29,6 +29,18 @@ object PlayEndMode {
      * @param episodeIndex 当前集下标
      * @param episodeCount 当前线路总集数
      */
+    fun action(mode: Int, episodeIndex: Int, episodeCount: Int): PlayEndAction {
+        if (episodeCount <= 0) return PlayEndAction.Pause
+        val last = episodeCount - 1
+        val next = episodeIndex + 1
+        return when (mode) {
+            1 -> PlayEndAction.ReplayCurrent
+            2 -> if (next <= last) PlayEndAction.PlayNext(next) else PlayEndAction.PlayNext(0)
+            3 -> PlayEndAction.Pause
+            else -> if (next <= last) PlayEndAction.PlayNext(next) else PlayEndAction.Pause
+        }
+    }
+
     /**
      * v1.3.21 H16：片尾触发点（毫秒）——纯函数，可单测。
      *
