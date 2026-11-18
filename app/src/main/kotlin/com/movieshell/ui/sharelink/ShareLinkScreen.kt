@@ -2,7 +2,8 @@ package com.movieshell.ui.sharelink
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Image
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -19,10 +20,12 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -39,8 +42,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import android.graphics.Bitmap
@@ -53,6 +58,7 @@ import com.movieshell.data.sharelink.QrState
 import com.movieshell.data.sharelink.ShareAuth
 import com.movieshell.data.sharelink.ShareFile
 import com.movieshell.data.sharelink.ShareLink
+import com.movieshell.data.sharelink.ShareLinkPrefs
 import com.movieshell.data.sharelink.ShareListing
 import com.movieshell.data.sharelink.SharePlatform
 import com.movieshell.data.sharelink.ShareQrSession
@@ -71,6 +77,16 @@ import org.json.JSONObject
 
 private data class DirCrumb(val title: String, val dirKey: String)
 
+/** 长按复制的提示文案。 */
+const val SHARE_LINK_COPY_DONE = "已复制"
+const val SHARE_LINK_COPY_EMPTY = "没有可复制的内容"
+
+/**
+ * v1.3.7：长按复制输入框要复制的文本（纯函数，可单测）。
+ * 空白返回 null，调用方弹“没有可复制的内容”；否则原样返回整段文本。
+ */
+fun copyTextForLink(input: String): String? = input.takeIf { it.isNotBlank() }
+
 /**
  * v1.3.5：分享链接播剧页——只做粘贴链接播，不做网盘中心。
  *
@@ -79,6 +95,8 @@ private data class DirCrumb(val title: String, val dirKey: String)
  * 百度没登录基本播不了（取直链要 SVIP），阿里/光鸭/迅雷游客直通。
  * 登录入口在顶栏“登录网盘”，每盘登一次、只存本机。
  * 空态/加载中/失败态都有可见反馈，不静默空白。
+ * v1.3.7：进页自动填上次的链接（解析时保存），框内 × 一键清空，
+ * 长按输入框复制整段链接，长按文件/文件夹行复制名字。
  */
 @Composable
 fun ShareLinkScreen(
@@ -89,7 +107,7 @@ fun ShareLinkScreen(
     val scope = rememberCoroutineScope()
     val clipboard = LocalClipboardManager.current
 
-    var linkText by remember { mutableStateOf("") }
+    var linkText by remember { mutableStateOf(ShareLinkPrefs.load(context)) }
     var busy by remember { mutableStateOf(false) }
     var busyText by remember { mutableStateOf("") }
     var error by remember { mutableStateOf("") }
@@ -125,6 +143,8 @@ fun ShareLinkScreen(
             return
         }
         if (busy) return
+        // v1.3.7：解析时保存上次的链接——进页自动填回，不每敲一个字写一次盘。
+        ShareLinkPrefs.save(context, trimmed)
         busy = true
         busyText = "正在解析分享…"
         error = ""
@@ -237,6 +257,35 @@ fun ShareLinkScreen(
         }
     }
 
+    // v1.3.7：长按输入框复制整段链接；为空时只弹提示，不复制。
+    fun copyLinkText() {
+        val text = copyTextForLink(linkText)
+        if (text == null) {
+            AppToast.show(context, SHARE_LINK_COPY_EMPTY, long = false)
+        } else {
+            clipboard.setText(AnnotatedString(text))
+            AppToast.show(context, SHARE_LINK_COPY_DONE, long = false)
+        }
+    }
+
+    // v1.3.7：长按文件/文件夹行复制该行名字。
+    fun copyName(name: String) {
+        clipboard.setText(AnnotatedString(name))
+        AppToast.show(context, SHARE_LINK_COPY_DONE, long = false)
+    }
+
+    // v1.3.7：× 一键清空——输入框 + 已存的上次链接 + 下面的目录与错误，
+    // 回到刚进页的状态。
+    fun clearLink() {
+        linkText = ""
+        ShareLinkPrefs.clear(context)
+        listing = null
+        dirStack = emptyList()
+        error = ""
+        errorNeedLogin = false
+        errorPlatform = null
+    }
+
     BackHandler { goBackDir() }
 
     val currentListing = listing
@@ -265,7 +314,29 @@ fun ShareLinkScreen(
                     onValueChange = { linkText = it },
                     placeholder = "粘贴分享链接，如 https://pan.quark.cn/s/…",
                     singleLine = true,
-                    modifier = Modifier.weight(1f),
+                    // v1.3.7：有内容时框内右侧显示 ×，一点清空输入框与已存链接。
+                    trailingIcon = if (linkText.isNotEmpty()) {
+                        {
+                            IconButton(
+                                onClick = { clearLink() },
+                                modifier = Modifier.size(40.dp),
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Filled.Close,
+                                    contentDescription = "清空",
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.size(20.dp),
+                                )
+                            }
+                        }
+                    } else null,
+                    modifier = Modifier
+                        .weight(1f)
+                        // v1.3.7：长按复制整段链接。只注册 onLongPress，点按/光标/
+                        // 粘贴照常走输入框自己的手势；解析按钮在框外，不受影响。
+                        .pointerInput(Unit) {
+                            detectTapGestures(onLongPress = { copyLinkText() })
+                        },
                 )
                 Spacer(Modifier.width(8.dp))
                 AppButton(
@@ -378,7 +449,10 @@ fun ShareLinkScreen(
                                 Row(
                                     modifier = Modifier
                                         .fillMaxWidth()
-                                        .clickable { openDir(file) }
+                                        .combinedClickable(
+                                            onClick = { openDir(file) },
+                                            onLongClick = { copyName(file.name) },
+                                        )
                                         .padding(vertical = 10.dp),
                                     verticalAlignment = Alignment.CenterVertically,
                                 ) {
@@ -408,7 +482,10 @@ fun ShareLinkScreen(
                                 Row(
                                     modifier = Modifier
                                         .fillMaxWidth()
-                                        .clickable { playFile(file) }
+                                        .combinedClickable(
+                                            onClick = { playFile(file) },
+                                            onLongClick = { copyName(file.name) },
+                                        )
                                         .padding(vertical = 10.dp),
                                     verticalAlignment = Alignment.CenterVertically,
                                 ) {
