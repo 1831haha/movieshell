@@ -1,6 +1,7 @@
 package com.movieshell.ui.sharelink
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -98,6 +99,7 @@ fun copyTextForLink(input: String): String? = input.takeIf { it.isNotBlank() }
  * v1.3.7：进页自动填上次的链接（解析时保存），框内 × 一键清空，
  * 长按输入框复制整段链接，长按文件/文件夹行复制名字。
  */
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun ShareLinkScreen(
     onBack: () -> Unit,
