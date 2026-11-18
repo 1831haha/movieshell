@@ -285,6 +285,9 @@ internal fun savePlayerProgress(
     sourceKey: String = "",
 ) {
     val position = EngineHost.currentPosition()
+    // v1.3.21 H12：duration 只读一次传入——位置与时长两次读之间切了
+    // 引擎/换了片，两值会对不上号。
+    val duration = EngineHost.duration()
     // v0.24.0：直播无进度概念也记一条（position 0），kind=live 供历史页分流
     if (!isLive && position <= 0) return
     // v1.1.31：健康分记账——播出进度即成功（同地址 10 分钟内只记一次）
@@ -294,7 +297,7 @@ internal fun savePlayerProgress(
         title = title,
         url = url,
         positionMs = if (isLive) 0L else position,
-        durationMs = EngineHost.duration(),
+        durationMs = duration,
         kind = if (isLive) "live" else "vod",
         // v0.75.0：继续观看用——记下剧 ID 和集数
         vodId = vodId.orEmpty(),
@@ -314,7 +317,9 @@ internal fun maybeAutoDeleteWatched(context: Context, url: String, isLive: Boole
     if (!DownloadSettings.autoDeleteWatched(context)) return
     val duration = EngineHost.duration()
     val position = EngineHost.currentPosition()
-    if (duration <= 0 || position < duration * 0.95) return
+    // v1.3.21 H12：时长下限 60 秒——塌掉的 4 秒分母会让 position 轻松
+    // 超过 95%，短视频/坏时长会误删本地文件。
+    if (duration < 60_000L || position < duration * 0.95) return
     val localPath = url.removePrefix("file://")
     val task = DownloadStore.findByLocalPath(localPath) ?: return
     kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {

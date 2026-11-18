@@ -31,6 +31,18 @@ object EngineHost {
 
     fun engine(): PlayerEngine = _override.value ?: PlayerSettings.engine.value
 
+    /**
+     * v1.3.21 H2+M39：实际在播的引擎——play() 分发成功后记，stop() 清掉。
+     * route()/选音轨/字幕样式/截图一律按它走，不按用户偏好 [engine()]，
+     * 否则失败转移后（偏好仍是 libmpv、实际在 Media3 播）读位置、暂停、
+     * 切音轨全都发到错的引擎上。没在播时为 null，回落到 engine()。
+     */
+    @Volatile
+    private var actualEngine: PlayerEngine? = null
+
+    /** 实际在播的引擎，没在播时回落到用户偏好。 */
+    private fun currentEngine(): PlayerEngine = actualEngine ?: engine()
+
     /** v0.21.0：设置/清除自动换内核覆盖（静默，不写偏好） */
     fun setEngineOverride(engine: PlayerEngine?) {
         _override.value = engine
@@ -172,6 +184,10 @@ object EngineHost {
             LogBus.i("Play", "自签 Emby 播放切回 Media3（libmpv 不支持按次放行证书）")
             AppToast.show(context, "自签证书播放已切回 Media3", long = false)
             eng = PlayerEngine.MEDIA3
+            // v1.3.21 H8：只改局部变量不写覆盖，route() 仍按偏好走 libmpv——
+            // 证书分支同时写覆盖（与 actualEngine 双保险），换地址/手动切核
+            // 心时由既有清理点复位。
+            setEngineOverride(PlayerEngine.MEDIA3)
         }
         if (eng == PlayerEngine.LIBMPV && MpvPlayerManager.initFailed) {
             if (MpvPlayerManager.initFailedMissingPlugin && MpvPluginLoader.isInstalled(context)) {
@@ -185,6 +201,10 @@ object EngineHost {
                 eng = PlayerEngine.MEDIA3
             }
         }
+        // v1.3.21 H2：分发前先停另一引擎——正常切集/换线路时旧引擎
+        // 不停，双引擎会同时响。直接调各引擎 stop，不走 EngineHost.stop()
+        //（后者带磁力 4 秒释放簿记，换内核/重试是“停→马上再播”，不算离开）。
+        if (eng == PlayerEngine.MEDIA3) MpvPlayerManager.stop() else PlayerManager.stop()
         return try {
             // v1.3.20：按地址补默认请求头（Bilibili 直链缺 Referer 会 403），
             // 双内核共用同一份；规则已给的头不动。
@@ -196,6 +216,7 @@ object EngineHost {
                 MpvPlayerManager.init(context)
                 MpvPlayerManager.play(url, effHeaders, startPositionMs, subtitleUrl, live)
             }
+            actualEngine = eng
             val cost = SystemClock.elapsedRealtime() - t0
             // v0.25.0：结构化诊断日志（URL 脱敏：只留 host + 后缀）
             LogBus.i(
@@ -205,6 +226,7 @@ object EngineHost {
             )
             true
         } catch (t: Throwable) {
+            actualEngine = null
             LogBus.e("Play", "起播异常 engine=$eng ${t::class.java.simpleName}: ${t.message}")
             false
         }
@@ -275,6 +297,7 @@ object EngineHost {
         // 退出播放页就停不干净。停空闲引擎是 no-op。
         PlayerManager.stop()
         MpvPlayerManager.stop()
+        actualEngine = null
         // v0.294.36：停播后 8 秒内没有重新读流就结束磁力进程
         // v0.294.38：换内核 / 重试是「停 → 马上再播同一地址」，不算离开：2 秒内又播了就不释放
         // v0.294.42：列表连点下一磁力时 prepare 可能略晚于 stop——多等几秒，preparing/keep 会作废释放
@@ -350,7 +373,7 @@ object EngineHost {
 
     /** v1.2.14 B片（3）：手动选音轨；libmpv 内核暂不支持（只记日志，不弹错）。 */
     fun selectAudioTrack(trackId: String?) {
-        if (engine() == PlayerEngine.MEDIA3) {
+        if (currentEngine() == PlayerEngine.MEDIA3) {
             PlayerManager.selectAudioTrack(trackId)
         } else {
             LogBus.i("Play", "libmpv 内核暂不支持音轨切换")
@@ -383,7 +406,7 @@ object EngineHost {
      * libmpv 走 mpv 属性（sub-font-size/sub-color/sub-border 等）。
      */
     fun applySubtitleStyle(style: SubtitleStyle, playerView: PlayerView?) {
-        if (engine() == PlayerEngine.MEDIA3) {
+        if (currentEngine() == PlayerEngine.MEDIA3) {
             playerView?.let { PlayerManager.applySubtitleStyle(it, style) }
         } else {
             MpvPlayerManager.applySubtitleStyle(style)
@@ -400,12 +423,12 @@ object EngineHost {
         url: String,
         headers: Map<String, String>,
         positionMs: Long,
-    ): File? = if (engine() == PlayerEngine.MEDIA3) {
+    ): File? = if (currentEngine() == PlayerEngine.MEDIA3) {
         PlayerManager.screenshotToFile(context, url, headers, positionMs, title)
     } else {
         MpvPlayerManager.screenshot(context, title)
     }
 
     private inline fun <T> route(media3: () -> T, libmpv: () -> T): T =
-        if (engine() == PlayerEngine.MEDIA3) media3() else libmpv()
+        if (currentEngine() == PlayerEngine.MEDIA3) media3() else libmpv()
 }

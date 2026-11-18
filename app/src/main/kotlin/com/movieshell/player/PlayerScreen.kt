@@ -338,6 +338,13 @@ fun PlayerScreen(
     // v1.0.8：同一地址是否已试过“清 Referer 重试”（只试一次，换地址重置）
     var triedNoReferer by remember { mutableStateOf(false) }
     var lastHeaders by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
+    // v1.3.21 H5+H6：失败重试代次——延迟重试（同内核重拉/清 Referer/换内核）
+    // 发出后若用户已切集、切线路或进了后台，旧重试过期丢弃，不再把已停的
+    // 播放拉起来、也不再烧掉新地址的重试次数。
+    var failureGen by remember { mutableIntStateOf(0) }
+    // v1.3.21 M1：换线路在途标志——快速连点/失败并发时二次调用直接返回，
+    // 旧的换线路结果不得覆盖新的选择。
+    var lineSwitching by remember { mutableStateOf(false) }
     // v0.96.1：横屏不断流——翻转前快照播放状态，方向变化后若停播则无缝恢复（双引擎通用）
     var rotateWasPlaying by remember { mutableStateOf(false) }
     var rotatePosMs by remember { mutableLongStateOf(0L) }
@@ -854,10 +861,20 @@ fun PlayerScreen(
     }
 
     fun tryNextLine(fallbackMsg: String) {
+        // v1.3.21 M1：换线路在途时二次调用直接返回——快速连点/失败并发
+        // 时旧的换线路结果不得覆盖新的选择。
+        if (lineSwitching) {
+            LogBus.i("Player", "换线路进行中，忽略本次调用")
+            return
+        }
         // v1.2.8：到这一步说明当前地址彻底播不了（同内核重拉/清 Referer/换内核都试过），
         // 按结果地址反查记死给出这条死链的解析线路；之后重解析跳过它，换下一条线出结果。
         // 直链/嗅探地址查不到解析记录，返回 false、什么都不记。
         com.movieshell.data.source.ParseDeadLines.markDeadByResult(playUrl)
+        // v1.3.21 M1：换线快照——解析是异步的，完成时若用户已切集/切线
+        // 或地址已变，旧结果直接丢弃，不覆盖新选择。
+        val urlAtEntry = playUrl
+        val epAtEntry = PlaySession.episodeIndex
         val lines = PlaySession.lines
         val resolver = PlaySession.resolver
         val curLine = PlaySession.lineIndex
@@ -867,60 +884,67 @@ fun PlayerScreen(
             tryAutoSwitchSource(fallbackMsg)
             return
         }
+        lineSwitching = true
         triedLines.add(curLine)
         scope.launch {
-            var next = (curLine + 1) % lines.size
-            var link = ""
-            var targetLine = -1
-            var targetEpIdx = 0
-            var guard = 0
-            while (guard < lines.size && link.isBlank()) {
-                if (next !in triedLines) {
-                    triedLines.add(next)
-                    val line = lines[next]
-                    val epIdx = PlaySession.episodeIndex
-                        .coerceIn(0, (line.episodes.size - 1).coerceAtLeast(0))
-                    val ep = line.episodes.getOrNull(epIdx)
-                    // 磁力不参与自动重试（走 MagnetPlayer 分支，无播放器错误可重试）
-                    if (ep != null && !MagnetPlayer.isMagnet(ep.url)) {
-                        val resolved = resolver(context, ep, false)
-                        if (resolved.isNotBlank() && resolved != playUrl) {
-                            link = resolved
-                            targetLine = next
-                            targetEpIdx = epIdx
+            try {
+                var next = (curLine + 1) % lines.size
+                var link = ""
+                var targetLine = -1
+                var targetEpIdx = 0
+                var guard = 0
+                while (guard < lines.size && link.isBlank()) {
+                    if (next !in triedLines) {
+                        triedLines.add(next)
+                        val line = lines[next]
+                        val epIdx = PlaySession.episodeIndex
+                            .coerceIn(0, (line.episodes.size - 1).coerceAtLeast(0))
+                        val ep = line.episodes.getOrNull(epIdx)
+                        // 磁力不参与自动重试（走 MagnetPlayer 分支，无播放器错误可重试）
+                        if (ep != null && !MagnetPlayer.isMagnet(ep.url)) {
+                            val resolved = resolver(context, ep, false)
+                            if (resolved.isNotBlank() && resolved != playUrl) {
+                                link = resolved
+                                targetLine = next
+                                targetEpIdx = epIdx
+                            }
                         }
                     }
+                    next = (next + 1) % lines.size
+                    guard++
                 }
-                next = (next + 1) % lines.size
-                guard++
-            }
-            if (link.isNotBlank()) {
-                PlaySession.moveTo(targetLine, targetEpIdx)
-                // v0.175.0：自动换线路也要通知外部——之前只改了 PlaySession，
-                // 详情页的选中线路没收到通知，Tab 和源胶囊还停在旧线路上。
-                onEpisodeChange(targetLine, targetEpIdx)
-                AppToast.show(context, "已自动切换到「${lines[targetLine].name}」", long = false)
-                LogBus.i("Player", "播放失败，自动换线路：${lines[targetLine].name}")
-                autoSwitching = true
-                playUrl = link
-            } else {
-                // v1.2.8：没有别的视频线路可试时，同线路重解析一次——记死的解析线
-                // 已被跳过，可能拿到另一条解析线的结果；拿不到或还是同一条死链
-                // 才走自动换源。每条视频线路每集只重解析一次（triedLines 守卫），
-                // 不会在死解析线之间来回空转。
-                val curEp = lines.getOrNull(curLine)?.episodes?.getOrNull(PlaySession.episodeIndex)
-                val relink = if (curEp != null && !MagnetPlayer.isMagnet(curEp.url)) {
-                    resolver(context, curEp, false)
-                } else ""
-                if (relink.isNotBlank() && relink != playUrl) {
-                    LogBus.i("Player", "播放失败，同线路换解析线路重试")
-                    AppToast.show(context, "已切换解析线路，正在重试", long = false)
-                    sameEngineRetries.intValue = 0
+                if (link.isNotBlank()) {
+                    if (urlAtEntry != playUrl || epAtEntry != PlaySession.episodeIndex) return@launch
+                    PlaySession.moveTo(targetLine, targetEpIdx)
+                    // v0.175.0：自动换线路也要通知外部——之前只改了 PlaySession，
+                    // 详情页的选中线路没收到通知，Tab 和源胶囊还停在旧线路上。
+                    onEpisodeChange(targetLine, targetEpIdx)
+                    AppToast.show(context, "已自动切换到「${lines[targetLine].name}」", long = false)
+                    LogBus.i("Player", "播放失败，自动换线路：${lines[targetLine].name}")
                     autoSwitching = true
-                    playUrl = relink
+                    playUrl = link
                 } else {
-                    tryAutoSwitchSource("所有线路均播放失败")
+                    // v1.2.8：没有别的视频线路可试时，同线路重解析一次——记死的解析线
+                    // 已被跳过，可能拿到另一条解析线的结果；拿不到或还是同一条死链
+                    // 才走自动换源。每条视频线路每集只重解析一次（triedLines 守卫），
+                    // 不会在死解析线之间来回空转。
+                    val curEp = lines.getOrNull(curLine)?.episodes?.getOrNull(PlaySession.episodeIndex)
+                    val relink = if (curEp != null && !MagnetPlayer.isMagnet(curEp.url)) {
+                        resolver(context, curEp, false)
+                    } else ""
+                    if (relink.isNotBlank() && relink != playUrl) {
+                        if (urlAtEntry != playUrl || epAtEntry != PlaySession.episodeIndex) return@launch
+                        LogBus.i("Player", "播放失败，同线路换解析线路重试")
+                        AppToast.show(context, "已切换解析线路，正在重试", long = false)
+                        sameEngineRetries.intValue = 0
+                        autoSwitching = true
+                        playUrl = relink
+                    } else {
+                        tryAutoSwitchSource("所有线路均播放失败")
+                    }
                 }
+            } finally {
+                lineSwitching = false
             }
         }
     }
@@ -937,24 +961,46 @@ fun PlayerScreen(
      * 新引擎 play(pos)，不得改覆盖后才读新引擎位置当断点。
      */
     fun handlePlayFailure(msg: String) {
+        // v1.3.21：展开检测的错误带标记——剥掉标记再用，日志与后续链路
+        // 只认剥掉后的正文；标记只在入口读一次。
+        val isExpansion = msg.startsWith(MpvPlayerManager.PLAYLIST_EXPANDED_MARKER)
+        val cleanMsg = if (isExpansion) msg.substringAfter("|", msg) else msg
+        // v1.3.21 H6：后台时不推进重试链——延迟任务在后台把已暂停的播放
+        // 重新拉起来、把重试次数烧光，回来只剩报错。只记日志，等用户
+        // 回前台手动重试。
+        if (EngineHost.backgrounded) {
+            LogBus.i("Player", "后台中，播放失败重试挂起（不烧重试次数）：$cleanMsg")
+            return
+        }
+        // v1.3.21 H5：失败代次快照——延迟重试发出后若用户已切集、切线
+        // 或地址已变，旧重试过期丢弃。
+        val myGen = ++failureGen
+        val urlAtEntry = playUrl
         // v1.1.31：健康分记账——播放失败（同地址 10 分钟内只记一次）
         if (!isLive && !playSourceKey.isNullOrBlank()) {
             SourceHealthStore.recordPlayFailureOnce(playUrl, playSourceKey)
         }
         // v0.294.7（L1）：解析结果缓存里这条地址播不了，作废，下次重新解析
         com.movieshell.data.source.ParseCache.invalidateResult(playUrl)
+        // v1.3.21：展开是确定性失败（分片拉不到），同内核重拉/清 Referer
+        // 都只会再展开一次，直接跳到换内核。
+        if (isExpansion) {
+            sameEngineRetries.intValue = 2
+            triedNoReferer = true
+        }
         if (sameEngineRetries.intValue < 2) {
             sameEngineRetries.intValue++
             LogBus.i(
                 "Player",
-                "播放失败，当前内核重拉重试 ${sameEngineRetries.intValue}/2：$msg",
+                "播放失败，当前内核重拉重试 ${sameEngineRetries.intValue}/2：$cleanMsg",
             )
             scope.launch {
                 delay(600)
+                if (myGen != failureGen || urlAtEntry != playUrl || EngineHost.backgrounded) return@launch
                 val ok = playCurrentUrl(
                     if (isLive) 0L else EngineHost.currentPosition()
                 )
-                if (!ok) handlePlayFailure(msg)
+                if (!ok) handlePlayFailure(cleanMsg)
             }
             return
         }
@@ -971,9 +1017,12 @@ fun PlayerScreen(
         ) {
             triedNoReferer = true
             val savedHeaders = lastHeaders
-            lastHeaders = lastHeaders - "Referer"
+            // v1.3.21 H3：Referer 置空串是“显式清掉”信号——直接删键会
+            // 被 withSiteDefaults 当成“没给”又补回默认 Referer。
+            lastHeaders = lastHeaders + ("Referer" to "")
             LogBus.i("Player", "播放失败，自动清除 Referer 重试：$playUrl")
             scope.launch {
+                if (myGen != failureGen || urlAtEntry != playUrl || EngineHost.backgrounded) return@launch
                 val ok = playCurrentUrl(
                     if (isLive) 0L else EngineHost.currentPosition()
                 )
@@ -981,7 +1030,7 @@ fun PlayerScreen(
                     sameEngineRetries.intValue = 0
                 } else {
                     lastHeaders = savedHeaders
-                    handlePlayFailure(msg)
+                    handlePlayFailure(cleanMsg)
                 }
             }
             return
@@ -1023,13 +1072,14 @@ fun PlayerScreen(
                 EngineHost.setEngineOverride(other)
                 sameEngineRetries.intValue = 0 // 新内核重新给同内核重试机会
                 scope.launch {
+                    if (myGen != failureGen || urlAtEntry != playUrl || EngineHost.backgrounded) return@launch
                     val ok = playCurrentUrl(pos)
                     if (ok) {
                         EngineHost.applySubtitleStyle(
                             PlayerSettings.subtitleStyle.value, playerView
                         )
                     } else {
-                        handlePlayFailure(msg)
+                        handlePlayFailure(cleanMsg)
                     }
                 }
             } catch (t: Throwable) {
@@ -1053,7 +1103,7 @@ fun PlayerScreen(
             playUrl = alt.url
             return
         }
-        tryNextLine(msg)
+        tryNextLine(cleanMsg)
     }
 
     LaunchedEffect(playUrl) {
@@ -1086,12 +1136,20 @@ fun PlayerScreen(
                     playSourceType, playSourceKey.orEmpty(),
                 )
             }
-            // v0.21.0：换地址清除自动换内核覆盖，回到用户持久化选择
-            EngineHost.setEngineOverride(null)
-            triedEngines.clear()
-            EngineHost.clearFallbackTriedEngines()
-            sameEngineRetries.intValue = 0
-            triedNoReferer = false
+            // v1.3.21 H7：先判是不是接续同一播放器——接续时不清覆盖、
+            // 不重置重试计数，否则全屏跳页/返回小窗会把自动换内核的成果
+            // 与重试预算清掉，再失败就从头烧一遍。
+            val resuming = playUrl.isNotBlank() && EngineHost.isActiveFor(playUrl)
+            if (!resuming) {
+                // v0.21.0：换地址清除自动换内核覆盖，回到用户持久化选择
+                EngineHost.setEngineOverride(null)
+                triedEngines.clear()
+                EngineHost.clearFallbackTriedEngines()
+                sameEngineRetries.intValue = 0
+                triedNoReferer = false
+            } else {
+                LogBus.i("Player", "接续正在播放的同一播放器，保留自动换内核覆盖与重试计数")
+            }
             if (playUrl.isNotBlank()) {
                 val resumeAt = HistoryStore.getProgress(context, playUrl)
                     .takeIf { it > RESUME_THRESHOLD_MS } ?: 0L
@@ -1179,6 +1237,10 @@ fun PlayerScreen(
         if (EpisodePrefetch.isPrefetchUsable(prefetched, lineIdx, epIdx, System.currentTimeMillis())) {
             val link = prefetched!!.url
             prefetched = null
+            // v1.3.21 H15：预解析命中也先停旧解析、抬代次——否则在途的
+            // 旧解析完成后会把 playUrl 盖回旧集。
+            resolveJob?.cancel()
+            resolveGen++
             PlaySession.moveTo(lineIdx, epIdx)
             triedLines.clear()
             playUrl = link
@@ -1297,7 +1359,13 @@ fun PlayerScreen(
             try {
                 val pos = EngineHost.currentPosition()
                 val ok = playCurrentUrl(pos)
-                if (!ok) {
+                if (ok) {
+                    // v1.3.21 M3：手动重试成功是新的重试对象——重试预算清零，
+                    // 播中再失败重新给完整链路。
+                    sameEngineRetries.intValue = 0
+                    triedEngines.clear()
+                    triedNoReferer = false
+                } else {
                     playError = PlayError.classify("重试失败")
                 }
             } catch (t: Throwable) {
@@ -1383,6 +1451,12 @@ fun PlayerScreen(
                     ignoreCert = ignoreCert,
                 )
                 if (ok) {
+                    // v1.3.21 M3：手动切内核成功是新的重试对象——已试过的
+                    // 内核、重试计数、清 Referer 标记都清零，播中再失败
+                    // 重新给完整链路。
+                    sameEngineRetries.intValue = 0
+                    triedEngines.clear()
+                    triedNoReferer = false
                     EngineHost.applySubtitleStyle(PlayerSettings.subtitleStyle.value, playerView)
                     EngineHost.setPlaybackSpeed(SPEEDS[speedIndex])
                     // 新内核真正出画（开始播放且进度走动）或超时后撤掉定格帧
@@ -1449,7 +1523,9 @@ fun PlayerScreen(
                                 scope.launch {
                                     try {
                                         val pos = EngineHost.currentPosition()
-                                        val noRefHeaders = lastHeaders - "Referer"
+                                        // v1.3.21 H3：Referer 置空串是“显式清掉”信号——
+                                        // 直接删键会被 withSiteDefaults 当成“没给”又补回默认。
+                                        val noRefHeaders = lastHeaders + ("Referer" to "")
                                         lastHeaders = noRefHeaders
                                         LogBus.i("Player", "清除 Referer 后重试：$playUrl")
                                         val sub = runCatching { currentSubtitleUrl() }.getOrNull()
@@ -1559,7 +1635,10 @@ fun PlayerScreen(
             val dur = EngineHost.duration()
             if (dur <= 0) continue
             val pos = EngineHost.currentPosition()
-            if (sleepArmed && pos >= dur - 2000) {
+            // v1.3.21 H16：触发点走 computeEndAtMs——塌掉的时长（<2 秒）
+            // 永不触发，定时关闭也不再被 4 秒分母提前点着。
+            val endAt = PlayEndMode.computeEndAtMs(dur, skipOutro)
+            if (sleepArmed && pos >= endAt) {
                 if (VideoSleepTimer.consumeAfterEpisode()) {
                     EngineHost.pause()
                     AppToast.show(context, "定时关闭：本集播完已暂停", long = false)
@@ -1568,7 +1647,6 @@ fun PlayerScreen(
                 break
             }
             // 有片尾跳过时提前触发，否则自然播完（留 1 秒余量，防时长抖动）才触发
-            val endAt = if (skipOutro > 0) dur - skipOutro * 1000L else dur - 1000L
             if (pos < endAt) continue
             // v1.2.14 B片（8）：播完行为走 PlayEndMode 纯决策——3=播完停止，停住不切集；
             // 定时关闭优先级最高（上面已先处理，任何模式都不越过它）。
@@ -1587,7 +1665,10 @@ fun PlayerScreen(
                 }
                 PlayEndMode.PlayEndAction.Pause -> {
                     EngineHost.pause()
-                    break
+                    // v1.3.21 H16：不 break——break 后循环退出，用户拖回
+                    // 开头也不会再布防；改为等用户把进度拖回 endAt 之前
+                    // 再继续轮询。
+                    while (EngineHost.currentPosition() >= endAt) delay(1000)
                 }
             }
         }

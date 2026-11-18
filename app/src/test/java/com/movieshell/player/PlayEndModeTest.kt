@@ -36,4 +36,20 @@ class PlayEndModeTest {
         assertEquals(PlayEndAction.PlayNext(1), PlayEndMode.action(99, 0, 5))
         assertEquals(PlayEndAction.Pause, PlayEndMode.action(-1, 4, 5))
     }
+
+    @Test fun computeEndAtMs_collapsedDurationNeverTriggers() {
+        assertEquals(Long.MAX_VALUE, PlayEndMode.computeEndAtMs(4000L, 0))
+        assertEquals(Long.MAX_VALUE, PlayEndMode.computeEndAtMs(1999L, 90))
+        assertEquals(Long.MAX_VALUE, PlayEndMode.computeEndAtMs(0L, 0))
+    }
+
+    @Test fun computeEndAtMs_skipOutroWithinDuration() {
+        assertEquals(2_700_000L - 90_000L, PlayEndMode.computeEndAtMs(2_700_000L, 90))
+        assertEquals(2_700_000L - 1000L, PlayEndMode.computeEndAtMs(2_700_000L, 0))
+    }
+
+    @Test fun computeEndAtMs_skipOutroNotShorterThanDurationFallsBack() {
+        assertEquals(60_000L - 1000L, PlayEndMode.computeEndAtMs(60_000L, 90))
+        assertEquals(60_000L - 1000L, PlayEndMode.computeEndAtMs(60_000L, 60))
+    }
 }

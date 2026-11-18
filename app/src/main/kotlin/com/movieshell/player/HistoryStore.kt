@@ -135,6 +135,19 @@ object HistoryStore {
             Log.w(TAG, "历史记录读坏未处理，拒绝写盘覆盖（请先在历史页处理损坏数据）")
             return
         }
+        // v1.3.21 H12：塌掉的时长不写盘——新 duration 比旧的小、且进度
+        // 已超过新 duration（分片展开后分母只剩几秒的特征），沿用旧的
+        // 真实 duration，否则百分比算出 100%、继续观看排错、还可能
+        // 误触“看完自动删”删掉本地文件。
+        val identity = historyIdentityKey(sourceType, sourceKey, vodId, episodeIndex, url)
+        val oldDuration = list.firstOrNull {
+            historyIdentityKey(it.sourceType, it.sourceKey, it.vodId, it.episodeIndex, it.url) == identity
+        }?.durationMs ?: 0L
+        val fixedDuration = if (durationMs > 0 && oldDuration > durationMs && positionMs > durationMs) {
+            oldDuration
+        } else {
+            durationMs
+        }
         list.removeAll { existing ->
             existing.url == url ||
                 historyIdentityKey(
@@ -148,7 +161,7 @@ object HistoryStore {
                 title = title,
                 url = url,
                 positionMs = positionMs.coerceAtLeast(0L),
-                durationMs = durationMs.coerceAtLeast(0L),
+                durationMs = fixedDuration.coerceAtLeast(0L),
                 timestamp = System.currentTimeMillis(),
                 kind = kind,
                 vodId = vodId,

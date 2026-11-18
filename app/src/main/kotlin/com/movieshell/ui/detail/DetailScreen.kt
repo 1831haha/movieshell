@@ -709,6 +709,8 @@ fun DetailScreen(
                     // v0.217.0（F9）：坏集失败切到错误态——旧 embeddedUrl 必须清掉，
                     // 否则状态层（要求地址为空才渲染）永远出不来，用户既看不到重试、
                     // 也分不清现在播的是哪集；重试读 F8 统一写的选中态，正好是这集。
+                    // v1.3.21 M20：写错误态前先停旧引擎，否则上一集还在后台响。
+                    EngineHost.stop()
                     embeddedUrl = ""
                     embeddedError = "该集暂无播放地址"
                     embeddedResolving = false
@@ -717,6 +719,9 @@ fun DetailScreen(
                 // v0.164.0：pics:// 图片集直接进看图，不写视频播放会话、不进嵌入播放器
                 if (com.movieshell.player.isPicsUrl(link)) {
                     picsTitle = "${detailTitle(detail, vodId)} ${ep.name.ifBlank { "第${episodeIndex + 1}集" }}"
+                    // v1.3.21 M21：进看图前先暂停旧视频——之前不暂停，视频在
+                    // 看图后面继续播（有声无画），返回可恢复。
+                    EngineHost.pause()
                     picsUrl = link
                     embeddedResolving = false
                     return@launch
@@ -2035,7 +2040,9 @@ fun DetailScreen(
                             }
                             // 关闭小窗（停止播放）
                             IconButton(
-                                onClick = { embeddedUrl = "" },
+                                // v1.3.21 H10：只卸 UI 不停引擎，声音会继续响——
+                                // 先停引擎再清地址。
+                                onClick = { EngineHost.stop(); embeddedUrl = "" },
                                 modifier = Modifier
                                     .align(Alignment.TopEnd)
                                     .padding(4.dp)

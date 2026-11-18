@@ -1,6 +1,7 @@
 package com.movieshell.player
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
 
@@ -163,5 +164,36 @@ class MpvAdFilterTest {
     fun ensureHlsMarkers_masterPlaylistUntouched() {
         val content = "#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=5000000\n high.m3u8\n"
         assertEquals(content, MpvAdFilter.ensureHlsMarkers(content))
+    }
+
+    @Test
+    fun cacheKey_sameUrlDifferentCookieDifferentKey() {
+        val url = "https://cdn.example.com/vod/abc/index.m3u8"
+        val a = MpvAdFilter.cacheKey(url, mapOf("Cookie" to "__pugs=aaa", "Referer" to "https://x/"))
+        val b = MpvAdFilter.cacheKey(url, mapOf("Cookie" to "__pugs=bbb", "Referer" to "https://x/"))
+        assertNotEquals(a, b)
+    }
+
+    @Test
+    fun cacheKey_sameHeadersSameKeyRegardlessOfOrder() {
+        val url = "https://cdn.example.com/vod/abc/index.m3u8"
+        val a = MpvAdFilter.cacheKey(url, mapOf("Cookie" to "c=1", "Referer" to "https://x/"))
+        val b = MpvAdFilter.cacheKey(url, mapOf("Referer" to "https://x/", "Cookie" to "c=1"))
+        assertEquals(a, b)
+    }
+
+    @Test
+    fun cacheKey_ignoresUnrelatedHeaders() {
+        val url = "https://cdn.example.com/vod/abc/index.m3u8"
+        val a = MpvAdFilter.cacheKey(url, mapOf("Cookie" to "c=1"))
+        val b = MpvAdFilter.cacheKey(url, mapOf("Cookie" to "c=1", "User-Agent" to "UA/1.0", "X-Trace" to "zzz"))
+        assertEquals(a, b)
+    }
+
+    @Test
+    fun cacheKey_differentUrlDifferentKey() {
+        val a = MpvAdFilter.cacheKey("https://cdn.example.com/a.m3u8", mapOf("Cookie" to "c=1"))
+        val b = MpvAdFilter.cacheKey("https://cdn.example.com/b.m3u8", mapOf("Cookie" to "c=1"))
+        assertNotEquals(a, b)
     }
 }

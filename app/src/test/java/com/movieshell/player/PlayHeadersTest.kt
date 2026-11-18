@@ -43,6 +43,20 @@ class PlayHeadersTest {
         assertTrue(local.isEmpty())
     }
 
+    @Test fun `withSiteDefaults empty Referer means explicitly cleared never refilled`() {
+        val url = "https://upos-sz-estghw.bilivideo.com/upgcxcode/1/2/x.mp4?e=abc"
+        val cleared = PlayHeaders.withSiteDefaults(url, mapOf("Referer" to ""))
+        assertNull(PlayHeaders.get(cleared, "Referer"))
+        assertTrue(cleared.isEmpty())
+        // 大小写不同的键名同样是显式清掉；非 B 站本来就不补，行为不变。
+        val clearedLower = PlayHeaders.withSiteDefaults(url, mapOf("referer" to "  "))
+        assertNull(PlayHeaders.get(clearedLower, "Referer"))
+        val other = PlayHeaders.withSiteDefaults(
+            "https://ppvod011.blbtgg.com/a/index.m3u8", mapOf("Referer" to ""),
+        )
+        assertNull(PlayHeaders.get(other, "Referer"))
+    }
+
     @Test fun `fromJson object with non string values`() {
         val el = Json.parseToJsonElement("""{"User-Agent":"okhttp","x-num":12,"x-bool":true,"x-null":null}""")
         val h = PlayHeaders.fromJson(el)

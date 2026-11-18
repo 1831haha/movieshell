@@ -45,12 +45,16 @@ object MpvAdFilter {
         if (live) return null
         if (!AdFilteringDataSource.isPlaylistRequest(url, null)) return null
         val dir = File(context.filesDir, CACHE_DIR).apply { mkdirs() }
-        // v1.3.19：缓存键加版本盐——旧缓存文件可能还带行首杂质，复用会
-        // 让修复不生效；旧文件由 pruneCache 慢慢清掉。
-        val file = File(dir, sha256("v2:" + url) + ".m3u8")
+        // v1.3.21 H13：缓存键 v3，混入请求头摘要——同一地址换 Cookie/
+        // Referer（如夸克 __pugs 续期、清 Referer 重试）是不同的播放列表，
+        // 旧键只认 URL 会把旧文件当新鲜用。v2 盐文件自然失效（新键名不同），
+        // 由 pruneCache 慢慢清掉。
+        val file = File(dir, cacheKey(url, headers) + ".m3u8")
         // v1.1.31：同一地址 1 小时内的过滤结果直接复用——点播播放列表是静态的，
         // 换内核重试/同集重播不用每次都重新拉一次
-        if (file.exists() && System.currentTimeMillis() - file.lastModified() < 3_600_000L) {
+        // v1.3.21 H14：命中也要校验（存在、1 小时内、非空、首行是 #EXTM3U），
+        // 否则重下——半截写盘的坏文件不再被当成好缓存复用。
+        if (isCacheValid(file)) {
             LogBus.i("MpvAdFilter", "去广告：复用 1 小时内缓存 ${file.name}")
             return file.absolutePath
         }
@@ -66,13 +70,45 @@ object MpvAdFilter {
             // v1.3.19：写盘前再去一次行首杂质（链路里任何一步都可能留出空行），
             // 并把首行打进日志——下次再逐条播，先看首行是不是 #EXTM3U。
             val cleaned = stripLeadingJunk(filtered)
-            file.writeText(cleaned, Charsets.UTF_8)
+            // v1.3.21 H14：先写 tmp 再原子 rename——写一半崩掉不再留
+            // 半截文件冒充缓存；rename 失败才直接写。
+            val tmp = File(dir, file.name + ".tmp")
+            tmp.writeText(cleaned, Charsets.UTF_8)
+            if (!tmp.renameTo(file)) {
+                file.writeText(cleaned, Charsets.UTF_8)
+                tmp.delete()
+            }
             val firstLine = cleaned.substringBefore('\n').take(20)
             LogBus.i("MpvAdFilter", "去广告：${url.take(80)} -> 本地 ${file.name}（${cleaned.length} 字符，首行=${firstLine}）")
             file.absolutePath
         }.onFailure {
             LogBus.w("MpvAdFilter", "过滤失败，走原地址：${it.message}")
         }.getOrNull()
+    }
+
+    /**
+     * v1.3.21 H13：缓存键——URL + 影响播放的三个请求头的摘要。
+     * 只取 Cookie/Referer/Authorization，键名小写排序、值拼串后 sha256，
+     * 头的顺序不影响键。纯函数，可单测。
+     */
+    internal fun cacheKey(url: String, headers: Map<String, String>): String {
+        val digest = headers.entries
+            .filter { (k, v) -> k.lowercase() in setOf("cookie", "referer", "authorization") && v.isNotBlank() }
+            .sortedBy { it.key.lowercase() }
+            .joinToString("&") { (k, v) -> "${k.lowercase()}=$v" }
+            .let { sha256(it) }
+        return sha256("v3:$url|$digest")
+    }
+
+    /** v1.3.21 H14：缓存命中校验——存在、1 小时内、非空、首行是 #EXTM3U。 */
+    private fun isCacheValid(file: File): Boolean {
+        if (!file.exists() || file.length() <= 0L) return false
+        if (System.currentTimeMillis() - file.lastModified() >= 3_600_000L) return false
+        return runCatching {
+            file.inputStream().bufferedReader(Charsets.UTF_8).use { reader ->
+                reader.readLine()?.trimStart()?.startsWith("#EXTM3U") == true
+            }
+        }.getOrDefault(false)
     }
 
     /** 缓存淘汰：只留最新的 50 个、7 天内的——同一地址的过滤文件不设上限会一直涨。 */

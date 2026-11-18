@@ -71,6 +71,10 @@ import com.movieshell.data.sharelink.SharePlatform
 import com.movieshell.data.sharelink.ShareQrSession
 import com.movieshell.data.sharelink.ShareResolver
 import com.movieshell.data.sharelink.ShareResult
+import com.movieshell.domain.model.Episode
+import com.movieshell.domain.model.PlayLine
+import com.movieshell.player.PlaySession
+import com.movieshell.player.SniffPlayHeaders
 import com.movieshell.ui.components.AppButton
 import com.movieshell.ui.components.AppCard
 import com.movieshell.ui.components.AppToast
@@ -142,6 +146,8 @@ fun ShareLinkScreen(
     var showManualLogin by remember { mutableStateOf(false) }
     var pendingPreview by remember { mutableStateOf<PlayLink?>(null) }
     var pendingPreviewTitle by remember { mutableStateOf("") }
+    // v1.3.21：预览弹窗确认时也要建播放会话（选集抽屉），得记住是哪个文件。
+    var pendingPreviewFile by remember { mutableStateOf<ShareFile?>(null) }
     // v1.3.12：集数正倒序（详情页选集标题右侧同款切换）。
     var epDesc by remember { mutableStateOf(false) }
 
@@ -256,7 +262,9 @@ fun ShareLinkScreen(
                     if (r.value.isPreview) {
                         pendingPreview = r.value
                         pendingPreviewTitle = file.name
+                        pendingPreviewFile = file
                     } else {
+                        startShareSession(cur, file)
                         onPlay(r.value.url, file.name, r.value.headers)
                     }
                 }
@@ -268,6 +276,45 @@ fun ShareLinkScreen(
             }
             resolvingFid = null
         }
+    }
+
+    /**
+     * v1.3.21：把当前目录的视频文件建成播放会话——播放器内选集抽屉
+     * 才有集数可切；之前只传单个地址，抽屉是 0 集、上下集也没有。
+     * 选集用 sharefile://<fid> 作占位地址，切集时解析器按 fid 找回
+     * 文件再取直链（各集转存/转码单独走，互不干扰）；取不到直链
+     * （如未登录的大文件）返回空串，切集无动作。
+     */
+    fun startShareSession(cur: ShareListing, current: ShareFile) {
+        val videos = ShareLink.sortShareFiles(cur.files)
+            .filter { !it.isDir && ShareLink.isVideoName(it.name) }
+        if (videos.isEmpty()) return
+        val idx = videos.indexOfFirst { it.fid == current.fid }.coerceAtLeast(0)
+        val episodes = videos.map {
+            Episode(flag = "分享", name = ShareLink.episodeLabel(it.name), url = "sharefile://" + it.fid)
+        }
+        PlaySession.start(
+            lines = listOf(PlayLine("分享", episodes)),
+            lineIndex = 0,
+            episodeIndex = idx,
+            resolver = { _, ep, _ ->
+                val fid = ep.url.removePrefix("sharefile://")
+                val target = videos.firstOrNull { it.fid == fid }
+                if (target == null) {
+                    ""
+                } else {
+                    when (val r = ShareResolver.resolve(cur, target)) {
+                        is ShareResult.Ok -> {
+                            if (r.value.isPreview) "" else {
+                                SniffPlayHeaders.put(r.value.url, r.value.headers)
+                                r.value.url
+                            }
+                        }
+                        is ShareResult.Err -> ""
+                    }
+                }
+            },
+        )
     }
 
     fun pasteFromClipboard() {
@@ -661,6 +708,11 @@ fun ShareLinkScreen(
             confirmText = "先看 2 分钟",
             onConfirm = {
                 pendingPreview = null
+                // v1.3.21：看预览也建播放会话，抽屉里切集能取全长直链。
+                pendingPreviewFile?.let { file ->
+                    currentListing?.let { startShareSession(it, file) }
+                }
+                pendingPreviewFile = null
                 onPlay(preview.url, pendingPreviewTitle, preview.headers)
             },
         ) {

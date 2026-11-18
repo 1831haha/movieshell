@@ -69,14 +69,23 @@ object PlayHeaders {
      * Referer”一步（说明当时根本没带 Referer）；默认补
      * Referer: https://www.bilibili.com，万一站方不认，清 Referer
      * 重试仍会兜底。host 解析用 java.net.URI（JVM 单测可用）。
+     * v1.3.21 H3：Referer 键存在且值为空串＝调用方显式清掉（重试链的
+     * 清 Referer 信号），这时不补默认——之前只看 normalize 后的结果，
+     * 空串被 normalize 丢掉、缺失被当成“没给”又补回去，清 Referer
+     * 重试永远带默认 Referer。空串判定必须在 normalize 之前看原 map。
      */
     fun withSiteDefaults(url: String, headers: Map<String, String>?): Map<String, String> {
         val base = normalize(headers)
         val host = runCatching { java.net.URI(url).host.orEmpty() }.getOrDefault("").lowercase()
-        if ((host == "bilivideo.com" || host.endsWith(".bilivideo.com")) && get(base, "Referer") == null) {
-            val out = LinkedHashMap(base)
-            out["Referer"] = "https://www.bilibili.com"
-            return out
+        if (host == "bilivideo.com" || host.endsWith(".bilivideo.com")) {
+            val rawReferer = headers?.entries
+                ?.firstOrNull { it.key.equals("Referer", ignoreCase = true) }?.value
+            if (rawReferer != null && rawReferer.trim().isEmpty()) return base
+            if (get(base, "Referer") == null) {
+                val out = LinkedHashMap(base)
+                out["Referer"] = "https://www.bilibili.com"
+                return out
+            }
         }
         return base
     }

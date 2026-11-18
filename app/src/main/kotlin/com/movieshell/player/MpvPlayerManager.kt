@@ -87,6 +87,14 @@ object MpvPlayerManager {
     @Volatile
     private var errorListener: ((String) -> Unit)? = null
 
+    /**
+     * v1.3.21：展开检测的错误标记——本地 m3u8 被当成播放列表展开且进度
+     * 不动时，诊断线程以此外加错误回调，PlayerScreen 见标记直接跳过
+     * 同内核重拉/清 Referer（再试只会再展开一次），直奔换内核。
+     * 标记只作链路内识别，落进日志前由调用方剥掉。
+     */
+    internal const val PLAYLIST_EXPANDED_MARKER = "playlist-expanded"
+
     private val observer = object : MPVLib.EventObserver {
         override fun eventProperty(property: String) {}
         override fun eventProperty(property: String, value: Long) {}
@@ -326,21 +334,29 @@ object MpvPlayerManager {
                 LogBus.i("MpvPlayer", "起播已过期（期间已停播），丢弃：${lastPlayHost}")
                 return@execute
             }
+            // v1.3.21 H1：过滤最长 16 秒，期间 stop() 可能已把代次 +1——
+            // 过滤返回后、loadfile 前再核对一次代次，过期直接丢弃。
+            // 过滤本身已包 runCatching（失败回 null 走原地址），放
+            // runCatching 外面不改变失败语义。
+            val filteredPath = appContext?.let {
+                runCatching { MpvAdFilter.prepareFilteredPlaylist(it, url, headers, live) }.getOrNull()
+            }
+            if (gen != playGen) {
+                LogBus.i("MpvPlayer", "起播已过期（过滤期间已停播），丢弃：${lastPlayHost}")
+                return@execute
+            }
+            val playUrl = filteredPath ?: url
             runCatching {
-                // v1.1.31：点播 m3u8 过滤后播本地文件；失败（null）走原地址
-                val filteredPath = appContext?.let {
-                    runCatching { MpvAdFilter.prepareFilteredPlaylist(it, url, headers, live) }.getOrNull()
-                }
-                val playUrl = filteredPath ?: url
-                // v1.3.20：1.3.19 真机证实——本地过滤文件首行已是 #EXTM3U，
-                // 手机 mpv 仍把它当播放列表逐条播，probe 不认干净的 m3u8
-                // （沙箱 mpv 0.37 认、手机 libmpv 0.40 不认，原因待诊断
-                // 日志定性）。不再赌 probe：本地 m3u8 起播前把
-                // demuxer-lavf-format 强制成 hls——lavf_check_file 里
-                // forced_format 直接满分 100，不走探测；非 m3u8 起播前
-                // 清掉，免得 mp4 也被强制成 hls。setOptionString 同步生
-                // 效、loadfile 异步入队，值在起播前设好、只会被下一次起
-                // 播改写，没有“设完立刻清”的竞态。
+                // v1.3.20：本地 m3u8 起播前把 demuxer-lavf-format 强制成
+                // hls——lavf_check_file 里 forced_format 直接满分 100，
+                // 不走探测；非 m3u8 起播前清掉，免得 mp4 也被强制成 hls。
+                // setOptionString 同步生效、loadfile 异步入队，值在起播前
+                // 设好、只会被下一次起播改写，没有“设完立刻清”的竞态。
+                // 故障十三（2026-11-18 真机）：强制确实到 probe 层
+                // （lavf 两次 100 分 forced），但分片打不开时 hls 解复用
+                // 器照样放弃、mpv 退回 playlist 逐条播——强制只过探测关，
+                // 不过打开关；展开由 1.3.21 的诊断检测兜底（见
+                // logFilteredPlaylistDiagnosis），不再指望强制本身。
                 runCatching {
                     if (filteredPath != null) MPVLib.setOptionString("demuxer-lavf-format", "hls")
                     else MPVLib.setOptionString("demuxer-lavf-format", "")
@@ -353,7 +369,8 @@ object MpvPlayerManager {
                 // 不堵 mpv executor）——playlist-count/duration/file-format
                 // + mpv 日志里的 probe 行，下次真机日志直接定性到底是
                 // lavf 接了还是 playlist 接了。
-                if (filteredPath != null) logFilteredPlaylistDiagnosis()
+                // v1.3.21：诊断线程带代次，顺带做展开检测。
+                if (filteredPath != null) logFilteredPlaylistDiagnosis(gen)
             }.onSuccess {
                 // v0.107.0 P0-3：replace 会结束旧文件（若有），其 END_FILE 计一次忽略；
                 // 命令发出后再计数，保证与 handleEndFile（同 executor 串行）的先后顺序
@@ -575,12 +592,18 @@ object MpvPlayerManager {
      */
     private fun handleEndFile() {
         hasFile = false
-        if (expectEndFileCount.get() > 0) {
-            expectEndFileCount.decrementAndGet()
-            return
-        }
         val eof = runCatching { MPVLib.getPropertyBoolean("eof-reached") }.getOrNull() == true
         if (!eof) {
+            // v1.3.21 H9：自己 stop()/loadfile 触发的 END_FILE 只吞一次，
+            // 与分片过渡抑制合一判定——先消费 expectEndFileCount（>0 则
+            // decrement 并 return），再看是不是分片过渡。之前计数在函数
+            // 开头、eof 判定之前，悬空的 +1 会连自然播完都吞掉（paused
+            // 不置位、播完链路不触发），也可能被多条分片过渡养着、吞掉
+            // 后面的真失败。
+            if (expectEndFileCount.get() > 0) {
+                expectEndFileCount.decrementAndGet()
+                return
+            }
             // v1.3.17：播放列表里还有不止一条——这是分片被当独立条目展开
             // （极简 m3u8 没被 lavf 认出，见 MpvAdFilter.ensureHlsMarkers），
             // 本次 END_FILE 只是分片过渡，不是失败：不回调 onError、不触发
@@ -683,11 +706,17 @@ object MpvPlayerManager {
      * v1.3.20：本地 m3u8 起播后约 2 秒打解复用器诊断（后台线程，不堵
      * mpv executor）。playlist-count=1 且 duration 完整 ⇒ lavf-hls
      * 接管；>1 且 duration 只有几秒 ⇒ 仍是 playlist 展开。
+     * v1.3.21：带代次 [gen]——stop/切集后旧线程的数据不再归属本次
+     * 播放（M26）；并做展开检测：本地 m3u8 被展开成播放列表且进度
+     * 长期不动时，说明分片拉不到、hls 解复用器已放弃，静默黑屏不
+     * 会触发任何错误——此时主动回调一次错误，让 PlayerScreen 的
+     * 重试链切到 Media3（OkHttp 那路通常能拿到分片）。只回调一次。
      */
-    private fun logFilteredPlaylistDiagnosis() {
+    private fun logFilteredPlaylistDiagnosis(gen: Int) {
         Thread({
             runCatching {
                 Thread.sleep(2000)
+                if (gen != playGen) return@runCatching
                 val count = playlistCount()
                 val durMs = runCatching { MPVLib.getPropertyDouble("duration") }.getOrNull()
                     ?.let { (it * 1000).toLong() } ?: -1L
@@ -700,8 +729,28 @@ object MpvPlayerManager {
                     "MpvPlayer",
                     "m3u8 解复用诊断：playlist-count=$count duration=${durMs}ms file-format=$fmtText$probeSuffix",
                 )
+                if (count <= 1) return@runCatching
+                // 展开已确认：5 秒查一次进度，8 秒再查一次——两次都不动
+                // 才判失败（慢启动的首个分片可能 5 秒内还没出画面）。
+                Thread.sleep(3000)
+                if (gen != playGen || !hasFile) return@runCatching
+                if (currentPosition < 2000L) {
+                    fireExpansionError()
+                    return@runCatching
+                }
+                Thread.sleep(3000)
+                if (gen != playGen || !hasFile) return@runCatching
+                if (playlistCount() > 1 && currentPosition < 3000L) fireExpansionError()
             }
         }, "mpv-hls-diag").apply { isDaemon = true }.start()
+    }
+
+    /** 展开检测命中：带标记回调一次错误，调用方见标记直奔换内核。 */
+    private fun fireExpansionError() {
+        LogBus.w("MpvPlayer", "本地 m3u8 被当成播放列表展开且进度不动，分片拉不到，判失败切内核")
+        mainHandler.post {
+            errorListener?.invoke("$PLAYLIST_EXPANDED_MARKER|本地 m3u8 被当成播放列表展开，分片拉不到")
+        }
     }
 
     /**

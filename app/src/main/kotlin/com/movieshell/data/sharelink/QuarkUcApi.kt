@@ -354,6 +354,51 @@ object QuarkUcApi {
     }
 
     /**
+     * v1.3.21：最终播放头里没有 __pugs 时，单独取一次新鲜的。
+     * 大文件直取失败（file/download 没给直链）时它不下发 __pugs，
+     * 转码接口（file/v2/play）本身也不下发，登录 Cookie 里的又早过期
+     * ——转码地址拿到了、Cookie 里没有，CDN 回 412/403，黑屏
+     * （2026-11-18 真机：__pugs=无，Media3 连报 BAD_HTTP_STATUS）。
+     * 1.3.14 只保住了“直取成功那步”的 pugs，直取失败就没了，
+     * 这道补取就是堵那个缺口。只在缺失时多调一到两次接口。
+     */
+    private fun ensurePugs(
+        client: OkHttpClient,
+        cfg: Config,
+        session: ShareSession.QuarkUc,
+        file: ShareFile,
+        cookie: String,
+        currentPugs: String,
+    ): String {
+        // 最终拼出来的 Cookie 里已有 __pugs（响应给的或登录 Cookie 里带的）就不用取。
+        val assembled = playbackCookie(currentPugs, cookie)
+        if (assembled.split(';').any { it.trim().startsWith("__pugs=", ignoreCase = true) }) {
+            return currentPugs
+        }
+        val harvested = harvestPugs(client, cfg, session, file, cookie)
+        if (harvested.isNotBlank()) {
+            LogBus.i(TAG, "补取 __pugs 成功")
+            return harvested
+        }
+        LogBus.w(TAG, "补取 __pugs 失败，播放可能被 CDN 拒（412/403）")
+        return currentPugs
+    }
+
+    /** 补取 __pugs 的两条路：先试分享端直取（只取它的 Set-Cookie，不用它的地址），再试 2 分钟预览接口。 */
+    private fun harvestPugs(
+        client: OkHttpClient,
+        cfg: Config,
+        session: ShareSession.QuarkUc,
+        file: ShareFile,
+        cookie: String,
+    ): String {
+        val (_, pugs, _) = download(client, cfg, session, file, cookie)
+        if (pugs.isNotBlank()) return pugs
+        val (_, previewPugs) = videoPreview(client, cfg, session, file)
+        return previewPugs
+    }
+
+    /**
      * 取一集的播放地址。三档 + 游客预览兜底，按顺序走，拿到就停。
      * session 必须用列目录那一份（stoken 与 fidToken 配对，见 ShareSession 注释）。
      */
@@ -372,12 +417,12 @@ object QuarkUcApi {
         if (cookie.isNotBlank() && file.size > LARGE_SIZE) {
             saved = saveFlowWithTranscode(client, cfg, session, file, cookie)
             if (saved.url.isNotBlank()) {
-                return ShareResult.Ok(PlayLink(saved.url, playHeaders(cfg, saved.cookie, saved.url, cookie)))
+                return ShareResult.Ok(PlayLink(saved.url, playHeaders(cfg, ensurePugs(client, cfg, session, file, cookie, saved.cookie), saved.url, cookie)))
             }
         }
         val (url, pugs, code) = download(client, cfg, session, file, "")
         if (url.isNotBlank()) {
-            return ShareResult.Ok(PlayLink(url, playHeaders(cfg, pugs, url, cookie)))
+            return ShareResult.Ok(PlayLink(url, playHeaders(cfg, ensurePugs(client, cfg, session, file, cookie, pugs), url, cookie)))
         }
         if (code == 31001) {
             ShareAuth.markExpired(platform)
@@ -387,7 +432,7 @@ object QuarkUcApi {
             if (cookie.isNotBlank()) {
                 val (url2, pugs2, code2) = download(client, cfg, session, file, cookie)
                 if (url2.isNotBlank()) {
-                    return ShareResult.Ok(PlayLink(url2, playHeaders(cfg, pugs2, url2, cookie)))
+                    return ShareResult.Ok(PlayLink(url2, playHeaders(cfg, ensurePugs(client, cfg, session, file, cookie, pugs2), url2, cookie)))
                 }
                 if (code2 == 31001) {
                     ShareAuth.markExpired(platform)
@@ -404,7 +449,7 @@ object QuarkUcApi {
                 saveFlowWithTranscode(client, cfg, session, file, cookie)
             }
             if (saved2.url.isNotBlank()) {
-                return ShareResult.Ok(PlayLink(saved2.url, playHeaders(cfg, saved2.cookie, saved2.url, cookie)))
+                return ShareResult.Ok(PlayLink(saved2.url, playHeaders(cfg, ensurePugs(client, cfg, session, file, cookie, saved2.cookie), saved2.url, cookie)))
             }
         }
         val (preview, previewPugs) = videoPreview(client, cfg, session, file)
