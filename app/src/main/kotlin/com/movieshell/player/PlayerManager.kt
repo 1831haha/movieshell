@@ -142,7 +142,14 @@ object PlayerManager {
     private var cacheMaxAgeDaysAtBuild: Int = VideoCacheSettings.DEFAULT_MAX_AGE_DAYS
 
     @Volatile private var firstFrameAt = 0L
-    private val mainHandler = android.os.Handler(android.os.Looper.getMainLooper())
+    /**
+     * v1.3.21：懒初始化——对象级直接 `Handler(Looper.getMainLooper())`
+     * 会让纯 JUnit 单测在引用 PlayerManager 的纯函数（如
+     * fallbackAddressKey）时就触发 <clinit> 抛 "Stub!"（无 Robolectric
+     * 时 Looper.getMainLooper() 是桩实现）；懒加载后只有真在设备上
+     * 跑播放逻辑时才建 Handler，单测引用纯函数不再炸。
+     */
+    private val mainHandler: android.os.Handler by lazy { android.os.Handler(android.os.Looper.getMainLooper()) }
     private var noFrameGen = 0
 
     /** v0.294.38：解码器名 / 初始化失败写进日志 */
