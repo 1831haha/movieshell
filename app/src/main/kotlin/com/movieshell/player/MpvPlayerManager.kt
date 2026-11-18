@@ -127,6 +127,13 @@ object MpvPlayerManager {
                 MPVLib.setOptionString("idle", "yes")
                 MPVLib.setOptionString("cache", "yes")
                 MPVLib.setOptionString("demuxer-readahead-secs", "30")
+                // v1.3.16：本地过滤后 m3u8 用 file 协议打开时，ffmpeg 的
+                // protocol_whitelist 只剩 file,crypto,data，https 分片全被拒
+                // （1.3.15 真机 mpv 日志实证：分片逐个 Failed to open）。
+                // 显式放开，demuxer 与 stream 两层都设——分片由 HLS 解复用器
+                // 经 demuxer 的 AVFormatContext 打开，stream 层是兜底。
+                MPVLib.setOptionString("demuxer-lavf-o", "protocol_whitelist=" + MPV_PROTOCOL_WHITELIST)
+                MPVLib.setOptionString("stream-lavf-o", "protocol_whitelist=" + MPV_PROTOCOL_WHITELIST)
                 // v1.2.2：RTSP 走 TCP 传输——运营商 IPTV 的 UDP 在手机网下常被拦，
                 // TCP 更稳；只影响 RTSP 解复用，其他流不动。
                 MPVLib.setOptionString("rtsp-transport", "tcp")
@@ -609,6 +616,13 @@ object MpvPlayerManager {
         return "%${bytes.size}%$value"
     }
 }
+
+/**
+ * v1.3.16：ffmpeg 协议白名单——本地 m3u8 里的 https 分片必须放行。
+ * file/crypto/data 是 mpv 播本地文件时的默认白名单，只列这三项时
+ * https 分片会被拒；http/https/tcp/tls 是拉分片要用的传输层。
+ */
+internal const val MPV_PROTOCOL_WHITELIST = "file,http,https,tcp,tls,crypto,data"
 
 /**
  * v1.3.15：取 mpv 日志文本的末尾若干行（失败诊断用）。纯函数，可单测；

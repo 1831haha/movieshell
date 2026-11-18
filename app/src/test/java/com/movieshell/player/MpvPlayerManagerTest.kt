@@ -23,6 +23,18 @@ class MpvPlayerManagerTest {
     }
 
     @Test
+    fun protocolWhitelist_allowsHttpsSegments() {
+        // v1.3.16：本地 m3u8 的 https 分片必须在白名单里，否则分片逐个被拒；
+        // file/crypto/data 是 mpv 播本地文件时的默认白名单，不可丢。
+        val parts = MPV_PROTOCOL_WHITELIST.split(",")
+        assertEquals(true, parts.contains("https"))
+        assertEquals(true, parts.contains("http"))
+        assertEquals(true, parts.contains("file"))
+        assertEquals(true, parts.contains("crypto"))
+        assertEquals(true, parts.contains("data"))
+    }
+
+    @Test
     fun mpvLogTailText_truncatesToMaxChars() {
         val text = "x".repeat(100)
         assertEquals("x".repeat(10), mpvLogTailText(text, maxLines = 5, maxChars = 10))
