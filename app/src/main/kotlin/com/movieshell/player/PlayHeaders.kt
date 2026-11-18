@@ -62,6 +62,25 @@ object PlayHeaders {
     fun get(headers: Map<String, String>?, key: String): String? =
         headers?.entries?.firstOrNull { it.key.equals(key, ignoreCase = true) }?.value
 
+    /**
+     * v1.3.20：按播放地址补默认请求头（纯函数，可单测）。只补缺、不覆盖
+     * 规则已给的头。2026-11-18 真机：Bilibili 直链（upos/bilivideo.com）
+     * 不带 Referer 时 CDN 回 403，双内核都失败，且重试链里没有“清
+     * Referer”一步（说明当时根本没带 Referer）；默认补
+     * Referer: https://www.bilibili.com，万一站方不认，清 Referer
+     * 重试仍会兜底。host 解析用 java.net.URI（JVM 单测可用）。
+     */
+    fun withSiteDefaults(url: String, headers: Map<String, String>?): Map<String, String> {
+        val base = normalize(headers)
+        val host = runCatching { java.net.URI(url).host.orEmpty() }.getOrDefault("").lowercase()
+        if ((host == "bilivideo.com" || host.endsWith(".bilivideo.com")) && get(base, "Referer") == null) {
+            val out = LinkedHashMap(base)
+            out["Referer"] = "https://www.bilibili.com"
+            return out
+        }
+        return base
+    }
+
     private val json = Json { ignoreUnknownKeys = true; isLenient = true }
 
     /** header 字段容错：对象 / JSON 字符串 / 非字符串值都认；解析失败返回空。 */

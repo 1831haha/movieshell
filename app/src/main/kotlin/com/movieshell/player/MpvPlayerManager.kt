@@ -328,13 +328,32 @@ object MpvPlayerManager {
             }
             runCatching {
                 // v1.1.31：点播 m3u8 过滤后播本地文件；失败（null）走原地址
-                val playUrl = appContext?.let {
+                val filteredPath = appContext?.let {
                     runCatching { MpvAdFilter.prepareFilteredPlaylist(it, url, headers, live) }.getOrNull()
-                } ?: url
+                }
+                val playUrl = filteredPath ?: url
+                // v1.3.20：1.3.19 真机证实——本地过滤文件首行已是 #EXTM3U，
+                // 手机 mpv 仍把它当播放列表逐条播，probe 不认干净的 m3u8
+                // （沙箱 mpv 0.37 认、手机 libmpv 0.40 不认，原因待诊断
+                // 日志定性）。不再赌 probe：本地 m3u8 起播前把
+                // demuxer-lavf-format 强制成 hls——lavf_check_file 里
+                // forced_format 直接满分 100，不走探测；非 m3u8 起播前
+                // 清掉，免得 mp4 也被强制成 hls。setOptionString 同步生
+                // 效、loadfile 异步入队，值在起播前设好、只会被下一次起
+                // 播改写，没有“设完立刻清”的竞态。
+                runCatching {
+                    if (filteredPath != null) MPVLib.setOptionString("demuxer-lavf-format", "hls")
+                    else MPVLib.setOptionString("demuxer-lavf-format", "")
+                }.onFailure { LogBus.w("MpvPlayer", "demuxer-lavf-format 设置失败：${it.message}") }
                 MPVLib.command(
                     arrayOf("loadfile", playUrl, "replace", "-1", buildFileOptions(headers, startPositionMs, subtitleUrl))
                 )
                 MPVLib.setPropertyBoolean("pause", false)
+                // v1.3.20：本地 m3u8 起播后打一次解复用器诊断（后台线程，
+                // 不堵 mpv executor）——playlist-count/duration/file-format
+                // + mpv 日志里的 probe 行，下次真机日志直接定性到底是
+                // lavf 接了还是 playlist 接了。
+                if (filteredPath != null) logFilteredPlaylistDiagnosis()
             }.onSuccess {
                 // v0.107.0 P0-3：replace 会结束旧文件（若有），其 END_FILE 计一次忽略；
                 // 命令发出后再计数，保证与 handleEndFile（同 executor 串行）的先后顺序
@@ -659,6 +678,61 @@ object MpvPlayerManager {
         val bytes = value.toByteArray(Charsets.UTF_8)
         return "%${bytes.size}%$value"
     }
+
+    /**
+     * v1.3.20：本地 m3u8 起播后约 2 秒打解复用器诊断（后台线程，不堵
+     * mpv executor）。playlist-count=1 且 duration 完整 ⇒ lavf-hls
+     * 接管；>1 且 duration 只有几秒 ⇒ 仍是 playlist 展开。
+     */
+    private fun logFilteredPlaylistDiagnosis() {
+        Thread({
+            runCatching {
+                Thread.sleep(2000)
+                val count = playlistCount()
+                val durMs = runCatching { MPVLib.getPropertyDouble("duration") }.getOrNull()
+                    ?.let { (it * 1000).toLong() } ?: -1L
+                val fmt = runCatching { MPVLib.getPropertyString("file-format") }.getOrNull()
+                val probe = mpvProbeLines(appContext)
+                // 嵌套双引号会骗过 check_imports 的去字符串：条件文案先抽 val 再拼。
+                val fmtText = fmt ?: "?"
+                val probeSuffix = if (probe.isNotBlank()) " | probe: $probe" else ""
+                LogBus.i(
+                    "MpvPlayer",
+                    "m3u8 解复用诊断：playlist-count=$count duration=${durMs}ms file-format=$fmtText$probeSuffix",
+                )
+            }
+        }, "mpv-hls-diag").apply { isDaemon = true }.start()
+    }
+
+    /**
+     * v1.3.20：从 mpv 日志里捞解复用器探测行（诊断用）。只读最后 64KB；
+     * 读不到返回空串。文本过滤见 [extractMpvProbeLines]（可单测）。
+     */
+    private fun mpvProbeLines(context: Context?): String {
+        val ctx = context ?: return ""
+        return runCatching {
+            val f = File(ctx.filesDir, "mpv/mpv.log")
+            if (!f.exists() || f.length() <= 0L) return ""
+            val take = minOf(f.length(), 65_536L).toInt()
+            val buf = ByteArray(take)
+            var off = 0
+            f.inputStream().use { input ->
+                var skipped = 0L
+                val toSkip = f.length() - take
+                while (skipped < toSkip) {
+                    val s = input.skip(toSkip - skipped)
+                    if (s <= 0) break
+                    skipped += s
+                }
+                while (off < take) {
+                    val r = input.read(buf, off, take - off)
+                    if (r < 0) break
+                    off += r
+                }
+            }
+            extractMpvProbeLines(buf.decodeToString(endIndex = off))
+        }.getOrDefault("")
+    }
 }
 
 /**
@@ -669,8 +743,10 @@ object MpvPlayerManager {
 internal const val MPV_PROTOCOL_WHITELIST = "file,http,https,tcp,tls,crypto,data"
 
 /**
- * v1.3.18：lavf 解复用器的最低认分——见 init 里的注释。必须是 "25"：
- * FFmpeg 的 HLS 探测满分就是 25（MAX/4），mpv 默认要 26。
+ * v1.3.18：lavf 解复用器的最低认分。HLS 探测满分是 100
+ * （AVPROBE_SCORE_MAX），mpv 默认认分线是 26；写 25 只是放宽门槛、
+ * 无害。1.3.19 真机证实分片问题与认分线无关（probe 根本不认干净的
+ * 本地文件），真正绕过靠 demuxer-lavf-format 强制（见 play()）。
  */
 internal const val MPV_LAVF_PROBESCORE = "25"
 
@@ -682,4 +758,21 @@ internal fun mpvLogTailText(text: String, maxLines: Int = 30, maxChars: Int = 81
     if (text.isBlank()) return ""
     val tail = text.takeLast(maxChars)
     return tail.lines().filter { it.isNotBlank() }.takeLast(maxLines).joinToString("\n")
+}
+
+/**
+ * v1.3.20：从 mpv 日志文本里捞解复用器探测行（纯函数，可单测）。
+ * 命中：lavf 的 "Found 'x' at score="、"No format found"、demux 的
+ * "Detected file format"、"Trying demuxers"。只取最后 maxLines 行，
+ * 每行截到 200 字符。
+ */
+internal fun extractMpvProbeLines(text: String, maxLines: Int = 6): String {
+    if (text.isBlank()) return ""
+    val hits = text.lines().filter { line ->
+        (line.contains("Found '") && line.contains("score=")) ||
+            line.contains("No format found") ||
+            line.contains("Detected file format") ||
+            line.contains("Trying demuxers")
+    }.map { it.trim().take(200) }
+    return hits.takeLast(maxLines).joinToString(" | ")
 }

@@ -30,6 +30,19 @@ class PlayHeadersTest {
         assertNull(PlayHeaders.get(null, "cookie"))
     }
 
+    @Test fun `withSiteDefaults adds Referer for bilivideo only when absent`() {
+        val url = "https://upos-sz-estghw.bilivideo.com/upgcxcode/1/2/x.mp4?e=abc"
+        val added = PlayHeaders.withSiteDefaults(url, emptyMap())
+        assertEquals("https://www.bilibili.com", added["Referer"])
+        val kept = PlayHeaders.withSiteDefaults(url, mapOf("referer" to "https://rule/"))
+        assertEquals("https://rule/", kept["Referer"])
+        assertEquals(1, kept.size)
+        val other = PlayHeaders.withSiteDefaults("https://ppvod011.blbtgg.com/a/index.m3u8", emptyMap())
+        assertTrue(other.isEmpty())
+        val local = PlayHeaders.withSiteDefaults("/data/user/0/x/files/ad_filtered/a.m3u8", emptyMap())
+        assertTrue(local.isEmpty())
+    }
+
     @Test fun `fromJson object with non string values`() {
         val el = Json.parseToJsonElement("""{"User-Agent":"okhttp","x-num":12,"x-bool":true,"x-null":null}""")
         val h = PlayHeaders.fromJson(el)

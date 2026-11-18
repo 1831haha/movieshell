@@ -36,9 +36,34 @@ class MpvPlayerManagerTest {
 
     @Test
     fun lavfProbescore_acceptsHlsProbe() {
-        // v1.3.18：HLS 探测满分 25（AVPROBE_SCORE_MAX/4），mpv 默认认分线
-        // 是 26——写 25 正好放 HLS 进来；改大就又回到 1.3.17 的逐条播。
+        // v1.3.18：mpv 默认认分线是 26，写 25 放宽门槛、无害。
+        // 1.3.19 已证实 HLS 探测满分是 100（AVPROBE_SCORE_MAX），
+        // 不是之前写的 25；分片问题与认分线无关，真正绕过靠
+        // demuxer-lavf-format 强制（1.3.20）。
         assertEquals("25", MPV_LAVF_PROBESCORE)
+    }
+
+    @Test
+    fun extractMpvProbeLines_findsProbeLinesIgnoresNoise() {
+        val text = """
+            [  58.362][v][vo/gpu] Testing FBO format rgba16f
+            [  58.362][d][demux] Trying demuxers for level=normal.
+            [  58.363][v][demux] Found 'hls' at score=100 size=2048.
+            [  58.364][v][vo/gpu] Reported display depth: 8
+            [  58.365][v][demux] Detected file format: hls (Playlist file)
+        """.trimIndent()
+        val out = extractMpvProbeLines(text)
+        assertEquals(true, out.contains("Trying demuxers for level=normal"))
+        assertEquals(true, out.contains("Found 'hls' at score=100"))
+        assertEquals(true, out.contains("Detected file format: hls"))
+        assertEquals(false, out.contains("Testing FBO"))
+    }
+
+    @Test
+    fun extractMpvProbeLines_capsToMaxLinesAndEmpty() {
+        assertEquals("", extractMpvProbeLines(""))
+        val text = (1..10).joinToString("\n") { "No format found, try lowering probescore ($it)" }
+        assertEquals(3, extractMpvProbeLines(text, maxLines = 3).split(" | ").size)
     }
 
     @Test

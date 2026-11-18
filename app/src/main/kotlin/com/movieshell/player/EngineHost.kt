@@ -186,12 +186,15 @@ object EngineHost {
             }
         }
         return try {
+            // v1.3.20：按地址补默认请求头（Bilibili 直链缺 Referer 会 403），
+            // 双内核共用同一份；规则已给的头不动。
+            val effHeaders = PlayHeaders.withSiteDefaults(url, headers)
             if (eng == PlayerEngine.MEDIA3) {
                 PlayerManager.init(context)
-                PlayerManager.play(url, headers, startPositionMs, subtitleUrl, live, ignoreCert = ignoreCert)
+                PlayerManager.play(url, effHeaders, startPositionMs, subtitleUrl, live, ignoreCert = ignoreCert)
             } else {
                 MpvPlayerManager.init(context)
-                MpvPlayerManager.play(url, headers, startPositionMs, subtitleUrl, live)
+                MpvPlayerManager.play(url, effHeaders, startPositionMs, subtitleUrl, live)
             }
             val cost = SystemClock.elapsedRealtime() - t0
             // v0.25.0：结构化诊断日志（URL 脱敏：只留 host + 后缀）
