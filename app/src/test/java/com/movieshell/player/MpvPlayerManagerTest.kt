@@ -35,6 +35,13 @@ class MpvPlayerManagerTest {
     }
 
     @Test
+    fun lavfProbescore_acceptsHlsProbe() {
+        // v1.3.18：HLS 探测满分 25（AVPROBE_SCORE_MAX/4），mpv 默认认分线
+        // 是 26——写 25 正好放 HLS 进来；改大就又回到 1.3.17 的逐条播。
+        assertEquals("25", MPV_LAVF_PROBESCORE)
+    }
+
+    @Test
     fun mpvLogTailText_truncatesToMaxChars() {
         val text = "x".repeat(100)
         assertEquals("x".repeat(10), mpvLogTailText(text, maxLines = 5, maxChars = 10))

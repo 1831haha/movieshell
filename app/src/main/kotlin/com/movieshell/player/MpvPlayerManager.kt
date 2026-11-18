@@ -141,6 +141,12 @@ object MpvPlayerManager {
                 // 经 demuxer 的 AVFormatContext 打开，stream 层是兜底。
                 MPVLib.setOptionString("demuxer-lavf-o", "protocol_whitelist=" + MPV_PROTOCOL_WHITELIST)
                 MPVLib.setOptionString("stream-lavf-o", "protocol_whitelist=" + MPV_PROTOCOL_WHITELIST)
+                // v1.3.18：1.3.17 的标记没起作用——mpv 里 lavf 的认分线默认是
+                // 26 分（AVPROBE_SCORE_MAX/4 + 1），而 FFmpeg 的 HLS 探测最
+                // 高只给 25 分（MAX/4），标记补齐也差 1 分被刷掉，mpv 退回
+                // playlist 解复用器逐条播分片、时长塌成单片 4 秒。把线降到
+                // 25 分正好放 HLS 进来；只影响 lavf 认分，不动解复用器顺序。
+                MPVLib.setOptionString("demuxer-lavf-probescore", MPV_LAVF_PROBESCORE)
                 // v1.2.2：RTSP 走 TCP 传输——运营商 IPTV 的 UDP 在手机网下常被拦，
                 // TCP 更稳；只影响 RTSP 解复用，其他流不动。
                 MPVLib.setOptionString("rtsp-transport", "tcp")
@@ -661,6 +667,12 @@ object MpvPlayerManager {
  * https 分片会被拒；http/https/tcp/tls 是拉分片要用的传输层。
  */
 internal const val MPV_PROTOCOL_WHITELIST = "file,http,https,tcp,tls,crypto,data"
+
+/**
+ * v1.3.18：lavf 解复用器的最低认分——见 init 里的注释。必须是 "25"：
+ * FFmpeg 的 HLS 探测满分就是 25（MAX/4），mpv 默认要 26。
+ */
+internal const val MPV_LAVF_PROBESCORE = "25"
 
 /**
  * v1.3.15：取 mpv 日志文本的末尾若干行（失败诊断用）。纯函数，可单测；
