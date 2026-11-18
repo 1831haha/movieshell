@@ -4,6 +4,7 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
@@ -22,6 +23,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
+import androidx.compose.material.icons.filled.ArrowDownward
+import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material3.CircularProgressIndicator
@@ -43,6 +46,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalClipboardManager
@@ -50,6 +54,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import android.graphics.Bitmap
 import android.graphics.Color as AndroidColor
 import coil.compose.AsyncImage
@@ -72,6 +77,7 @@ import com.movieshell.ui.components.AppToast
 import com.movieshell.ui.components.TabTopBar
 import com.movieshell.ui.components.TechDialog
 import com.movieshell.ui.components.TechTextField
+import com.movieshell.ui.theme.V5
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -103,6 +109,10 @@ fun copyTextForLink(input: String): String? = input.takeIf { it.isNotBlank() }
  * 点一条直接再解析，右上角“清空”清掉全部历史。
  * v1.3.9：集数列表改成 6 列小方块网格（文件夹仍是一行一行），文件按
  * 自然顺序排（ShareResolver.listDir 里统一排，六盘都受益），头上显示"共 N 集"。
+ * v1.3.12：细节贴合整体 UI——方块改详情页选集 chip 同款（34dp、CornerMd、
+ * 毛玻璃底 + 白描边、13sp），标题改详情页口径"选集 · N 集"（titleMedium），
+ * 间距改 8dp、页边距改 V5.Gutter，标题右侧加正倒序切换；历史记录行尾 ×
+ * 改成输入框清除 × 同款大小（40dp 按钮 / 20dp 图标）。
  */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -132,6 +142,8 @@ fun ShareLinkScreen(
     var showManualLogin by remember { mutableStateOf(false) }
     var pendingPreview by remember { mutableStateOf<PlayLink?>(null) }
     var pendingPreviewTitle by remember { mutableStateOf("") }
+    // v1.3.12：集数正倒序（详情页选集标题右侧同款切换）。
+    var epDesc by remember { mutableStateOf(false) }
 
     // ---- 局部函数（先声明后调用） ----
 
@@ -315,7 +327,7 @@ fun ShareLinkScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
-                .padding(horizontal = 16.dp),
+                .padding(horizontal = V5.Gutter),
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 TechTextField(
@@ -459,13 +471,14 @@ fun ShareLinkScreen(
                                         ShareLinkPrefs.removeHistory(context, url)
                                         history = ShareLinkPrefs.loadHistory(context)
                                     },
-                                    modifier = Modifier.size(32.dp),
+                                    // v1.3.12：行尾 × 改成输入框清除 × 同款大小。
+                                    modifier = Modifier.size(40.dp),
                                 ) {
                                     Icon(
                                         imageVector = Icons.Filled.Close,
                                         contentDescription = "删除这条",
                                         tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        modifier = Modifier.size(16.dp),
+                                        modifier = Modifier.size(20.dp),
                                     )
                                 }
                             }
@@ -564,16 +577,33 @@ fun ShareLinkScreen(
                         }
                         if (videos.isNotEmpty()) {
                             if (folders.isNotEmpty()) Spacer(Modifier.height(8.dp))
-                            Text(
-                                text = "共 ${videos.size} 集",
-                                style = MaterialTheme.typography.titleSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
+                            // v1.3.12：标题改详情页选集口径，右侧加正倒序切换。
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    text = "选集 · ${videos.size} 集",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                    modifier = Modifier.weight(1f),
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                                IconButton(
+                                    onClick = { epDesc = !epDesc },
+                                    modifier = Modifier.size(44.dp),
+                                ) {
+                                    Icon(
+                                        if (epDesc) Icons.Filled.ArrowDownward else Icons.Filled.ArrowUpward,
+                                        contentDescription = if (epDesc) "倒序" else "正序",
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                }
+                            }
                             Spacer(Modifier.height(8.dp))
-                            videos.chunked(EPISODE_COLUMNS).forEach { row ->
+                            val displayVideos = if (epDesc) videos.reversed() else videos
+                            displayVideos.chunked(EPISODE_COLUMNS).forEach { row ->
                                 Row(
                                     modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
                                 ) {
                                     row.forEach { file ->
                                         EpisodeChip(
@@ -588,7 +618,7 @@ fun ShareLinkScreen(
                                         Spacer(Modifier.weight(1f))
                                     }
                                 }
-                                Spacer(Modifier.height(6.dp))
+                                Spacer(Modifier.height(8.dp))
                             }
                         }
                     }
@@ -653,7 +683,7 @@ fun ShareLinkScreen(
 /** 集数网格一行的方块数。 */
 private const val EPISODE_COLUMNS = 6
 
-/** 集数小方块：点按播对应集，长按复制文件名，正在取地址时转圈。 */
+/** 集数小方块：详情页选集 chip 同款（34dp、CornerMd、毛玻璃底 + 白描边、13sp）。 */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun EpisodeChip(
@@ -665,9 +695,10 @@ private fun EpisodeChip(
 ) {
     Box(
         modifier = modifier
-            .height(44.dp)
-            .clip(RoundedCornerShape(10.dp))
-            .background(MaterialTheme.colorScheme.surfaceVariant)
+            .height(34.dp)
+            .clip(RoundedCornerShape(V5.CornerMd))
+            .background(MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.6f))
+            .border(1.dp, Color.White.copy(alpha = 0.08f), RoundedCornerShape(V5.CornerMd))
             .combinedClickable(onClick = onClick, onLongClick = onLongClick),
         contentAlignment = Alignment.Center,
     ) {
@@ -679,7 +710,7 @@ private fun EpisodeChip(
         } else {
             Text(
                 text = ShareLink.episodeLabel(file.name),
-                style = MaterialTheme.typography.bodyMedium,
+                style = MaterialTheme.typography.labelLarge.copy(fontSize = 13.sp),
                 color = MaterialTheme.colorScheme.onSurface,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
