@@ -49,6 +49,14 @@ import org.json.JSONObject
  * playbackCookie 拼——响应下发的 __pugs 优先，其次登录 Cookie 里的
  * __pugs，再其次整串会话 Cookie 一并带上（同属夸克自家域名）。
  * Cookie 值绝不写日志，只记有无。
+ *
+ * v1.3.14（2026-11-18 真机故障复盘）：1.3.13 仍 412——日志里“播放头
+ * Cookie=已带”，但带的只是登录会话 Cookie（登录已 5 小时，__pugs
+ * 早过期），转码接口本身又不下发 __pugs。真凶：saveFlow 里 file/download
+ * 响应下发的新鲜 __pugs 已被拿到（downloadSaved 返回的 pugs），走到
+ * transcode 那一步被新 SaveOutcome(bestUrl, resp.pugs, …) 整个丢掉。
+ * 修法：转码结果保留直取那一步的 pugs（keepPugs）；日志再记 __pugs
+ * 有无，下轮真机一眼定性。
  */
 object QuarkUcApi {
 
@@ -324,14 +332,24 @@ object QuarkUcApi {
         return out.joinToString("; ")
     }
 
+    /**
+     * v1.3.14：转码结果自带的 Cookie 为空时，用直取那一步拿到的补回来——
+     * file/download 响应下发的新鲜 __pugs 不能丢在 transcode 的半路上。
+     * 已有值的不动；两边都空返回原样。
+     */
+    internal fun keepPugs(outcome: SaveOutcome, fallbackCookie: String): SaveOutcome =
+        if (outcome.cookie.isNotBlank()) outcome else outcome.copy(cookie = fallbackCookie)
+
     private fun playHeaders(cfg: Config, pugs: String, url: String, sessionCookie: String = ""): Map<String, String> {
         val headers = mutableMapOf("Referer" to playRefererFor(url, cfg), "User-Agent" to cfg.ua)
         val cookie = playbackCookie(pugs, sessionCookie)
         if (cookie.isNotBlank()) headers["Cookie"] = cookie
         // v1.3.13：只记有无，绝不记 Cookie 值（字符串模板里不嵌套引号，
         // 否则自查脚本的去字符串会把 Cookie 当成漏 import 的符号）。
+        // v1.3.14：再记 __pugs 有无——光“已带”定不了性。
         val hasCookie = headers.containsKey("Cookie")
-        LogBus.d(TAG, "播放头 Cookie=" + if (hasCookie) "已带" else "无")
+        val hasPugs = cookie.split(';').any { it.trim().startsWith("__pugs=", ignoreCase = true) }
+        LogBus.d(TAG, "播放头 Cookie=" + (if (hasCookie) "已带" else "无") + " __pugs=" + (if (hasPugs) "有" else "无"))
         return headers
     }
 
@@ -460,7 +478,7 @@ object QuarkUcApi {
         val down = downloadSaved(client, cfg, cookie, savedFid)
         if (down.first.isBlank()) {
             val transcoded = transcode(client, cfg, cookie, savedFid)
-            if (transcoded.url.isNotBlank()) return transcoded
+            if (transcoded.url.isNotBlank()) return keepPugs(transcoded, down.second)
             return SaveOutcome("", down.second, savedFid, "download_failed", taskId)
         }
         return SaveOutcome(down.first, down.second, savedFid, "", taskId)
@@ -512,7 +530,8 @@ object QuarkUcApi {
     ): SaveOutcome {
         val saved = saveFlow(client, cfg, session, file, cookie)
         if (saved.url.isNotBlank() || saved.savedFid.isBlank()) return saved
-        return transcode(client, cfg, cookie, saved.savedFid)
+        // v1.3.14：转码只认自己响应的 pugs 会把直取那一步新鲜的丢了，补回来。
+        return keepPugs(transcode(client, cfg, cookie, saved.savedFid), saved.cookie)
     }
 
     /**

@@ -210,6 +210,56 @@ class QuarkUcApiTest {
     }
 
     @Test
+    fun keepPugs_keepsTranscodeCookieWhenPresent() {
+        val out = QuarkUcApi.SaveOutcome("https://video-play.example.com/x.m3u8", "newpugs", "fid1", "")
+        assertEquals("newpugs", QuarkUcApi.keepPugs(out, "oldpugs").cookie)
+    }
+
+    @Test
+    fun keepPugs_fillsBlankFromDownloadStep() {
+        val out = QuarkUcApi.SaveOutcome("https://video-play.example.com/x.m3u8", "", "fid1", "")
+        val kept = QuarkUcApi.keepPugs(out, "oldpugs")
+        assertEquals("oldpugs", kept.cookie)
+        assertEquals("https://video-play.example.com/x.m3u8", kept.url)
+    }
+
+    @Test
+    fun keepPugs_bothBlankStaysBlank() {
+        val out = QuarkUcApi.SaveOutcome("https://video-play.example.com/x.m3u8", "", "fid1", "")
+        assertEquals("", QuarkUcApi.keepPugs(out, "").cookie)
+    }
+
+    @Test
+    fun saveFlow_downloadFailsButKeepsFreshPugs() {
+        // 回归 1.3.14：直取拿不到 URL、但 file/download 响应下了新鲜 __pugs 时，
+        // pugs 必须留在 SaveOutcome.cookie 里给后面的转码用，不能丢。
+        server.enqueue(json("""{"code":0,"data":{"list":[{"fid":"tvdir","file_name":"TV"}]}}"""))
+        server.enqueue(json("""{"code":0,"data":{"list":[]}}"""))
+        server.enqueue(json("""{"code":0,"data":{"list":[]}}"""))
+        server.enqueue(json("""{"code":0,"data":{"task_id":"task1"}}"""))
+        server.enqueue(json("""{"code":0,"data":{"save_as":{"save_as_top_fids":[]}}}"""))
+        server.enqueue(json("""{"code":0,"data":{"save_as":{"save_as_top_fids":["saved1"]}}}"""))
+        server.enqueue(
+            MockResponse()
+                .setBody("""{"code":0,"data":[]}""")
+                .setHeader("Content-Type", "application/json; charset=utf-8")
+                .addHeader("Set-Cookie", "__pugs=fresh999; Path=/"),
+        )
+
+        val outcome = QuarkUcApi.saveFlow(
+            ShareHttp.defaultClient(), cfg,
+            ShareSession.QuarkUc("pwd1", "st1", ""),
+            ShareFile(fid = "f1", name = "01.mp4", size = 123456L, fidToken = "tok1"),
+            "cookie123",
+        ) { /* 不睡，快进 */ }
+
+        assertEquals("", outcome.url)
+        assertEquals("fresh999", outcome.cookie)
+        assertEquals("saved1", outcome.savedFid)
+        assertEquals("download_failed", outcome.error)
+    }
+
+    @Test
     fun pollTask_returnsFidAfterFourEmptyPolls() {
         // 旧轮询 3 次×1 秒到这里就超时返回 null；新轮询 30 次×2 秒必须等到第 5 次。
         repeat(4) {
