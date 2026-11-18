@@ -155,15 +155,102 @@ class MpvAdFilterTest {
     }
 
     @Test
-    fun ensureHlsMarkers_existingMarkersKept() {
+    fun ensureHlsMarkers_existingMarkersKeptEndlistAppended() {
         val content = "#EXTM3U\n#EXT-X-VERSION:3\n#EXT-X-TARGETDURATION:10\n#EXT-X-MEDIA-SEQUENCE:5\n#EXTINF:10.0,\nindex0.ts\n"
-        assertEquals(content, MpvAdFilter.ensureHlsMarkers(content))
+        assertEquals(
+            "#EXTM3U\n#EXT-X-VERSION:3\n#EXT-X-TARGETDURATION:10\n#EXT-X-MEDIA-SEQUENCE:5\n" +
+                "#EXTINF:10.0,\nindex0.ts\n#EXT-X-ENDLIST\n",
+            MpvAdFilter.ensureHlsMarkers(content),
+        )
+    }
+
+    @Test
+    fun ensureHlsMarkers_minimalWithoutEndlistGetsMarkersAndEndlist() {
+        val content = "#EXTM3U\n#EXT-X-VERSION:3\n#EXTINF:9.6,\nindex0.ts\n#EXTINF:10.2,\nindex1.ts\n"
+        assertEquals(
+            "#EXTM3U\n#EXT-X-VERSION:3\n#EXT-X-TARGETDURATION:11\n#EXT-X-MEDIA-SEQUENCE:0\n" +
+                "#EXTINF:9.6,\nindex0.ts\n#EXTINF:10.2,\nindex1.ts\n#EXT-X-ENDLIST\n",
+            MpvAdFilter.ensureHlsMarkers(content),
+        )
+    }
+
+    @Test
+    fun ensureHlsMarkers_endlistNotDuplicated() {
+        val content = "#EXTM3U\n#EXT-X-VERSION:3\n#EXTINF:10.0,\nindex0.ts\n#EXT-X-ENDLIST\n"
+        val out = MpvAdFilter.ensureHlsMarkers(content)
+        assertEquals(1, out.lines().count { it.trim() == "#EXT-X-ENDLIST" })
     }
 
     @Test
     fun ensureHlsMarkers_masterPlaylistUntouched() {
         val content = "#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=5000000\n high.m3u8\n"
         assertEquals(content, MpvAdFilter.ensureHlsMarkers(content))
+    }
+
+    @Test
+    fun isDefinitelyNotPlaylist_suffixlessHlsIsNotExcluded() {
+        assertEquals(false, MpvAdFilter.isDefinitelyNotPlaylist("https://cdn.example.com/play.php?id=123"))
+        assertEquals(false, MpvAdFilter.isDefinitelyNotPlaylist("https://cdn.example.com/m3u8/abc"))
+    }
+
+    @Test
+    fun isDefinitelyNotPlaylist_progressiveSuffixExcluded() {
+        assertEquals(true, MpvAdFilter.isDefinitelyNotPlaylist("https://cdn.example.com/v/abc.mp4"))
+        assertEquals(true, MpvAdFilter.isDefinitelyNotPlaylist("https://cdn.example.com/v/abc.ts"))
+        assertEquals(true, MpvAdFilter.isDefinitelyNotPlaylist("https://cdn.example.com/v/abc.m4s"))
+    }
+
+    @Test
+    fun isDefinitelyNotPlaylist_m3u8SuffixNotExcluded() {
+        assertEquals(false, MpvAdFilter.isDefinitelyNotPlaylist("https://cdn.example.com/vod/index.m3u8"))
+    }
+
+    @Test
+    fun isDefinitelyNotPlaylist_nonHttpExcluded() {
+        assertEquals(true, MpvAdFilter.isDefinitelyNotPlaylist("file:///sdcard/index.m3u8"))
+        assertEquals(true, MpvAdFilter.isDefinitelyNotPlaylist("magnet:?xt=urn:btih:abc"))
+    }
+
+    @Test
+    fun isHttpUrl_onlyHttpHttps() {
+        assertEquals(true, MpvAdFilter.isHttpUrl("https://cdn.example.com/a.ts"))
+        assertEquals(true, MpvAdFilter.isHttpUrl("http://cdn.example.com/a.ts"))
+        assertEquals(false, MpvAdFilter.isHttpUrl("file:///sdcard/a.ts"))
+        assertEquals(false, MpvAdFilter.isHttpUrl("ftp://cdn.example.com/a.ts"))
+        assertEquals(false, MpvAdFilter.isHttpUrl("seg/0001.ts"))
+    }
+
+    @Test
+    fun resolveUris_fileSegmentDroppedWithExtinf() {
+        val content = "#EXTM3U\n#EXTINF:10.0,\nhttps://cdn.example.com/a.ts\n" +
+            "#EXTINF:10.0,\nfile:///sdcard/evil.ts\n#EXTINF:10.0,\nhttps://cdn.example.com/c.ts\n"
+        val out = MpvAdFilter.resolveUris(content, "https://cdn.example.com/vod/index.m3u8")
+        assertEquals(
+            "#EXTM3U\n#EXTINF:10.0,\nhttps://cdn.example.com/a.ts\n" +
+                "#EXTINF:10.0,\nhttps://cdn.example.com/c.ts\n",
+            out,
+        )
+    }
+
+    @Test
+    fun resolveUris_ftpSegmentDropped() {
+        val content = "#EXTM3U\n#EXTINF:10.0,\nftp://cdn.example.com/a.ts\n#EXTINF:10.0,\nhttps://cdn.example.com/b.ts\n"
+        val out = MpvAdFilter.resolveUris(content, "https://cdn.example.com/vod/index.m3u8")
+        assertEquals(
+            "#EXTM3U\n#EXTINF:10.0,\nhttps://cdn.example.com/b.ts\n",
+            out,
+        )
+    }
+
+    @Test
+    fun resolveUris_fileKeyUriLineDropped() {
+        val content = "#EXTM3U\n#EXT-X-KEY:METHOD=AES-128,URI=\"file:///sdcard/key.bin\"\n" +
+            "#EXTINF:10.0,\nhttps://cdn.example.com/a.ts\n"
+        val out = MpvAdFilter.resolveUris(content, "https://cdn.example.com/vod/index.m3u8")
+        assertEquals(
+            "#EXTM3U\n#EXTINF:10.0,\nhttps://cdn.example.com/a.ts\n",
+            out,
+        )
     }
 
     @Test

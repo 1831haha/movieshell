@@ -64,4 +64,18 @@ class M3u8AdFilterTest {
         assertEquals("cdn.a.com/v/hls", M3u8AdFilter.dirOf("s1.ts", "https://cdn.a.com/v/hls/index.m3u8"))
         assertEquals("cdn.a.com/ad", M3u8AdFilter.dirOf("/ad/x.ts", "https://cdn.a.com/v/hls/index.m3u8"))
     }
+
+    @Test fun `dropBareUriLines drops bare uri keeps led segments`() {
+        val content = "#EXTM3U\n#EXTINF:10.0,\nseg0.ts\nseg1.ts\n#EXTINF:10.0,\nseg2.ts\n"
+        assertEquals(
+            "#EXTM3U\n#EXTINF:10.0,\nseg0.ts\n#EXTINF:10.0,\nseg2.ts\n",
+            M3u8AdFilter.dropBareUriLines(content),
+        )
+    }
+
+    @Test fun `dropBareUriLines keeps master variant uris`() {
+        val content = "#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=5000000\nhigh.m3u8\n" +
+            "#EXT-X-STREAM-INF:BANDWIDTH=800000\nlow.m3u8\n"
+        assertEquals(content, M3u8AdFilter.dropBareUriLines(content))
+    }
 }

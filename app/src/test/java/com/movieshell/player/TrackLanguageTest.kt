@@ -46,6 +46,7 @@ class TrackLanguageTest {
         assertEquals("中文", TrackLanguage.displayName(track("0:0", "chi")))
         assertEquals("粤语", TrackLanguage.displayName(track("0:0", "yue")))
         assertEquals("音轨", TrackLanguage.displayName(track("0:0", "")))
-        assertEquals("deu", TrackLanguage.displayName(track("0:0", "deu")))
+        assertEquals("音轨", TrackLanguage.displayName(track("0:0", "deu")))
+        assertEquals("音轨", TrackLanguage.displayName(track("0:0", "fra")))
     }
 }

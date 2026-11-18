@@ -320,7 +320,9 @@ fun PlayerScreen(
     val danmakuEnabled by com.movieshell.player.danmaku.DanmakuSettings.enabled.collectAsState()
     var danmakuList by remember { mutableStateOf(emptyList<com.movieshell.player.danmaku.Danmaku>()) }
     // v0.27.7：自绘控制层显隐（Media3 原生控制器已关闭，双引擎统一）；播放状态从引擎取
-    var isPlaying by remember { mutableStateOf(true) }
+    // v1.3.21 L10: 初始值 false——之前是 true，进页前 500ms 中央播放键
+    // 短暂不显示、控制条可能提前自动隐藏；首轮 500ms 轮询即纠正。
+    var isPlaying by remember { mutableStateOf(false) }
     // v0.40.0：锁屏模式（锁定后只留解锁按钮，防误触）+ 右上角齿轮
     // v0.259.0：追剧开关状态直接读 FollowStore 流，播放器与详情页天然同步；
     // 源 key 为空时不建“|vodId”这种不可靠条目，开关直接隐藏。
@@ -356,7 +358,6 @@ fun PlayerScreen(
         rotateWasPlaying = EngineHost.isPlayingNow()
         rotatePosMs = EngineHost.currentPosition()
     }
-    val sessionLines = remember { PlaySession.lines } // 进入前详情页已写入
     val snackbarHostState = remember { SnackbarHostState() }
     // v0.20.0：双引擎——Media3（默认）/ libmpv，记忆选择
     // v0.21.0：engineOverride 为自动换内核的临时覆盖（静默，不持久化），优先于用户设置
@@ -455,6 +456,9 @@ fun PlayerScreen(
             // v1.3.15：退出播放页清掉本集 libmpv 失败记录——下次再进同一集重新试，
             // 免得一次失败把这集的 libmpv 永久钉死。
             EngineHost.clearLibmpvFailed()
+            // v1.3.21 L7: 定时关闭到期回调持有播放页 context，退出不清会空跑
+            // （误停后进的另一播放、用已销毁 Activity 弹 Toast）。
+            VideoSleepTimer.cancel()
             if (!embedded) {
                 // v0.294.51：直播全屏回小窗时跳过停播——直播页已置
                 // returnToEmbedded，下面就是等着接续的嵌入播放器，停掉
@@ -506,6 +510,10 @@ fun PlayerScreen(
                 Lifecycle.Event.ON_STOP -> {
                     val activity = context as? Activity
                     if (activity?.isInPictureInPictureMode != true) {
+                        // v1.3.21 H11: 系统旋转（Activity 重建）同样走 ON_STOP，
+                        // sensor/手动切换外的旋转没有任何快照，旋转后恢复直接
+                        // 返回；只在配置变更时快照，真后台不污染 rotateWasPlaying。
+                        if (activity?.isChangingConfigurations == true) snapshotForRotation()
                         EngineHost.backgrounded = true
                         EngineHost.pauseAll()
                     }
@@ -652,7 +660,9 @@ fun PlayerScreen(
     fun restoreAfterRotation() {
         if (!rotateWasPlaying || EngineHost.isPlayingNow()) return
         scope.launch {
-            EngineHost.resume()
+            // v1.3.21 L8：点播把断点带进 resume——IDLE/ENDED 时 prepare 会丢
+            // 位置；直播没有进度概念，不传。
+            if (isLive) EngineHost.resume() else EngineHost.resume(rotatePosMs)
             if (isLive) {
                 repeat(6) {
                     delay(500)
@@ -730,7 +740,7 @@ fun PlayerScreen(
         if (engine == PlayerEngine.MEDIA3) {
             playerView?.resizeMode = RESIZE_MODES[idx].first
         } else {
-            MpvPlayerManager.setAspectMode(idx)
+            EngineHost.setAspectMode(idx)
         }
     }
 
@@ -1107,6 +1117,11 @@ fun PlayerScreen(
     }
 
     LaunchedEffect(playUrl) {
+        // v1.3.21 M2: 入口快照——地址快速连变时中间一次 effect 被取消，
+        // PlaySession.episodeIndex 已先更新到新集，末尾再读会把旧地址
+        // 的进度记到新集名下；finally 里用入口快照落账，取消也保存。
+        val urlAtEntry = playUrl
+        val epAtEntry = PlaySession.episodeIndex
         // v0.188.0 M03：换地址先清上一集残留，再拉新——上一集手动选的
         // 字幕覆盖（sessionSubtitle）与旧弹幕列表，否则同标题切集时旧
         // 字幕/旧弹幕会带到下一集。安全说明：字幕选择走 replayWithSubtitle，
@@ -1151,8 +1166,14 @@ fun PlayerScreen(
                 LogBus.i("Player", "接续正在播放的同一播放器，保留自动换内核覆盖与重试计数")
             }
             if (playUrl.isNotBlank()) {
-                val resumeAt = HistoryStore.getProgress(context, playUrl)
-                    .takeIf { it > RESUME_THRESHOLD_MS } ?: 0L
+                // v1.3.21 M25：先按“源 + 剧 + 集”查断点——同一集换签名/换线路
+                // 拿到新地址后按 url 查不到旧进度会从头播；vodId 为空时重载
+                // 返回 0，退回按 url 查，行为与之前一致。
+                val resumeAt = (
+                    HistoryStore.getProgress(context, playSourceType, playSourceKey.orEmpty(), vodId.orEmpty(), lastEpIdx)
+                        .takeIf { it > 0 }
+                        ?: HistoryStore.getProgress(context, playUrl)
+                    ).takeIf { it > RESUME_THRESHOLD_MS } ?: 0L
                 if (EngineHost.isActiveFor(playUrl)) {
                     // v0.294.40：同一地址已在播（全屏跳页 / 返回小窗）：接续同一个播放器，不重新打开。
                     // 重新打开会从 0 秒起播（进度还没写进历史），迅雷本地服务也受不了旧连接未断就再连。
@@ -1216,13 +1237,29 @@ fun PlayerScreen(
                     }
                 }
             }
-            lastUrl = playUrl
-            lastEpIdx = PlaySession.episodeIndex
         } catch (e: CancellationException) {
             throw e
         } catch (t: Throwable) {
             LogBus.e("Player", "起播链路异常：${t::class.java.simpleName}: ${t.message}")
             AppToast.show(context, "播放启动失败，请重试", long = false)
+        } finally {
+            lastUrl = urlAtEntry
+            lastEpIdx = epAtEntry
+        }
+    }
+
+    // v1.3.21 M5: 单集长播周期保存——进度之前只在切地址与退出时存，
+    // 单集看 40 分钟后被杀/闪退会丢断点；每 30 秒（仅播放中）存一次。
+    LaunchedEffect(playUrl) {
+        while (true) {
+            delay(30_000)
+            if (!isLive && playUrl.isNotBlank() && EngineHost.isPlayingNow()) {
+                savePlayerProgress(
+                    context, title, playUrl, isLive,
+                    vodId, PlaySession.episodeIndex,
+                    playSourceType, playSourceKey.orEmpty(),
+                )
+            }
         }
     }
 
@@ -1235,8 +1272,13 @@ fun PlayerScreen(
         // v1.2.14 B片（2）：预解析命中直接用（地址新鲜才算命中，见 EpisodePrefetch），
         // 不再走一次解析；命中后清掉缓存，同一地址不重复用。
         if (EpisodePrefetch.isPrefetchUsable(prefetched, lineIdx, epIdx, System.currentTimeMillis())) {
-            val link = prefetched!!.url
+            val cached = prefetched!!
+            val link = cached.url
             prefetched = null
+            // v1.3.21 M19：把预解析时抓到的请求头重新放回 side-channel——
+            // 解析时 put 的头与预解析缓存是两个 10 分钟时钟，边界处头可能
+            // 已过期；命中时重放一次，起播的 take() 才能拿到新鲜头。
+            if (cached.headers.isNotEmpty()) SniffPlayHeaders.put(link, cached.headers)
             // v1.3.21 H15：预解析命中也先停旧解析、抬代次——否则在途的
             // 旧解析完成后会把 playUrl 盖回旧集。
             resolveJob?.cancel()
@@ -1297,6 +1339,9 @@ fun PlayerScreen(
         ) return@LaunchedEffect
         prefetched = EpisodePrefetch.PrefetchedEpisode(
             target.first, target.second, link, System.currentTimeMillis(),
+            // v1.3.21 M19：解析器已把头 put 进 side-channel，顺手抄一份进
+            // 缓存（peek 不消费）；命中时再放回去，刷新 10 分钟有效期。
+            headers = SniffPlayHeaders.peek(link),
         )
         LogBus.i("Player", "下一集预解析完成：第 ${target.second + 1} 集")
     }
@@ -1345,6 +1390,19 @@ fun PlayerScreen(
         liveEverPlayed = false
         if (isLive && onLiveError != null && playUrl.isNotBlank()) {
             kotlinx.coroutines.delay(8000)
+            // v1.3.21 L2: 暂停时挂起——用户在等待期手动暂停不是“无画面”，
+            // 等恢复播放再判；Media3 用 playWhenReady 区分暂停与缓冲卡住
+            // （缓冲时 isPlaying 为假但 playWhenReady 为真），libmpv 的
+            // isPlaying 即 pause 取反，缓冲时仍为真。
+            while (!liveEverPlayed) {
+                val paused = if (engine == PlayerEngine.MEDIA3) {
+                    PlayerManager.player?.playWhenReady == false
+                } else {
+                    !EngineHost.isPlayingNow()
+                }
+                if (!paused) break
+                kotlinx.coroutines.delay(1000)
+            }
             if (!liveEverPlayed) {
                 LogBus.i("Player", "直播 8 秒无画面，触发自动切源")
                 errorMsg = "直播 8 秒无画面"
@@ -1481,13 +1539,16 @@ fun PlayerScreen(
     // v0.123.0（补充B）：恢复顺序重排——①当前内核重拉同一地址（≤2 次，直播 IO
     // 抖动多半自愈，别一出错就换内核）②换内核（目标不可用直接跳过：libmpv 未安装/
     // 初始化失败过不许切，v0.122.0 真机实锤切过去后黑屏死胡同）③换线路。
+    // v1.3.21 M7: 错误监听按实例 token 注册——单槽监听会被共存的
+    // 第二个 PlayerScreen 实例在 onDispose 时清掉；token 版只注销自己。
+    val errorListenerToken = remember { Any() }
     DisposableEffect(Unit) {
         // v0.186.0 第 5 组：播放中错误回调复用 handlePlayFailure 统一链，
         // 与初始起播失败同一顺序、同一记账，不再另写一套链。
-        EngineHost.setOnErrorListener { msg ->
+        EngineHost.setOnErrorListener(errorListenerToken) { msg ->
             handlePlayFailure(msg)
         }
-        onDispose { EngineHost.setOnErrorListener(null) }
+        onDispose { EngineHost.clearOnErrorListener(errorListenerToken) }
     }
     playError?.let { err ->
         TechDialog(
@@ -1638,6 +1699,13 @@ fun PlayerScreen(
             // v1.3.21 H16：触发点走 computeEndAtMs——塌掉的时长（<2 秒）
             // 永不触发，定时关闭也不再被 4 秒分母提前点着。
             val endAt = PlayEndMode.computeEndAtMs(dur, skipOutro)
+            // v1.3.21 L2: 暂停时挂起——位置没到结尾就不做播完判定，
+            // 轮询降到约 5 秒一次；自然播完时 isPlaying 同样为假，
+            // 但位置已到结尾，仍要走播完逻辑，不能一律跳过。
+            if (!EngineHost.isPlayingNow() && pos < endAt) {
+                delay(4000)
+                continue
+            }
             if (sleepArmed && pos >= endAt) {
                 if (VideoSleepTimer.consumeAfterEpisode()) {
                     EngineHost.pause()
@@ -1786,7 +1854,7 @@ fun PlayerScreen(
                 AndroidView(
                     factory = { ctx ->
                         if (engine == PlayerEngine.LIBMPV) {
-                            MpvPlayerManager.init(ctx)
+                            EngineHost.initIfNeeded(ctx)
                             MpvVideoView(ctx).also { videoView = it }
                         } else {
                             PlayerView(ctx).apply {
@@ -1865,12 +1933,15 @@ fun PlayerScreen(
             var magnetLive by remember { mutableStateOf("") }
             LaunchedEffect(playUrl, isPlaying) {
                 if (isPlaying) { magnetLive = ""; return@LaunchedEffect }
-                while (true) {
+                // v1.3.21 L2: 只在磁力尚未播出过时轮询缓冲信息——播出后
+                // 用户手动暂停不是“缓冲中”，不再每秒请求 liveInfo。
+                while (!liveEverPlayed) {
                     magnetLive = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
                         MagnetRemote.liveInfo(context)
                     }
                     kotlinx.coroutines.delay(1000)
                 }
+                magnetLive = ""
             }
             if (magnetLive.isNotBlank() && !isPlaying) {
                 Text(
@@ -1913,32 +1984,37 @@ fun PlayerScreen(
                                 // v0.294.21：长按 = 3 倍速；按住不放左右拖 = 跳进度（右进左退），
                                 // 进度条与时间跟手，松手才真正 seek，并恢复原倍速
                                 EngineHost.setPlaybackSpeed(PlayerGestureMath.BOOST_SPEED)
-                                uiVm.gestureHint = "3X 快进中 ▶▶  左右拖动调进度"
-                                val startMs = EngineHost.currentPosition()
-                                val durMs = EngineHost.duration()
-                                val slopPx = viewConfiguration.touchSlop * 2
-                                var dragging = false
-                                var target = startMs
-                                while (true) {
-                                    val event = awaitPointerEvent()
-                                    val c = event.changes.firstOrNull { it.id == down.id }
-                                    c?.consume()
-                                    if (c == null || !c.pressed) break
-                                    val dx = c.position.x - down.position.x
-                                    if (!dragging && abs(dx) > slopPx && !isLive) {
-                                        dragging = true
-                                        uiVm.controlsVisible = true
+                                try {
+                                    uiVm.gestureHint = "3X 快进中 ▶▶  左右拖动调进度"
+                                    val startMs = EngineHost.currentPosition()
+                                    val durMs = EngineHost.duration()
+                                    val slopPx = viewConfiguration.touchSlop * 2
+                                    var dragging = false
+                                    var target = startMs
+                                    while (true) {
+                                        val event = awaitPointerEvent()
+                                        val c = event.changes.firstOrNull { it.id == down.id }
+                                        c?.consume()
+                                        if (c == null || !c.pressed) break
+                                        val dx = c.position.x - down.position.x
+                                        if (!dragging && abs(dx) > slopPx && !isLive) {
+                                            dragging = true
+                                            uiVm.controlsVisible = true
+                                        }
+                                        if (dragging) {
+                                            target = PlayerGestureMath.scrubTarget(startMs, dx, size.width.toFloat(), durMs)
+                                            uiVm.gestureScrubMs = target
+                                            uiVm.gestureHint = PlayerGestureMath.scrubHint(startMs, target, durMs)
+                                        }
                                     }
-                                    if (dragging) {
-                                        target = PlayerGestureMath.scrubTarget(startMs, dx, size.width.toFloat(), durMs)
-                                        uiVm.gestureScrubMs = target
-                                        uiVm.gestureHint = PlayerGestureMath.scrubHint(startMs, target, durMs)
-                                    }
+                                    if (dragging) EngineHost.seekTo(target)
+                                } finally {
+                                    // v1.3.21 M10: pointerInput 取消（切集/退页/旋转）
+                                    // 也要恢复原倍速，否则下次播放仍钉在 3x。
+                                    uiVm.gestureScrubMs = null
+                                    EngineHost.setPlaybackSpeed(SPEEDS[speedIndex])
+                                    uiVm.gestureHint = null
                                 }
-                                if (dragging) EngineHost.seekTo(target)
-                                uiVm.gestureScrubMs = null
-                                EngineHost.setPlaybackSpeed(SPEEDS[speedIndex])
-                                uiVm.gestureHint = null
                             }
                             return@awaitEachGesture
                         }
@@ -1979,18 +2055,24 @@ fun PlayerScreen(
                             last = change.position
                             when (mode) {
                                 1 -> {
-                                    accX += dx
-                                    if (abs(accX) >= SEEK_STEP_PX) {
-                                        val dir = if (accX > 0) 1 else -1
-                                        accX = 0f
-                                        // v0.20.0：走 EngineHost，双引擎统一
-                                        val end = EngineHost.duration().takeIf { it > 0 } ?: Long.MAX_VALUE
-                                        EngineHost.seekTo(
-                                            (EngineHost.currentPosition() + dir * 10_000L)
-                                                .coerceIn(0L, end)
-                                        )
-                                        uiVm.gestureHint =
-                                            if (dir > 0) "快进 10 秒 »" else "« 快退 10 秒"
+                                    // v1.3.21 M9: 直播禁横滑快进——长按拖动已有 !isLive
+                                    // 守卫，普通横滑没有；直播只给提示，不 seekTo。
+                                    if (isLive) {
+                                        uiVm.gestureHint = "直播不支持快进"
+                                    } else {
+                                        accX += dx
+                                        if (abs(accX) >= SEEK_STEP_PX) {
+                                            val dir = if (accX > 0) 1 else -1
+                                            accX = 0f
+                                            // v0.20.0：走 EngineHost，双引擎统一
+                                            val end = EngineHost.duration().takeIf { it > 0 } ?: Long.MAX_VALUE
+                                            EngineHost.seekTo(
+                                                (EngineHost.currentPosition() + dir * 10_000L)
+                                                    .coerceIn(0L, end)
+                                            )
+                                            uiVm.gestureHint =
+                                                if (dir > 0) "快进 10 秒 »" else "« 快退 10 秒"
+                                        }
                                     }
                                 }
                                 2 -> {
@@ -2292,7 +2374,7 @@ fun PlayerScreen(
                                             pic = "",
                                             sourceType = playSourceType,
                                             sourceKey = key,
-                                            episodeCount = sessionLines.sumOf { it.episodes.size },
+                                            episodeCount = PlaySession.lines.sumOf { it.episodes.size },
                                         ),
                                     )
                                     AppToast.show(
@@ -2481,11 +2563,15 @@ fun PlayerScreen(
                     // v0.125.0：进度条抽成 PlayerSeekBar 组件（内部关掉 48dp 最小
                     // 交互高度、行高压到 28dp），进度线贴到按钮行正上方、落在视频
                     // 底边附近（用户反馈"进度条太高卡视角"）；拖动行为不变。
+                    // v1.3.21 L12: 进度条走 0..1 比值——Float 存毫秒在超 4.6 小时
+                    // 后丢精度，毫秒保持 Long，只在拖动换算时走比值。
                     PlayerSeekBar(
-                        value = (uiVm.gestureScrubMs ?: if (scrubbing) scrubPos else pos).toFloat(),
-                        valueRange = 0f..dur.coerceAtLeast(1L).toFloat(),
+                        value = PlayerGestureMath.progressRatioMs(
+                            uiVm.gestureScrubMs ?: if (scrubbing) scrubPos else pos, dur
+                        ),
+                        valueRange = 0f..1f,
                         onValueChange = {
-                            scrubPos = it.toLong()
+                            scrubPos = PlayerGestureMath.ratioToMs(it, dur)
                             scrubbing = true
                         },
                         onValueChangeFinished = {
@@ -2516,11 +2602,15 @@ fun PlayerScreen(
                             onClick = { EngineHost.togglePlayPause() },
                             size = 44.dp,
                         )
+                        // v1.3.21 L12: 进度条走 0..1 比值——Float 存毫秒在超 4.6 小时
+                        // 后丢精度，毫秒保持 Long，只在拖动换算时走比值。
                         PlayerSeekBar(
-                            value = (uiVm.gestureScrubMs ?: if (scrubbing) scrubPos else pos).toFloat(),
-                            valueRange = 0f..dur.coerceAtLeast(1L).toFloat(),
+                            value = PlayerGestureMath.progressRatioMs(
+                                uiVm.gestureScrubMs ?: if (scrubbing) scrubPos else pos, dur
+                            ),
+                            valueRange = 0f..1f,
                             onValueChange = {
-                                scrubPos = it.toLong()
+                                scrubPos = PlayerGestureMath.ratioToMs(it, dur)
                                 scrubbing = true
                             },
                             onValueChangeFinished = {
@@ -2743,7 +2833,7 @@ fun PlayerScreen(
         // v0.19.0：线路+选集抽屉；v0.24.0：直播不显示
         if (uiVm.showLines && !isLive) {
             LineSheet(
-                lines = sessionLines,
+                lines = PlaySession.lines,
                 lineIndex = PlaySession.lineIndex,
                 episodeIndex = PlaySession.episodeIndex,
                 onDismiss = { uiVm.showLines = false },

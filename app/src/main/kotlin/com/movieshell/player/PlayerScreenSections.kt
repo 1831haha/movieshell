@@ -290,6 +290,16 @@ internal fun savePlayerProgress(
     val duration = EngineHost.duration()
     // v0.24.0：直播无进度概念也记一条（position 0），kind=live 供历史页分流
     if (!isLive && position <= 0) return
+    // v1.3.21 L17：mpv 起播初期 duration 未上报是 0，position 已走字——直接存会留一条
+    // durationMs=0、positionMs>0 的永久 0 进度记录；沿用旧记录的 duration，不覆盖。
+    val effectiveDuration = if (!isLive && duration <= 0L) {
+        runCatching {
+            val identity = historyIdentityKey(sourceType, sourceKey, vodId.orEmpty(), episodeIndex, url, if (isLive) "live" else "vod")
+            HistoryStore.getHistory(context).firstOrNull {
+                historyIdentityKey(it.sourceType, it.sourceKey, it.vodId, it.episodeIndex, it.url, it.kind) == identity
+            }?.durationMs ?: 0L
+        }.getOrDefault(0L)
+    } else duration
     // v1.1.31：健康分记账——播出进度即成功（同地址 10 分钟内只记一次）
     if (!isLive && sourceKey.isNotBlank()) SourceHealthStore.recordPlaySuccessOnce(url, sourceKey)
     HistoryStore.saveProgress(
@@ -297,7 +307,7 @@ internal fun savePlayerProgress(
         title = title,
         url = url,
         positionMs = if (isLive) 0L else position,
-        durationMs = duration,
+        durationMs = effectiveDuration,
         kind = if (isLive) "live" else "vod",
         // v0.75.0：继续观看用——记下剧 ID 和集数
         vodId = vodId.orEmpty(),
@@ -450,7 +460,16 @@ internal fun LineSheet(
     onDismiss: () -> Unit,
     onPick: (lineIdx: Int, epIdx: Int) -> Unit,
 ) {
+    // v1.3.21 M6：不用传入的 lines 快照——PlaySession.lines 在详情页异步加载完成
+    // 后才赋值，抽屉按进页时的旧表渲染会点错行；渲染时读实时表。
+    val liveLines = PlaySession.lines
+    val lines = liveLines
     var tab by remember { mutableIntStateOf(lineIndex.safeIndex(lines.size)) }
+    // v1.3.21 M8：外部换线路（自动换线/顶部清晰度按钮）后 tab 跟着 lineIndex 走，
+    // 否则抽屉打开还显示旧线路的集列表、当前集无高亮。
+    LaunchedEffect(lineIndex) {
+        tab = lineIndex.safeIndex(lines.size)
+    }
     val tabEpisodes = lines.getOrNull(tab)?.episodes.orEmpty()
     val labels = remember(tabEpisodes) {
         tabEpisodes.mapIndexed { i, ep -> ep.name.ifBlank { "第${i + 1}集" } }

@@ -38,6 +38,8 @@ data class HistoryEntry(
  * 不同 url 的记录（用户实证：同一源同一电影连占 3 张继续观看卡）；只按 url
  * 去重拦不住。vodId 为空的老记录 / 直播退回按 url 去重。
  * 键里带源：不同源的同名 vodId（如两个 CMS 站都用数字 id）不会误并。
+ * v1.3.21 M23：url 兜底键也带源与 kind——同一地址被两部剧共用、或同一
+ * 地址分属点播与直播时不再撞同一 key。
  * （纯函数，单测见 HistoryDedupTest。）
  */
 internal fun historyIdentityKey(
@@ -46,8 +48,9 @@ internal fun historyIdentityKey(
     vodId: String,
     episodeIndex: Int,
     url: String,
+    kind: String = "",
 ): String =
-    if (vodId.isNotBlank()) "vod|$sourceType|$sourceKey|$vodId|$episodeIndex" else "url|$url"
+    if (vodId.isNotBlank()) "vod|$sourceType|$sourceKey|$vodId|$episodeIndex" else "url|$sourceType|$sourceKey|$kind|$url"
 
 /**
  * 播放历史记录，SharedPreferences 持久化。
@@ -89,13 +92,14 @@ object HistoryStore {
      * 返回 false，调用方明确报错、不静默丢数据（用户须先在历史页处理损坏数据）。
      * 写盘走 commit() 同款同步落盘，与 deleteEntries 的持久性口径一致。
      */
+    @Synchronized
     fun restoreAll(context: Context, entries: List<HistoryEntry>): Boolean {
         if (corruptLoaded) {
             Log.w(TAG, "历史记录读坏未处理，拒绝恢复写盘（请先在历史页处理损坏数据）")
             return false
         }
         val deduped = entries.filter { it.url.isNotBlank() }
-            .distinctBy { historyIdentityKey(it.sourceType, it.sourceKey, it.vodId, it.episodeIndex, it.url) }
+            .distinctBy { historyIdentityKey(it.sourceType, it.sourceKey, it.vodId, it.episodeIndex, it.url, it.kind) }
             .take(MAX_SIZE)
         return prefs(context).edit()
             .putString(KEY_LIST, json.encodeToString(deduped))
@@ -106,6 +110,7 @@ object HistoryStore {
      * 用户在横幅上点的“重新开始”：删掉损坏的历史与备份，标记清零
      * （备份本身就是坏串，无法解析回表，变显式放弃而非静默丢失）。
      */
+    @Synchronized
     fun clearCorrupt(context: Context) {
         prefs(context).edit().remove(KEY_LIST).remove(KEY_LIST_CORRUPT_BAK).apply()
         corruptLoaded = false
@@ -114,7 +119,14 @@ object HistoryStore {
     private fun prefs(context: Context) =
         context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
 
-    /** 保存（或更新）一条播放进度 */
+    /** 保存（或更新）一条播放进度。
+     * v1.3.21 L15：写盘路径加锁；saveProgress 改 commit() 同步落盘——
+     * apply() 只改内存、写盘异步排队，存完立刻杀进程会丢最后一次进度
+     * （与 deleteEntries 用 commit() 的理由同一逻辑）。列表最多 50 条、
+     * JSON 只有几 KB，commit 在主线程的代价可忽略，与 deleteEntries
+     * 的口径一致；L16 要求写盘切 IO 会把“存完杀进程丢进度”的窗口
+     * 重新打开，故不切 IO，见 L15 的取舍。 */
+    @Synchronized
     fun saveProgress(
         context: Context,
         title: String,
@@ -139,28 +151,34 @@ object HistoryStore {
         // 已超过新 duration（分片展开后分母只剩几秒的特征），沿用旧的
         // 真实 duration，否则百分比算出 100%、继续观看排错、还可能
         // 误触“看完自动删”删掉本地文件。
-        val identity = historyIdentityKey(sourceType, sourceKey, vodId, episodeIndex, url)
+        val identity = historyIdentityKey(sourceType, sourceKey, vodId, episodeIndex, url, kind)
         val oldDuration = list.firstOrNull {
-            historyIdentityKey(it.sourceType, it.sourceKey, it.vodId, it.episodeIndex, it.url) == identity
+            historyIdentityKey(it.sourceType, it.sourceKey, it.vodId, it.episodeIndex, it.url, it.kind) == identity
         }?.durationMs ?: 0L
         val fixedDuration = if (durationMs > 0 && oldDuration > durationMs && positionMs > durationMs) {
             oldDuration
         } else {
             durationMs
         }
+        // v1.3.21 L18：进度不许超过时长——duration 先大后小、或结束时
+        // position 已等于 duration 后又多记，脏数据会长期存在并放大
+        // H12 的 95% 误判；仅 duration > 0 时 clamp。
+        val fixedPosition = if (fixedDuration > 0) minOf(positionMs, fixedDuration) else positionMs
+        // v1.3.21 M22：只按身份键删——url 相等这一项无视源，同一地址被
+        // 两源共用时后保存的记录会删掉另一源的整条记录；vodId 为空的
+        // 老记录本就由带源的身份键覆盖，url 这一项是多余的。
         list.removeAll { existing ->
-            existing.url == url ||
-                historyIdentityKey(
-                    existing.sourceType, existing.sourceKey, existing.vodId,
-                    existing.episodeIndex, existing.url,
-                ) == historyIdentityKey(sourceType, sourceKey, vodId, episodeIndex, url)
+            historyIdentityKey(
+                existing.sourceType, existing.sourceKey, existing.vodId,
+                existing.episodeIndex, existing.url, existing.kind,
+            ) == identity
         }
         list.add(
             0,
             HistoryEntry(
                 title = title,
                 url = url,
-                positionMs = positionMs.coerceAtLeast(0L),
+                positionMs = fixedPosition.coerceAtLeast(0L),
                 durationMs = fixedDuration.coerceAtLeast(0L),
                 timestamp = System.currentTimeMillis(),
                 kind = kind,
@@ -173,7 +191,7 @@ object HistoryStore {
         while (list.size > MAX_SIZE) list.removeLast()
         prefs(context).edit()
             .putString(KEY_LIST, json.encodeToString(list))
-            .apply()
+            .commit()
     }
 
     /** 读取全部历史记录（按最近播放排序） */
@@ -192,13 +210,32 @@ object HistoryStore {
             // v1.2.21：读时按身份去重（只留最新一条）——盘里已有的重复卡立刻并成一张，
             // 不必等下次播放才收敛；写回路径（save/delete）读到的已是去重后的表。
             .distinctBy {
-                historyIdentityKey(it.sourceType, it.sourceKey, it.vodId, it.episodeIndex, it.url)
+                historyIdentityKey(it.sourceType, it.sourceKey, it.vodId, it.episodeIndex, it.url, it.kind)
             }
     }
 
     /** 取某 url 的上次进度，不存在返回 0 */
     fun getProgress(context: Context, url: String): Long =
         getHistory(context).firstOrNull { it.url == url }?.positionMs ?: 0L
+
+    /**
+     * v1.3.21 M25：按“源 + 剧 + 集”取上次进度——去重认“源+剧+集”，断点
+     * 续播却只认地址，同一集换签名/换线路拿到新地址后就从头播。
+     * vodId 为空时无身份可查，返回 0，调用方退回按 url 查。
+     */
+    fun getProgress(
+        context: Context,
+        sourceType: String,
+        sourceKey: String,
+        vodId: String,
+        episodeIndex: Int,
+    ): Long {
+        if (vodId.isBlank()) return 0L
+        val identity = historyIdentityKey(sourceType, sourceKey, vodId, episodeIndex, "")
+        return getHistory(context).firstOrNull {
+            historyIdentityKey(it.sourceType, it.sourceKey, it.vodId, it.episodeIndex, it.url, it.kind) == identity
+        }?.positionMs ?: 0L
+    }
 
     /**
      * v0.217.0（F61）：删单条记录——按 URL＋时间戳定位（列表 key 本来
@@ -215,7 +252,9 @@ object HistoryStore {
      * 写盘是异步排队，用户删完立刻按 Home / 划掉 App 把进程杀掉，写盘还没落
      * 地就丢了，下次冷启动读到的还是旧盘，卡片“删了又回来”。列表最多 50 条、
      * JSON 只有几 KB，commit 在主线程的代价可忽略，换删的持久性。
-     * 读坏守卫不变：读坏时仍拒绝写盘，防空列表把旧历史全顶掉。 */
+     * 读坏守卫不变：读坏时仍拒绝写盘，防空列表把旧历史全顶掉。
+     * v1.3.21 L15：写盘路径加锁。 */
+    @Synchronized
     fun deleteEntries(context: Context, keys: Set<Pair<String, Long>>) {
         if (keys.isEmpty()) return
         val list = getHistory(context).filterNot { (it.url to it.timestamp) in keys }
@@ -235,11 +274,14 @@ object HistoryStore {
      * 下次 reload 还会以同一张卡片出现，看起来就是“删了又回来”。
      * 所以卡片删除按 (vodId + episodeIndex) 全删，vodId 为空的老记录才退回
      * url + timestamp 精确删；其它集不受影响。写盘走 deleteEntries 的 commit()。
+     * v1.3.21 M24：首条件追加源——两个 CMS 站同用数字 vodId 且同集时，
+     * 只比 vodId + 集会连另一源的记录一起删掉。
      */
     fun deleteContinueWatch(context: Context, entry: HistoryEntry) {
         val list = getHistory(context)
         val keys = list.filter { e ->
-            (entry.vodId.isNotBlank() && e.vodId == entry.vodId && e.episodeIndex == entry.episodeIndex) ||
+            (entry.vodId.isNotBlank() && e.vodId == entry.vodId && e.episodeIndex == entry.episodeIndex &&
+                e.sourceType == entry.sourceType && e.sourceKey == entry.sourceKey) ||
                 (e.url == entry.url && e.timestamp == entry.timestamp)
         }.map { it.url to it.timestamp }.toSet()
         if (keys.isEmpty()) return
@@ -247,6 +289,7 @@ object HistoryStore {
     }
 
     /** 清空全部历史（显式清空即用户主动放弃，连损坏备份一起清，标记复位） */
+    @Synchronized
     fun clear(context: Context) {
         prefs(context).edit().remove(KEY_LIST).remove(KEY_LIST_CORRUPT_BAK).apply()
         corruptLoaded = false

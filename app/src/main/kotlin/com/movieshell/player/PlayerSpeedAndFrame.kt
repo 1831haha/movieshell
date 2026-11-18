@@ -80,17 +80,34 @@ internal object FrameGrab {
         return runCatching {
             when (target) {
                 is TextureView -> target.bitmap?.asImageBitmap()
-                is SurfaceView -> withTimeoutOrNull(400) {
-                    suspendCancellableCoroutine { cont ->
-                        val bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
-                        try {
-                            PixelCopy.request(target, bmp, { r ->
-                                if (cont.isActive) cont.resume(if (r == PixelCopy.SUCCESS) bmp.asImageBitmap() else null)
-                            }, Handler(Looper.getMainLooper()))
-                        } catch (e: Exception) {
-                            if (cont.isActive) cont.resume(null)
+                is SurfaceView -> {
+                    // v1.3.21 L6：最长边压到 1280 再抓（4K 全尺寸 Bitmap 约 33MB），
+                    // PixelCopy 会按目标 Bitmap 尺寸缩放；超时/失败/取消时回收 Bitmap，不漏内存。
+                    val scale = minOf(1f, 1280f / maxOf(w, h))
+                    val sw = maxOf(1, (w * scale).toInt())
+                    val sh = maxOf(1, (h * scale).toInt())
+                    val bmp = Bitmap.createBitmap(sw, sh, Bitmap.Config.ARGB_8888)
+                    var delivered = false
+                    val result = withTimeoutOrNull(400) {
+                        suspendCancellableCoroutine { cont ->
+                            try {
+                                PixelCopy.request(target, bmp, { r ->
+                                    if (!cont.isActive) return@request
+                                    if (r == PixelCopy.SUCCESS) {
+                                        delivered = true
+                                        cont.resume(bmp.asImageBitmap())
+                                    } else {
+                                        bmp.recycle()
+                                        cont.resume(null)
+                                    }
+                                }, Handler(Looper.getMainLooper()))
+                            } catch (e: Exception) {
+                                if (cont.isActive) cont.resume(null)
+                            }
                         }
                     }
+                    if (result == null && !delivered) bmp.recycle()
+                    result
                 }
                 else -> null
             }

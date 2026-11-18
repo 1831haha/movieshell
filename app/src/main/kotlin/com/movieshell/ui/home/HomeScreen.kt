@@ -144,6 +144,7 @@ import android.app.Activity
 import android.content.pm.ActivityInfo
 import com.movieshell.player.HistoryEntry
 import com.movieshell.player.HistoryStore
+import com.movieshell.player.historyIdentityKey
 import com.movieshell.player.OrientationSensor
 import com.movieshell.player.PlaySession
 import com.movieshell.ui.components.V5SectionTitle
@@ -396,6 +397,9 @@ fun HomeScreen(
                 e.kind == "vod" && e.vodId.isNotBlank() &&
                     !(e.durationMs > 0 && e.positionMs >= e.durationMs * 0.95)
             }
+            // v1.3.21 L20：先按 HistoryStore 的身份键去重再取 5 张——先取 5 再去重，
+            // 前 5 条里的重复 url 会挤掉本可展示的第 6 条；与 Store 同口径，不再按 url 并。
+            .distinctBy { historyIdentityKey(it.sourceType, it.sourceKey, it.vodId, it.episodeIndex, it.url, it.kind) }
             .take(5)
     }
     DisposableEffect(homeLifecycle) {
@@ -1553,7 +1557,11 @@ fun HomeScreen(
                 // v0.75.0：继续观看——有未看完的点播记录时横滑一排
                 if (watchHistory.isNotEmpty()) {
                     item(span = { GridItemSpan(maxLineSpan) }) {
-                        val cwList = watchHistory.distinctBy { it.url.ifBlank { "vod:${it.vodId}" } }
+                        // v1.3.21 L20：渲染层去重与 HistoryStore 同口径（源+剧+集），
+                        // 同 url 不同源的两条记录不再并成一张。
+                        val cwList = watchHistory.distinctBy {
+                            historyIdentityKey(it.sourceType, it.sourceKey, it.vodId, it.episodeIndex, it.url, it.kind)
+                        }
                         Column(modifier = Modifier.fillMaxWidth().padding(top = 8.dp)) {
                             // v0.292.0 V5：分区标题 20/500 + 「历史 ›」（进播放历史页）
                             V5SectionHeader(
@@ -1567,8 +1575,8 @@ fun HomeScreen(
                                 horizontalArrangement = Arrangement.spacedBy(12.dp),
                                 contentPadding = PaddingValues(horizontal = V5.Gutter),
                             ) {
-                                // v0.212.0 审计修复：url 为空的多条老记录按 vodId 兜底去重。
-                                items(cwList, key = { it.url.ifBlank { "vod:${it.vodId}" } }) { h ->
+                                // v1.3.21 L20：行 key 与去重键同口径——同 url 不同源的两条记录 key 不能撞。
+                                items(cwList, key = { historyIdentityKey(it.sourceType, it.sourceKey, it.vodId, it.episodeIndex, it.url, it.kind) }) { h ->
                                     val progress = if (h.durationMs > 0) {
                                         (h.positionMs.toFloat() / h.durationMs).coerceIn(0f, 1f)
                                     } else 0f

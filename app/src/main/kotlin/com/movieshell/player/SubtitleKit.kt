@@ -68,13 +68,27 @@ object SubtitleKit {
         return File(dir, "${url.hashCode()}_${offsetMs}.$ext")
     }
 
+    /** 字幕下载上限 2MB：超大 ASS 动效字幕不整串进内存，超限直接用原地址。 */
+    internal const val MAX_DOWNLOAD_BYTES = 2 * 1024 * 1024
+
     private fun download(url: String, headers: Map<String, String>): String? {
         val req = Request.Builder().url(url).apply {
             headers.forEach { (k, v) -> if (v.isNotBlank()) header(k, v) }
         }.build()
         http.newCall(req).execute().use { resp ->
             if (!resp.isSuccessful) return null
-            return resp.body?.string()?.takeIf { it.isNotBlank() }
+            val body = resp.body ?: return null
+            // 只读上限 +1 字节：读满即知超限，不把整个大文件读进内存。
+            val buffer = okio.Buffer()
+            var remaining = MAX_DOWNLOAD_BYTES + 1L
+            while (remaining > 0) {
+                val read = body.source().read(buffer, minOf(8192L, remaining))
+                if (read == -1L) break
+                remaining -= read
+            }
+            if (buffer.size > MAX_DOWNLOAD_BYTES) return null
+            val charset = body.contentType()?.charset(Charsets.UTF_8) ?: Charsets.UTF_8
+            return buffer.readString(charset).takeIf { it.isNotBlank() }
         }
     }
 
@@ -89,29 +103,33 @@ object SubtitleKit {
         else -> null
     }
 
-    private fun shiftSrtTs(ts: String, offsetMs: Long): String {
+    internal fun shiftSrtTs(ts: String, offsetMs: Long): String {
         val p = ts.split(":", ",")
-        val ms = p[0].toLong() * 3_600_000 + p[1].toLong() * 60_000 +
-            p[2].toLong() * 1_000 + p[3].toLong()
+        val ms = (p.getOrNull(0)?.toLongOrNull() ?: return ts) * 3_600_000 +
+            (p.getOrNull(1)?.toLongOrNull() ?: return ts) * 60_000 +
+            (p.getOrNull(2)?.toLongOrNull() ?: return ts) * 1_000 +
+            (p.getOrNull(3)?.toLongOrNull() ?: return ts)
         val n = (ms + offsetMs).coerceAtLeast(0)
         return "%02d:%02d:%02d,%03d".format(n / 3_600_000, (n / 60_000) % 60, (n / 1_000) % 60, n % 1_000)
     }
 
-    private fun shiftVttTs(ts: String, offsetMs: Long): String {
+    internal fun shiftVttTs(ts: String, offsetMs: Long): String {
         // WebVTT 时间戳可能是 HH:MM:SS.mmm 或 MM:SS.mmm
         val p = ts.split(":", ".")
-        val h = if (p.size == 4) p[0].toLong() else 0L
-        val m = p[p.size - 3].toLong()
-        val s = p[p.size - 2].toLong()
-        val ms = p[p.size - 1].toLong()
+        val h = if (p.size == 4) (p[0].toLongOrNull() ?: return ts) else 0L
+        val m = p.getOrNull(p.size - 3)?.toLongOrNull() ?: return ts
+        val s = p.getOrNull(p.size - 2)?.toLongOrNull() ?: return ts
+        val ms = p.getOrNull(p.size - 1)?.toLongOrNull() ?: return ts
         val n = (h * 3_600_000 + m * 60_000 + s * 1_000 + ms + offsetMs).coerceAtLeast(0)
         return "%02d:%02d:%02d.%03d".format(n / 3_600_000, (n / 60_000) % 60, (n / 1_000) % 60, n % 1_000)
     }
 
-    private fun shiftAssTs(ts: String, offsetMs: Long): String {
+    internal fun shiftAssTs(ts: String, offsetMs: Long): String {
         val p = ts.split(":", ".")
-        val ms = p[0].toLong() * 3_600_000 + p[1].toLong() * 60_000 +
-            p[2].toLong() * 1_000 + p[3].toLong() * 10
+        val ms = (p.getOrNull(0)?.toLongOrNull() ?: return ts) * 3_600_000 +
+            (p.getOrNull(1)?.toLongOrNull() ?: return ts) * 60_000 +
+            (p.getOrNull(2)?.toLongOrNull() ?: return ts) * 1_000 +
+            (p.getOrNull(3)?.toLongOrNull() ?: return ts) * 10
         val n = (ms + offsetMs).coerceAtLeast(0)
         return "%d:%02d:%02d.%02d".format(n / 3_600_000, (n / 60_000) % 60, (n / 1_000) % 60, (n % 1_000) / 10)
     }

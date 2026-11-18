@@ -17,12 +17,20 @@ object EpisodePrefetch {
     /** 预解析结果的有效期（毫秒）：超过即视为过期，切集时重新解析。 */
     const val MAX_AGE_MS = 10 * 60 * 1000L
 
-    /** 预解析结果：缓存的下一集地址。 */
+    /**
+     * 预解析结果：缓存的下一集地址。
+     *
+     * v1.3.21 M19：连同解析时抓到的请求头一起缓存——解析时 put 进
+     * SniffPlayHeaders 的头与预解析缓存是两个 10 分钟时钟，边界处头
+     * 可能先过期；命中时把头重新放回 side-channel，起播的 take() 才
+     * 能拿到新鲜头。
+     */
     data class PrefetchedEpisode(
         val lineIndex: Int,
         val episodeIndex: Int,
         val url: String,
         val prefetchedAtMs: Long,
+        val headers: Map<String, String> = emptyMap(),
     )
 
     /**

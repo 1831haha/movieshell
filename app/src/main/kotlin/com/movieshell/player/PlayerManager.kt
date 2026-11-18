@@ -88,6 +88,9 @@ object PlayerManager {
     /** v1.1.19：带宽表（init 里建；play() 里挂到 httpFactory 上测网速）。 */
     private var bandwidthMeter: androidx.media3.exoplayer.upstream.DefaultBandwidthMeter? = null
 
+    /** v1.3.21 M17：带宽采样监听单独存一份，release() 才能摘掉它重建时再挂。 */
+    private var bandwidthListener: androidx.media3.exoplayer.upstream.BandwidthMeter.EventListener? = null
+
 
     // v0.99.0 P0-5：用浏览器 UA，自定义 App UA 会被影视 CDN/WAF 直接 403
 
@@ -116,6 +119,14 @@ object PlayerManager {
      * 同一地址同内核重拉不再重复触发硬解 fallback，避免 Media3 与 libmpv
      * 来回循环；换地址时重新给一次 fallback 机会。
      */
+    /**
+     * v1.3.21 M12：decoderFallbackUrl 存的是去 query 的 path，与
+     * EngineHost.libmpvFailed 的 key（substringBefore("?")）同一口径——
+     * 同一集换解析只换 auth_key 时不再视为新地址重置 fallback 额度。
+     * 纯函数，可单测。
+     */
+    internal fun fallbackAddressKey(url: String): String = url.substringBefore("?").trim()
+
     private var decoderFallbackUrl: String = ""
     private var noVideoReported: String = ""
 
@@ -161,7 +172,7 @@ object PlayerManager {
             if (hasVideo && p.videoSize.width == 0) listenerSwitch("就绪 6 秒仍没有画面（有声音）")
         }, 6000)
     }
-    private fun listenerSwitch(reason: String) = switchToMpvImpl(reason, escalateOnBlock = true)
+    private fun listenerSwitch(reason: String) = switchToMpvImpl(reason)
 
     private val listener = object : Player.Listener {
         // v0.294.37：本机磁力 / 迅雷地址记首帧与画面尺寸，便于排查黑屏
@@ -212,30 +223,45 @@ object PlayerManager {
         private fun switchToMpv(reason: String) = switchToMpvImpl(reason)
     }
 
-    private fun switchToMpvImpl(reason: String, escalateOnBlock: Boolean = false) {
+    private fun switchToMpvImpl(reason: String) {
         run {
             if (decoderFallbackDone) return
-            decoderFallbackDone = true
             // v1.3.15：libmpv 已在本集失败过，不再切回去空转；留 Media3 真正试一次解码。
-            // 无画面才到这里时（6 秒检查）直接升级成播放失败，走换线路，不原地黑屏。
+            // v1.3.21 M13：被拦住也不再静默返回——调 onError 让失败进换线路链，
+            // 与 listener2 解码失败分支一致；M14：被拦住不置 decoderFallbackDone，
+            // 唯一一次 fallback 机会只在真正发起切换时才消耗。
             if (lastUrl.isNotBlank() && EngineHost.libmpvFailed(lastUrl)) {
                 LogBus.i("Player", "$reason；libmpv 已在本集失败过，不再自动切过去，留 Media3 尝试")
-                if (escalateOnBlock) {
-                    onError?.invoke(
-                        PlaybackException(
-                            "视频无画面且 libmpv 已失败过", null,
-                            PlaybackException.ERROR_CODE_DECODER_INIT_FAILED,
-                        ),
-                    )
-                }
+                onError?.invoke(
+                    PlaybackException(
+                        "$reason；libmpv 已在本集失败过", null,
+                        PlaybackException.ERROR_CODE_DECODER_INIT_FAILED,
+                    ),
+                )
                 return
             }
-            val app = appContext ?: return
+            val app = appContext ?: run {
+                onError?.invoke(
+                    PlaybackException(
+                        "$reason；播放器上下文已释放", null,
+                        PlaybackException.ERROR_CODE_DECODER_INIT_FAILED,
+                    ),
+                )
+                return
+            }
             if (!MpvPluginLoader.isInstalled(app)) {
                 LogBus.w("Player", "$reason；未装 libmpv 插件，无法软解")
                 AppToast.show(app, "该视频编码本机解不了（只有声音），请在插件市场安装 libmpv 播放器后重试", long = true)
+                onError?.invoke(
+                    PlaybackException(
+                        "$reason；未安装 libmpv 插件", null,
+                        PlaybackException.ERROR_CODE_DECODER_INIT_FAILED,
+                    ),
+                )
                 return
             }
+            // v1.3.21 M14：到这里才真正发起切换，此时才消耗本次 fallback 机会。
+            decoderFallbackDone = true
             LogBus.i("Player", "$reason，自动切 libmpv 重播")
             AppToast.show(app, "视频编码本机不支持，已自动切换 libmpv 播放", long = false)
             val pos = exoPlayer?.currentPosition?.coerceAtLeast(0L) ?: 0L
@@ -255,13 +281,15 @@ object PlayerManager {
             if (error.errorCode == PlaybackException.ERROR_CODE_DECODER_INIT_FAILED &&
                 !decoderFallbackDone
             ) {
-                decoderFallbackDone = true
                 val app = appContext
                 // v1.3.15：libmpv 已在本集失败过，不再切回去空转；落到下面的 onError 走换线路。
+                // v1.3.21 M14：被拦住时不置 decoderFallbackDone，唯一一次机会
+                // 只在下面真正发起切换时才消耗。
                 val mpvAlreadyFailed = lastUrl.isNotBlank() && EngineHost.libmpvFailed(lastUrl)
                 if (mpvAlreadyFailed) {
                     LogBus.i("Player", "硬解初始化失败；libmpv 已在本集失败过，不再自动切过去")
                 } else if (app != null && MpvPluginLoader.isInstalled(app)) {
+                    decoderFallbackDone = true
                     AppToast.show(app, "硬解失败，已自动切换 libmpv 重播", long = false)
                     LogBus.i("Player", "硬解初始化失败，自动切 libmpv 重播")
                     // v0.186.0 第 5 组：换内核三步固定——先取断点，再显式停
@@ -291,13 +319,15 @@ object PlayerManager {
         // 采样到的码率推进 bitrateEstimate，供播放页顶栏显示网速。
         if (bandwidthMeter == null) {
             bandwidthMeter = androidx.media3.exoplayer.upstream.DefaultBandwidthMeter.Builder(app).build()
+            val listener = object : androidx.media3.exoplayer.upstream.BandwidthMeter.EventListener {
+                override fun onBandwidthSample(elapsedMs: Int, bytesTransferred: Long, bitrateEstimate: Long) {
+                    _bitrateEstimate.value = bitrateEstimate
+                }
+            }
+            bandwidthListener = listener
             bandwidthMeter?.addEventListener(
                 android.os.Handler(android.os.Looper.getMainLooper()),
-                object : androidx.media3.exoplayer.upstream.BandwidthMeter.EventListener {
-                    override fun onBandwidthSample(elapsedMs: Int, bytesTransferred: Long, bitrateEstimate: Long) {
-                        _bitrateEstimate.value = bitrateEstimate
-                    }
-                },
+                listener,
             )
         }
         // v0.102.0 P2-4：自适应码率上限 1080p（默认开启自适应，这里只封顶分辨率）
@@ -337,6 +367,8 @@ object PlayerManager {
      *
      * @param startPositionMs 起播位置（毫秒），用于断点续播，<=0 表示从头播。
      * @param subtitleUrl 外挂字幕地址（.srt/.vtt/.ass，http(s) 或 file:// 本地），为空则不挂字幕。
+     * @return v1.3.21 L1：是否真的提交了起播——播放器/上下文为空、地址为空时
+     * 同步拒绝返回 false，EngineHost.play() 据此回 false，不再谎报成功。
      */
     fun play(
         url: String,
@@ -347,7 +379,7 @@ object PlayerManager {
         // v1.2.14：Emby 自签证书播放（EngineHost 带来，该台服务器的
         // EmbyServer.ignoreCert）；其他入口默认关，链路一丝不变。
         ignoreCert: Boolean = false,
-    ) {
+    ): Boolean {
         // v0.102.0 P2-6：视频开播联动暂停音乐——只暂停不自动恢复，恢复走音乐迷你条手动。
         // MusicPlayer 无 fun pause()（只读），用现有 fadeOutAndPause（保留队列/状态）。
         // v0.109.0 A5：联动条件覆盖"解析中"态——点歌后 loading=true/playing=false 时播视频，
@@ -357,12 +389,12 @@ object PlayerManager {
         if (ms.playing || ms.loading) {
             MusicPlayer.fadeOutAndPause()
         }
-        val player = exoPlayer ?: return
-        val app = appContext ?: return
+        val player = exoPlayer ?: return false
+        val app = appContext ?: return false
         // v0.12.1：空 URL 直接拒掉，避免 ExoPlayer 抛异常闪退
         if (url.isBlank()) {
             LogBus.e("Player", "播放地址为空，已拒绝")
-            return
+            return false
         }
         // v0.100.0：记下本次播放参数，供硬解失败自动切 libmpv 重播
         // v0.186.0 第 5 组：decoderFallbackDone 只在地址变化时重置
@@ -383,8 +415,9 @@ object PlayerManager {
                 .setPreferredAudioLanguage(pref)
                 .build()
         }.onFailure { LogBus.w("Player", "首选音频语言应用失败：${it.message}") }
-        if (url != decoderFallbackUrl) {
-            decoderFallbackUrl = url
+        // v1.3.21 M12：fallback 地址按去 query 的 path 记，与 libmpvFailed 同口径。
+        if (fallbackAddressKey(url) != decoderFallbackUrl) {
+            decoderFallbackUrl = fallbackAddressKey(url)
             decoderFallbackDone = false
         }
         // v0.14.5：记录播放地址（截断防刷屏）
@@ -488,6 +521,7 @@ object PlayerManager {
         player.prepare()
         if (startPositionMs > 0) player.seekTo(startPositionMs)
         player.playWhenReady = true
+        return true
     }
 
     /** v0.294.5：非 http(s) 的流式协议（rtmp/rtsp/rtp/udp/srt）一律视为直播 */
@@ -501,16 +535,18 @@ object PlayerManager {
         exoPlayer?.pause()
     }
 
-    fun resume() {
+    fun resume(startPositionMs: Long = -1L) {
         // v0.294.51：stop() 后的 Media3 处于 IDLE、ENDED 后 play() 单独
         // 调用不起播——这正是“回小窗暂停后点播放没反应”的第二道保险：
         // IDLE/ENDED 时先 prepare() 再 play()，READY 暂停时只 play()，
         // 不动用户有意暂停的状态判断（isPlaying 仍由调用方看）。
+        // v1.3.21 L8：IDLE/ENDED 时 prepare() 会回到默认起播位置而丢断点；
+        // 调用方传了 startPositionMs（>=0）时 prepare 后 seek 回去。
+        // 直播调用方不传（默认 -1），仍回直播沿。
         val p = exoPlayer ?: return
         if (p.playbackState == Player.STATE_IDLE || p.playbackState == Player.STATE_ENDED) {
-            // prepare() 回到默认起播位置（点播为开头、直播为直播沿），
-            // 不额外 seekTo(0)，避免直播窗口起点不是直播沿。
             p.prepare()
+            if (startPositionMs >= 0) p.seekTo(startPositionMs)
         }
         p.play()
     }
@@ -605,11 +641,26 @@ object PlayerManager {
     /** 释放播放器；释放后如需继续播放必须重新 [init] */
     @Synchronized
     fun release() {
+        // v1.3.21 M17：两个监听器 + 统计监听 + 主线程待办 + 带宽监听全摘，
+        // 再复位本次播放的 fallback/断点状态；重 init 后同一 URL 能重新 fallback。
         exoPlayer?.removeListener(listener)
+        exoPlayer?.removeListener(listener2)
+        exoPlayer?.removeAnalyticsListener(analytics)
+        mainHandler.removeCallbacksAndMessages(null)
+        bandwidthListener?.let { bandwidthMeter?.removeEventListener(it) }
+        bandwidthListener = null
+        bandwidthMeter = null
         exoPlayer?.release()
         exoPlayer = null
         appContext = null
         onError = null
+        lastUrl = ""
+        lastHeaders = emptyMap()
+        lastSubtitleUrl = null
+        lastIgnoreCert = false
+        decoderFallbackUrl = ""
+        decoderFallbackDone = false
+        noVideoReported = ""
     }
 
     /**

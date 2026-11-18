@@ -31,6 +31,11 @@ class AdFilteringDataSource(
     }
 
     override fun open(dataSpec: DataSpec): Long {
+        // L23：二次 open 未 close 时旧过滤状态不能带进新请求；入口先复位。
+        runCatching { filteredStream?.close() }
+        filteredStream = null
+        filteredBytes = null
+        isFiltered = false
         val url = dataSpec.uri.toString()
         val length = upstream.open(dataSpec)
         // v0.294.7：除 .m3u8 后缀外，再认 Content-Type（mpegurl 各变体）与起播前识别结果——
@@ -116,11 +121,12 @@ class AdFilteringDataSource(
         }
     }
     override fun close() {
-        filteredStream?.close()
+        runCatching { filteredStream?.close() }
         filteredStream = null
         filteredBytes = null
         isFiltered = false
-        upstream.close()
+        // L23：上游 close 抛错不能把 close() 本身炸掉。
+        runCatching { upstream.close() }
     }
 
     /** Factory：包装任意 DataSource.Factory */

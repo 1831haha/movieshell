@@ -222,6 +222,7 @@ import com.movieshell.ui.home.PosterSeed
 import com.movieshell.ui.theme.BrandGradientColors
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
@@ -258,16 +259,20 @@ fun DetailScreen(
     var playerFullscreen by remember(vodId) { mutableStateOf(false) }
     DisposableEffect(Unit) {
         onDispose {
-            EngineHost.stop()
-            PlaySession.clear()
-            PlaySession.playerVisible = false
+            // v1.3.21 L14：每步各自兜底——某一步抛错也不跳过后面的清理，
+            // 否则 PlaySession 残留与方向锁会污染下一次播放/首页。
+            runCatching { EngineHost.stop() }
+            runCatching { PlaySession.clear() }
+            runCatching { PlaySession.playerVisible = false }
+            runCatching { OrientationSensor.stop() }
             // v0.266.0：真离开详情页时复位方向——嵌入播放退出原来
             // 不碰方向（见 PlayerScreen 注释），手动切屏锁/重力锁会
             // 残留到首页，导致“横屏回不到竖屏”。
-            OrientationSensor.stop()
-            (context as? Activity)?.let {
-                if (it.requestedOrientation != ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED) {
-                    it.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+            runCatching {
+                (context as? Activity)?.let {
+                    if (it.requestedOrientation != ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED) {
+                        it.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+                    }
                 }
             }
         }
@@ -722,6 +727,9 @@ fun DetailScreen(
                     // v1.3.21 M21：进看图前先暂停旧视频——之前不暂停，视频在
                     // 看图后面继续播（有声无画），返回可恢复。
                     EngineHost.pause()
+                    // v1.3.21 M21：看图集也同步播放高亮，否则高亮还停在旧视频集上。
+                    playingLine = lineIndex
+                    playingEp = episodeIndex
                     picsUrl = link
                     embeddedResolving = false
                     return@launch
@@ -755,7 +763,20 @@ fun DetailScreen(
                 playingEp = episodeIndex
                 embeddedTitle = "${detailTitle(detail, vodId)} ${ep.name.ifBlank { "第${episodeIndex + 1}集" }}"
                 embeddedResolving = false
-                embeddedUrl = link
+                if (link == embeddedUrl) {
+                    // v1.3.21 L19：新地址与正在播的相同（点当前集重播）时，embeddedUrl
+                    // 赋值是 no-op，播放器 effect 不重跑、覆盖也不清、点按无反应——
+                    // 先停旧引擎、清覆盖，再把地址先卸后装，强制重播。
+                    EngineHost.setEngineOverride(null)
+                    EngineHost.stop()
+                    embeddedUrl = ""
+                    scope.launch {
+                        delay(60)
+                        if (myGen == playGen) embeddedUrl = link
+                    }
+                } else {
+                    embeddedUrl = link
+                }
             }
         }
     }
@@ -980,6 +1001,11 @@ fun DetailScreen(
                         scope.launch { listState.animateScrollToItem(0) }
                     } else {
                         val list = if (lineEpisodes.isNotEmpty()) lineEpisodes else episodes
+                        // v1.3.21 L19：无可用剧集时原来静默无反应，给一句提示。
+                        if (list.isEmpty()) {
+                            AppToast.show(context, "暂无可播放剧集", long = false)
+                            return
+                        }
                         val i = highlightEp.coerceIn(0, (list.size - 1).coerceAtLeast(0))
                         list.getOrNull(i)?.let { ep ->
                             playEpisode(ep, safeLine, i)
@@ -2019,6 +2045,11 @@ fun DetailScreen(
                                 // 但它没有任何地方读，等于没同步。
                                 selectedLine = lineIdx
                                 selectedEpisode = epIdx
+                                // v1.3.21 M4：播放器内切集也要重算标题——顶栏、历史标题、
+                                // 弹幕关键词、缓存标题都跟 embeddedTitle 走，旧集标题会一直错下去。
+                                playLines.getOrNull(lineIdx)?.episodes?.getOrNull(epIdx)?.let { ep ->
+                                    embeddedTitle = "${detailTitle(detail, vodId)} ${ep.name.ifBlank { "第${epIdx + 1}集" }}"
+                                }
                             },
                         )
                         if (mini) {

@@ -71,4 +71,44 @@ class MpvPlayerManagerTest {
         val text = "x".repeat(100)
         assertEquals("x".repeat(10), mpvLogTailText(text, maxLines = 5, maxChars = 10))
     }
+
+    @Test
+    fun clampPlaybackSpeed_clampsToQuarterToFour() {
+        // L25：0/负数/极大值不直传 mpv。
+        assertEquals(0.25f, clampPlaybackSpeed(0f))
+        assertEquals(0.25f, clampPlaybackSpeed(-2f))
+        assertEquals(0.25f, clampPlaybackSpeed(0.1f))
+        assertEquals(0.25f, clampPlaybackSpeed(0.25f))
+        assertEquals(1.5f, clampPlaybackSpeed(1.5f))
+        assertEquals(4f, clampPlaybackSpeed(4f))
+        assertEquals(4f, clampPlaybackSpeed(10f))
+        assertEquals(4f, clampPlaybackSpeed(Float.MAX_VALUE))
+    }
+
+    @Test
+    fun isStalePlayRequest_onlyLatestSurvives() {
+        // M35：序号等于最新即有效，小了（有更新的起播）即过期。
+        assertEquals(false, isStalePlayRequest(3, 3))
+        assertEquals(true, isStalePlayRequest(2, 3))
+        assertEquals(true, isStalePlayRequest(1, 3))
+    }
+
+    @Test
+    fun isFinalSegmentNaturalEnd_closeToDurationIsNatural() {
+        // M29：位置已接近时长即自然播完，不报失败。
+        assertEquals(true, isFinalSegmentNaturalEnd(268000L, 270000L, false))
+        assertEquals(true, isFinalSegmentNaturalEnd(270000L, 270000L, false))
+        assertEquals(false, isFinalSegmentNaturalEnd(100000L, 270000L, false))
+        assertEquals(false, isFinalSegmentNaturalEnd(0L, 270000L, false))
+        // 时长未知（0）且没见过展开：无法判定，不算自然结束。
+        assertEquals(false, isFinalSegmentNaturalEnd(5000L, 0L, false))
+    }
+
+    @Test
+    fun isFinalSegmentNaturalEnd_expandedPlaylistShrunkToOneIsNatural() {
+        // M29：列表刚由多条缩回 1 条且已播出位置，是末段播完。
+        assertEquals(true, isFinalSegmentNaturalEnd(5000L, 270000L, true))
+        // 末段打不开时位置一般为 0，不误判成自然结束。
+        assertEquals(false, isFinalSegmentNaturalEnd(0L, 270000L, true))
+    }
 }

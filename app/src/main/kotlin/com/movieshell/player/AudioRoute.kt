@@ -20,18 +20,23 @@ object AudioRoute {
     private val AUDIO_EXT = Regex("""\.(mp3|m4a|aac|flac|ogg|oga|opus|wav|wma|ape|amr|m4b)(\?|#|$)""", RegexOption.IGNORE_CASE)
     private val AUDIO_WORDS = listOf("听书", "有声", "评书", "相声", "广播", "播客", "电台", "音频", "小说", "曲艺", "戏曲")
 
-    /** 地址看起来是纯音频 */
+    /** 地址看起来是纯音频：只看去掉 query 与 fragment 后的路径部分，query 里带音频后缀不算。 */
     fun isAudioUrl(url: String): Boolean {
         val u = url.substringBefore('$').trim()
         if (u.startsWith("magnet:", true)) return false
-        return AUDIO_EXT.containsMatchIn(u.substringBefore("?").let { if (AUDIO_EXT.containsMatchIn(it)) it else u })
+        val path = u.substringBefore("?").substringBefore("#")
+        return AUDIO_EXT.containsMatchIn(path)
     }
 
     /** 站点名 / 分类名像听书源 */
     fun isAudioCategory(vararg names: String?): Boolean =
         names.any { n -> !n.isNullOrBlank() && AUDIO_WORDS.any { n.contains(it) } }
 
+    // v1.3.21 L4：同 URL 的两集会互相顶掉——byUrl 的键带上集下标（url + "#" + index），
+    // resolve 时按 Track.id 尾段的下标找回同一集。
     private data class Session(val site: Site?, val byUrl: Map<String, Episode>, val first: Pair<String, String>?)
+
+    private fun episodeKey(url: String, index: Int): String = "$url#$index"
     @Volatile private var session: Session? = null
 
     /** 打开音乐播放页的请求（AppNavGraph 订阅） */
@@ -56,7 +61,7 @@ object AudioRoute {
         val start = startIndex.safeIndex(episodes.size)
         session = Session(
             site,
-            episodes.associateBy { it.url },
+            episodes.mapIndexed { i, e -> episodeKey(e.url, i) to e }.toMap(),
             resolvedStartUrl?.let { episodes[start].url to it },
         )
         val tracks = episodes.mapIndexed { i, e ->
@@ -79,7 +84,10 @@ object AudioRoute {
     suspend fun resolve(context: Context, track: MusicApi.Track): String? {
         val s = session
         s?.first?.let { (ep, url) -> if (ep == track.urlId) { session = s.copy(first = null); return url } }
-        val ep = s?.byUrl?.get(track.urlId) ?: Episode(url = track.urlId)
+        val index = track.id.substringAfterLast(":").toIntOrNull()
+        val ep = index?.let { s?.byUrl?.get(episodeKey(track.urlId, it)) }
+            ?: s?.byUrl?.entries?.firstOrNull { it.key.substringBeforeLast("#") == track.urlId }?.value
+            ?: Episode(url = track.urlId)
         return runCatching { resolvePlayUrl(context, s?.site, ep) }
             .onFailure { LogBus.w("AudioRoute", "解析失败：${it.message}") }
             .getOrNull()?.takeIf { it.isNotBlank() }

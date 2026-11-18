@@ -43,6 +43,11 @@ class PlayEndModeTest {
         assertEquals(Long.MAX_VALUE, PlayEndMode.computeEndAtMs(0L, 0))
     }
 
+    @Test fun computeEndAtMs_aboveThresholdTriggersNormally() {
+        assertEquals(5000L, PlayEndMode.computeEndAtMs(6000L, 0))
+        assertEquals(5000L, PlayEndMode.computeEndAtMs(6000L, 90))
+    }
+
     @Test fun computeEndAtMs_skipOutroWithinDuration() {
         assertEquals(2_700_000L - 90_000L, PlayEndMode.computeEndAtMs(2_700_000L, 90))
         assertEquals(2_700_000L - 1000L, PlayEndMode.computeEndAtMs(2_700_000L, 0))

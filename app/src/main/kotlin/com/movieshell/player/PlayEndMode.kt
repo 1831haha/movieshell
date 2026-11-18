@@ -44,13 +44,15 @@ object PlayEndMode {
     /**
      * v1.3.21 H16：片尾触发点（毫秒）——纯函数，可单测。
      *
-     * 时长 < 2000ms 是塌掉的分母（分片展开后 mpv 只认单分片时长，约 4 秒；
-     * 更短的更是脏数据），此时永不触发，返回 Long.MAX_VALUE。
+     * 时长 < 5000ms 是塌掉的分母：真机实测分片展开后 mpv 只认单分片时长，
+     * 约 4 秒；阈值 5000 盖住 4 秒并留 1 秒余量，此时永不触发，返回
+     * Long.MAX_VALUE。真实短视频（<5 秒）此路也不再自动触发片尾动作，
+     * 播完仍走 mpv/Media3 自身的 END_FILE 路径，影响有限。
      * 有片尾跳过且跳过量小于总时长时，触发点 = 时长 − 跳过量；否则
      * 触发点 = 时长 − 1000ms（留 1 秒余量，防时长抖动）。
      */
     fun computeEndAtMs(durationMs: Long, skipOutroSec: Int): Long {
-        if (durationMs < 2000L) return Long.MAX_VALUE
+        if (durationMs < 5000L) return Long.MAX_VALUE
         val skipMs = skipOutroSec.coerceAtLeast(0) * 1000L
         return if (skipMs > 0 && skipMs < durationMs) durationMs - skipMs else durationMs - 1000L
     }

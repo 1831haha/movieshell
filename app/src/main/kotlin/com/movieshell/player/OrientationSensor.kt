@@ -70,14 +70,15 @@ object OrientationSensor {
     @Synchronized
     fun start(context: Context) {
         if (started) return
-        started = true
+        // v1.3.21 M40：只有成功注册监听后才置 started——拿不到服务/无传感器
+        // 时直接返回，下次 start 还能重试，不再永久卡死。
         val sm = context.applicationContext
             .getSystemService(Context.SENSOR_SERVICE) as? SensorManager ?: return
+        val sensor = sm.getDefaultSensor(Sensor.TYPE_ACCELEROMETER) ?: return
         sensorManager = sm
-        sm.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)?.let {
-            // v1.2.11：方向判断有 400ms 防抖，60ms 采样是浪费，200ms 足够。
-            sm.registerListener(listener, it, SensorManager.SENSOR_DELAY_NORMAL)
-        }
+        // v1.2.11：方向判断有 400ms 防抖，60ms 采样是浪费，200ms 足够。
+        if (!sm.registerListener(listener, sensor, SensorManager.SENSOR_DELAY_NORMAL)) return
+        started = true
     }
 
     /** 幂等停止；重置方向状态，避免下次进入时沿用旧值。 */

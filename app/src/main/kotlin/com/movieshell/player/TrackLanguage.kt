@@ -83,7 +83,7 @@ object TrackLanguage {
             "en" -> "English"
             "ja" -> "日本語"
             "ko" -> "한국어"
-            else -> track.language.ifBlank { "音轨" }
+            else -> "音轨"
         }
     }
 

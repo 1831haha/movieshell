@@ -82,5 +82,8 @@ object PlaySession {
         episodeIndex = 0
         resolver = null
         chapters = emptyList()
+        // v1.3.21 L9：播放页标记也复位，否则下次独立页退出会误判“回小窗”而不停播。
+        playerVisible = false
+        returnToEmbedded = false
     }
 }

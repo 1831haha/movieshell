@@ -17,10 +17,22 @@ object PlayerGestureMath {
     /** 起点 + 拖动距离 → 目标进度（夹在 0..片长）。 */
     fun scrubTarget(startMs: Long, dxPx: Float, widthPx: Float, durationMs: Long): Long {
         if (widthPx <= 0f) return startMs
-        val delta = (dxPx / widthPx * scrubSpanMs(durationMs)).toLong()
+        // v1.3.21 L12: 比值走 Double——Float 存毫秒在超长视频上丢精度，
+        // 起点与增量保持 Long，只在最后一步截断（误差小于 1ms）。
+        val delta = (dxPx.toDouble() / widthPx.toDouble() * scrubSpanMs(durationMs)).toLong()
         val end = if (durationMs > 0) durationMs else Long.MAX_VALUE
         return (startMs + delta).coerceIn(0L, end)
     }
+
+    /** v1.3.21 L12: 进度比值 0..1——Float 只存比值，毫秒保持 Long。 */
+    fun progressRatioMs(posMs: Long, durationMs: Long): Float =
+        if (durationMs <= 0) 0f
+        else (posMs.toDouble() / durationMs.toDouble()).toFloat().coerceIn(0f, 1f)
+
+    /** v1.3.21 L12: 比值还原毫秒（拖动落点）。 */
+    fun ratioToMs(ratio: Float, durationMs: Long): Long =
+        if (durationMs <= 0) 0L
+        else (ratio.toDouble() * durationMs.toDouble()).toLong().coerceIn(0L, durationMs)
 
     fun fmt(ms: Long): String {
         val s = (ms / 1000).coerceAtLeast(0)

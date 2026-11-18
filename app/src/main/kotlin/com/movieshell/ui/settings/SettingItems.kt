@@ -530,9 +530,12 @@ private fun settingRowContent(
                                         context,
                                         if (it.startsWith("Media3")) PlayerEngine.MEDIA3 else PlayerEngine.LIBMPV,
                                     )
-                                    // v1.3.15：设置换内核立即生效——清掉失败转移写下的临时覆盖，
-                                    // 否则当前播放的重试点仍走旧覆盖，换了也白换。
+                                    // v1.3.21 M16：设置换内核只对下一次起播生效——这里拿不到当前
+                                    // 播放地址/进度/请求头/字幕（EngineHost.currentUrl 未对外暴露，
+                                    // 设置页也不在播放器组合内），做不了“取断点停播再重播”；
+                                    // 只清掉失败转移写下的临时覆盖，否则当前播放的重试点仍走旧覆盖。
                                     EngineHost.setEngineOverride(null)
+                                    AppToast.show(context, "播放器内核已切换，下次播放时生效", long = false)
                                     showEngineDialog = false
                                 } else {
                                     // v1.1.31：未安装不再只 Toast，直接跳市场页签装插件

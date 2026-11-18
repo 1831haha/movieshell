@@ -11,9 +11,9 @@ object EnginePlugins {
     const val NEED_ANY = "需要先安装磁力播放引擎：插件市场里的「磁力引擎（BT）」或「迅雷引擎」，装一个即可。"
     private const val PREF = "magnet_engine"
 
-    /** 插件 id → 私有目录（mpv 沿用老目录） */
+    /** 插件 id → 私有目录（mpv 沿用老目录；路径只在 MpvPluginLoader.libDir 定一处） */
     fun dirFor(context: Context, id: String): File =
-        if (id == MpvPluginLoader.PLUGIN_ID) File(context.filesDir, "mpv-libs")
+        if (id == MpvPluginLoader.PLUGIN_ID) MpvPluginLoader.libDir(context)
         else File(context.filesDir, "engine-libs/$id")
 
     fun libtorrentSo(context: Context) = File(dirFor(context, BT_ID), "libtorrent4j.so")

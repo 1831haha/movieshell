@@ -46,4 +46,31 @@ class HistoryDedupTest {
         assertEquals(a, b)
         assertNotEquals(a, c)
     }
+
+    @Test
+    fun blankVodId_sameUrlDifferentSource_staysSeparate() {
+        // v1.3.21 M23：vodId 为空的兜底键也带源——同一地址被两源共用不再撞键
+        val url = "https://cdn.example.com/shared.m3u8"
+        val a = historyIdentityKey("php", "金牌 dz", "", -1, url, "vod")
+        val b = historyIdentityKey("php", "另一源", "", -1, url, "vod")
+        assertNotEquals(a, b)
+    }
+
+    @Test
+    fun blankVodId_sameUrlDifferentKind_staysSeparate() {
+        // v1.3.21 M23：同一地址分属点播与直播时不再撞键
+        val url = "https://cdn.example.com/shared.m3u8"
+        val a = historyIdentityKey("php", "金牌 dz", "", -1, url, "vod")
+        val b = historyIdentityKey("php", "金牌 dz", "", -1, url, "live")
+        assertNotEquals(a, b)
+    }
+
+    @Test
+    fun blankVodId_sameUrlSameSourceSameKind_merges() {
+        // 同源、同 kind、同地址仍并成一条（M22 删 url 项后仍靠身份键去重）
+        val url = "https://cdn.example.com/shared.m3u8"
+        val a = historyIdentityKey("php", "金牌 dz", "", -1, url, "vod")
+        val b = historyIdentityKey("php", "金牌 dz", "", -1, url, "vod")
+        assertEquals(a, b)
+    }
 }

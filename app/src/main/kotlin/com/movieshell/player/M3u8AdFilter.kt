@@ -291,9 +291,39 @@ object M3u8AdFilter {
                 LogBus.i("AdFilter", "订阅正文规则去广告：${before - countSegments(cur)} 个分片")
                 // 删出来的连续 DISCONTINUITY 合并成一个
                 cur = cur.replace(Regex("(#EXT-X-DISCONTINUITY\\s*\\n)(\\s*#EXT-X-DISCONTINUITY\\s*\\n)+"), "$1")
+                // M37：正则半截删段会留下无 EXTINF 前导的裸 URI 行；
+                // 替换后把这类行删掉，不留给 mpv/ffmpeg 猜。
+                cur = dropBareUriLines(cur)
             }
             cur
         }.getOrDefault(content)
+    }
+
+    /**
+     * M37：删掉没有 EXTINF 前导的裸 URI 行。EXTINF 与 STREAM-INF 行
+     * 之后才允许跟一条 URI 行；其余非标签行一律是裸行。纯函数，可单测。
+     */
+    internal fun dropBareUriLines(content: String): String {
+        val out = ArrayList<String>()
+        var expectUri = false
+        for (line in content.lines()) {
+            val t = line.trim()
+            when {
+                t.startsWith("#EXTINF:") || t.startsWith("#EXT-X-STREAM-INF") -> {
+                    expectUri = true
+                    out.add(line)
+                }
+                t.startsWith("#") || t.isEmpty() -> out.add(line)
+                expectUri -> {
+                    out.add(line)
+                    expectUri = false
+                }
+                else -> {
+                    // 裸 URI 行：直接丢弃
+                }
+            }
+        }
+        return out.joinToString("\n")
     }
 
     private fun countSegments(content: String): Int = content.lines().count { it.trim().startsWith("#EXTINF") }

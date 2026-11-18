@@ -12,7 +12,9 @@ import com.movieshell.domain.model.SubtitleStyle
 import dev.jdtech.mpv.MPVLib
 import java.io.File
 import java.util.Locale
+import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 
@@ -81,9 +83,33 @@ object MpvPlayerManager {
      * 排在后面，旧 loadfile 会在 stop 之后才执行、把已停的播又拉起来）。
      */
     @Volatile private var playGen = 0
+    /**
+     * M35：起播请求序号——每次 play() +1；下载线程与 executor 任务执行前
+     * 都核对自己仍是最新一次起播，否则直接丢弃。playGen 只防 stop 后的
+     * 旧任务，不防“用户又点了一集”的新任务，两者并存。
+     */
+    private val playSeq = AtomicInteger(0)
+    /**
+     * M31：过滤下载串行锁——下载已移出 mpv executor（见 play()），但
+     * MpvAdFilter 的缓存写盘非原子，并发下载同一地址会互相截断；下载
+     * 线程之间仍用这把锁串行，stop/pause/seek 不走这把锁、不被堵。
+     */
+    private val filterLock = Any()
+    /** M29：本次播放是否见过展开成多条的播放列表（末段 END_FILE 判定用）。 */
+    @Volatile private var sawExpandedPlaylist = false
+    /** M32：最近一次字幕样式——init 完成时重放一次（见 init()）。 */
+    @Volatile private var lastSubtitleStyle: SubtitleStyle? = null
     /** 是否有已加载的文件（首播前不计忽略，避免把真正的失败吞掉） */
     @Volatile var hasFile = false
         private set
+    /**
+     * v1.3.21：下载进行中（M31 后下载在独立线程）——此期间点的 seek 先记
+     * 下，loadfile 成功后补发；否则 seek 落在空闲 mpv 上直接丢了。
+     * 只有最新一单下载拥有它（序号比对），被新起播顶掉时不乱清。
+     */
+    @Volatile private var downloadInFlight = false
+    /** 下载窗口内点的 seek（毫秒），loadfile 成功后补发；stop() 时清掉。 */
+    @Volatile private var pendingSeekMs: Long? = null
     @Volatile
     private var errorListener: ((String) -> Unit)? = null
 
@@ -149,11 +175,11 @@ object MpvPlayerManager {
                 // 经 demuxer 的 AVFormatContext 打开，stream 层是兜底。
                 MPVLib.setOptionString("demuxer-lavf-o", "protocol_whitelist=" + MPV_PROTOCOL_WHITELIST)
                 MPVLib.setOptionString("stream-lavf-o", "protocol_whitelist=" + MPV_PROTOCOL_WHITELIST)
-                // v1.3.18：1.3.17 的标记没起作用——mpv 里 lavf 的认分线默认是
-                // 26 分（AVPROBE_SCORE_MAX/4 + 1），而 FFmpeg 的 HLS 探测最
-                // 高只给 25 分（MAX/4），标记补齐也差 1 分被刷掉，mpv 退回
-                // playlist 解复用器逐条播分片、时长塌成单片 4 秒。把线降到
-                // 25 分正好放 HLS 进来；只影响 lavf 认分，不动解复用器顺序。
+                // L30：把 lavf 认分线从默认 26 放宽到 25。注意这只是无害的
+                // 门槛放宽，不解决当前问题——1.3.19 已证实分片问题与认分线
+                // 无关（probe 根本不认干净的本地文件），真正绕过靠 play()
+                // 里 demuxer-lavf-format 强制 + 展开诊断兜底；保留该选项
+                // 只因无害，不动解复用器顺序。
                 MPVLib.setOptionString("demuxer-lavf-probescore", MPV_LAVF_PROBESCORE)
                 // v1.2.2：RTSP 走 TCP 传输——运营商 IPTV 的 UDP 在手机网下常被拦，
                 // TCP 更稳；只影响 RTSP 解复用，其他流不动。
@@ -163,6 +189,9 @@ object MpvPlayerManager {
                 runCatching {
                     val logFile = File(app.filesDir, "mpv/mpv.log")
                     logFile.parentFile?.mkdirs()
+                    // L26：mpv 手册写明 log-file 启动时截断旧文件，删一次是
+                    // 廉价双保险——init 没跑完就崩时也不留巨型日志。
+                    runCatching { if (logFile.exists()) logFile.delete() }
                     MPVLib.setOptionString("log-file", logFile.absolutePath)
                 }.onFailure { LogBus.w("MpvPlayer", "mpv 日志文件设置失败：" + (it.message ?: "")) }
                 MPVLib.init()
@@ -170,17 +199,43 @@ object MpvPlayerManager {
                 MPVLib.observeProperty("duration", MPVLib.MPV_FORMAT_DOUBLE)
                 MPVLib.observeProperty("pause", MPVLib.MPV_FORMAT_FLAG)
                 MPVLib.addObserver(observer)
-                attachedSurface?.let { MPVLib.attachSurface(it) }
+                // M38：初始化时画面可能已在排队期间销毁——直接 attach 会抛
+                // 异常进 catch、把 initFailed 粘滞成永久不可用。改走
+                // bindSurface（内部全程 runCatching，只记日志），失败留给
+                // 后续 onSurfaceReady 重绑，不标记初始化失败。
+                attachedSurface?.let { bindSurface(it) }
+                // M32：init 完成前调 setAspectMode/applySubtitleStyle 会被
+                // execIfReady 静默丢掉——初始化一完成就把当前档位与字幕
+                // 样式重放一次（仍排 executor，不与 init 任务抢顺序）。
+                if (currentAspectMode >= 0) setAspectMode(currentAspectMode)
+                lastSubtitleStyle?.let { applySubtitleStyle(it) }
                 LogBus.i("MpvPlayer", "libmpv 初始化完成")
             } catch (t: Throwable) {
                 initialized.set(false)
                 initFailedFlag.set(true)
-                // v1.1.31：只记"缺插件"这一种可恢复原因——文件在但加载失败（损坏/架构不对）
-                // 不属于缺插件，不重试
-                initFailedMissingPluginFlag.set(!MpvPluginLoader.isInstalled(app))
+                // v1.3.21 M33：可恢复性按加载异常定，不按文件在不在定——缺插件
+                // （ensureLoaded 抛错）或 .so 加载失败（UnsatisfiedLinkError
+                // 一类，含损坏/架构不对）都算可恢复，用户补装/重装插件后
+                // EngineHost 重试；其他初始化失败仍粘滞。
+                initFailedMissingPluginFlag.set(isPluginLoadFailure(t))
                 LogBus.e("MpvPlayer", "libmpv 初始化失败：${t.message}")
             }
         }
+    }
+
+    /**
+     * v1.3.21 M33：这次初始化失败是不是插件加载失败。缺插件与 .so 损坏都
+     * 走加载异常（ensureLoaded 抛 IllegalStateException、System.load 抛
+     * UnsatisfiedLinkError）；选项/观察者等其他失败不算。
+     */
+    private fun isPluginLoadFailure(t: Throwable): Boolean {
+        var cur: Throwable? = t
+        while (cur != null) {
+            if (cur is LinkageError) return true
+            if (cur is IllegalStateException && cur.message?.contains("插件未安装") == true) return true
+            cur = cur.cause
+        }
+        return false
     }
 
     /**
@@ -202,35 +257,44 @@ object MpvPlayerManager {
         executor.execute { if (initialized.get() && !destroyed.get()) block() }
     }
 
-    /** 把画面绑到指定 Surface（先卸旧再挂新，避免全屏/小窗切换后 vo 仍指着已销毁的旧面） */
-    private fun bindSurface(surface: Surface) {
+    /**
+     * 把画面绑到指定 Surface（先卸旧再挂新，避免全屏/小窗切换后 vo 仍指着已销毁的旧面）。
+     * M36：返回是否绑成功——失败不再只记日志，调用方（onSurfaceReady）可重试并回调
+     * errorListener，否则黑屏有声、用户无感知、无重试入口。
+     */
+    private fun bindSurface(surface: Surface): Boolean {
         runCatching {
             MPVLib.setPropertyString("vo", "null")
             MPVLib.setOptionString("force-window", "no")
             MPVLib.detachSurface()
         }
-        runCatching {
+        return runCatching {
             MPVLib.attachSurface(surface)
             MPVLib.setOptionString("force-window", "yes")
             MPVLib.setPropertyString("vo", "gpu")
             if (surfaceW > 0 && surfaceH > 0) MPVLib.setPropertyString("android-surface-size", "${surfaceW}x$surfaceH")
-        }.onFailure { LogBus.w("MpvPlayer", "attachSurface 失败：${it.message}") }
+        }.onFailure { LogBus.w("MpvPlayer", "attachSurface 失败：${it.message}") }.isSuccess
     }
 
-    /** v0.294.43：返回小窗后每秒记录一次播放状态，共 5 次 */
+    /** v0.294.43：返回小窗后每秒记录一次播放状态，共 5 次。M26：诊断任务带代次与
+     * 地址快照——stop/切集后旧任务不再归属本次播放；每次读数前复核代次与 hasFile，
+     * 读数本身仍排进 executor（不直接调 MPVLib）。 */
     fun diagnose(tag: String) {
         if (!initialized.get() || !hasFile) return
+        val gen = playGen
+        val host = lastPlayHost
         Thread({
             repeat(5) { i ->
                 Thread.sleep(1000)
-                if (!initialized.get() || destroyed.get()) return@Thread
+                if (gen != playGen || !initialized.get() || destroyed.get() || !hasFile) return@Thread
                 executor.execute {
+                    if (gen != playGen || !hasFile) return@execute
                     val info = runCatching {
                         "pause=${MPVLib.getPropertyBoolean("pause")} time=${MPVLib.getPropertyDouble("time-pos")} " +
                             "vo=${MPVLib.getPropertyString("vo-configured")} idle=${MPVLib.getPropertyBoolean("core-idle")} " +
                             "surface=${attachedSurface?.isValid} hasFile=$hasFile"
                     }.getOrElse { "读取失败：${it.message}" }
-                    LogBus.i("MpvPlayer", "$tag 诊断 ${i + 1}/5：$info")
+                    LogBus.i("MpvPlayer", "$tag 诊断 ${i + 1}/5 [$host]：$info")
                 }
             }
         }, "mpv-diag").also { it.isDaemon = true }.start()
@@ -243,8 +307,14 @@ object MpvPlayerManager {
             if (!initialized.get() || destroyed.get()) return@execute
             // 可能在排队期间又换了更新的画面——只绑当前这一块
             if (attachedSurface !== surface) return@execute
-            bindSurface(surface)
-            LogBus.i("MpvPlayer", "画面已接到新的视图")
+            // M36：绑不上只记日志等于黑屏有声——失败先重试一次，仍失败
+            // 才回调 errorListener，让失败可见、可进换内核重试链。
+            val bound = bindSurface(surface) || bindSurface(surface)
+            if (bound) {
+                LogBus.i("MpvPlayer", "画面已接到新的视图")
+            } else {
+                mainHandler.post { errorListener?.invoke("画面绑定失败（libmpv attachSurface），请重试或切回 Media3") }
+            }
         }
     }
 
@@ -300,6 +370,14 @@ object MpvPlayerManager {
      * （UA 常含逗号，不能塞进 http-header-fields 的逗号分隔列表）。
      * v1.1.31：点播 m3u8 先走 MpvAdFilter 拉列表过滤后播本地文件（失败回原地址）；
      * 直播不走过滤。
+     * L1：返回 false 表示同步拒绝（地址为空、已释放、起播线程起不来），
+     * true 表示起播任务已提交（不代表已出画面，失败走 onError 回调）。
+     * M31：过滤下载（最长 16 秒）不在 mpv executor 上跑，改走独立下载
+     * 线程，下载完只把 loadfile 一步提交给 executor——下载期间 stop/
+     * pause/seek 不再排队等 16 秒。下载线程之间用 filterLock 串行
+     * （缓存写盘非原子，并发写同一地址会互相截断）。
+     * M35：每次 play() 递增 playSeq；下载线程起步、拿锁后、下载完三处
+     * 都核对自己仍是最新请求，否则直接丢弃，快点连播不再积压下载。
      */
     fun play(
         url: String,
@@ -307,10 +385,14 @@ object MpvPlayerManager {
         startPositionMs: Long = 0L,
         subtitleUrl: String? = null,
         live: Boolean = false,
-    ) {
+    ): Boolean {
         if (url.isBlank()) {
             LogBus.e("MpvPlayer", "播放地址为空，已拒绝")
-            return
+            return false
+        }
+        if (destroyed.get()) {
+            LogBus.e("MpvPlayer", "已释放，拒绝起播")
+            return false
         }
         LogBus.i("MpvPlayer", "播放: ${url.take(120)}${if (url.length > 120) "..." else ""}")
         // v0.154.0：paused 不能只靠 mpv 的 pause 属性回调同步——mpv 默认本就不是暂停，
@@ -320,66 +402,122 @@ object MpvPlayerManager {
         paused = false
         lastPositionMs = 0L
         lastDurationMs = 0L
+        sawExpandedPlaylist = false
         lastPlayHost = runCatching { Uri.parse(url).host.orEmpty() }.getOrDefault("")
         lastPlayExt = url.substringBefore("?").substringAfterLast(".", "").take(8)
         lastPlayStartMs = SystemClock.elapsedRealtime()
         // v1.3.17：起播代次快照——executor 里 loadfile 前核对，过期丢弃
         val gen = playGen
-        executor.execute {
-            if (!initialized.get() || destroyed.get()) {
-                mainHandler.post { errorListener?.invoke("libmpv 初始化失败，请切回 Media3") }
-                return@execute
-            }
-            if (gen != playGen) {
-                LogBus.i("MpvPlayer", "起播已过期（期间已停播），丢弃：${lastPlayHost}")
-                return@execute
-            }
-            // v1.3.21 H1：过滤最长 16 秒，期间 stop() 可能已把代次 +1——
-            // 过滤返回后、loadfile 前再核对一次代次，过期直接丢弃。
-            // 过滤本身已包 runCatching（失败回 null 走原地址），放
-            // runCatching 外面不改变失败语义。
-            val filteredPath = appContext?.let {
-                runCatching { MpvAdFilter.prepareFilteredPlaylist(it, url, headers, live) }.getOrNull()
-            }
-            if (gen != playGen) {
-                LogBus.i("MpvPlayer", "起播已过期（过滤期间已停播），丢弃：${lastPlayHost}")
-                return@execute
-            }
-            val playUrl = filteredPath ?: url
-            runCatching {
-                // v1.3.20：本地 m3u8 起播前把 demuxer-lavf-format 强制成
-                // hls——lavf_check_file 里 forced_format 直接满分 100，
-                // 不走探测；非 m3u8 起播前清掉，免得 mp4 也被强制成 hls。
-                // setOptionString 同步生效、loadfile 异步入队，值在起播前
-                // 设好、只会被下一次起播改写，没有“设完立刻清”的竞态。
-                // 故障十三（2026-11-18 真机）：强制确实到 probe 层
-                // （lavf 两次 100 分 forced），但分片打不开时 hls 解复用
-                // 器照样放弃、mpv 退回 playlist 逐条播——强制只过探测关，
-                // 不过打开关；展开由 1.3.21 的诊断检测兜底（见
-                // logFilteredPlaylistDiagnosis），不再指望强制本身。
+        val seq = playSeq.incrementAndGet()
+        downloadInFlight = true
+        return runCatching {
+            Thread({
+                if (isStalePlayRequest(seq, playSeq.get()) || gen != playGen) {
+                    clearDownloadFlagIfCurrent(seq)
+                    return@Thread
+                }
+                val filteredPath = appContext?.let { ctx ->
+                    synchronized(filterLock) {
+                        // 拿锁后复核——等锁期间可能已有更新的起播排进来。
+                        if (isStalePlayRequest(seq, playSeq.get()) || gen != playGen) null
+                        else runCatching { MpvAdFilter.prepareFilteredPlaylist(ctx, url, headers, live) }.getOrNull()
+                    }
+                }
+                // H1：过滤最长 16 秒，期间 stop() 可能已把代次 +1——下载
+                // 完、loadfile 前再核对一次代次与请求序号，过期直接丢弃。
+                if (isStalePlayRequest(seq, playSeq.get()) || gen != playGen) {
+                    LogBus.i("MpvPlayer", "起播已过期（过滤期间有新起播/停播），丢弃：${lastPlayHost}")
+                    clearDownloadFlagIfCurrent(seq)
+                    return@Thread
+                }
                 runCatching {
-                    if (filteredPath != null) MPVLib.setOptionString("demuxer-lavf-format", "hls")
-                    else MPVLib.setOptionString("demuxer-lavf-format", "")
-                }.onFailure { LogBus.w("MpvPlayer", "demuxer-lavf-format 设置失败：${it.message}") }
-                MPVLib.command(
-                    arrayOf("loadfile", playUrl, "replace", "-1", buildFileOptions(headers, startPositionMs, subtitleUrl))
-                )
-                MPVLib.setPropertyBoolean("pause", false)
-                // v1.3.20：本地 m3u8 起播后打一次解复用器诊断（后台线程，
-                // 不堵 mpv executor）——playlist-count/duration/file-format
-                // + mpv 日志里的 probe 行，下次真机日志直接定性到底是
-                // lavf 接了还是 playlist 接了。
-                // v1.3.21：诊断线程带代次，顺带做展开检测。
-                if (filteredPath != null) logFilteredPlaylistDiagnosis(gen)
-            }.onSuccess {
-                // v0.107.0 P0-3：replace 会结束旧文件（若有），其 END_FILE 计一次忽略；
-                // 命令发出后再计数，保证与 handleEndFile（同 executor 串行）的先后顺序
-                if (hasFile) expectEndFileCount.incrementAndGet()
-                hasFile = true
-            }.onFailure {
-                paused = true
-                LogBus.e("MpvPlayer", "loadfile 失败：${it.message}")
-                mainHandler.post { errorListener?.invoke("libmpv loadfile 失败：${it.message?.take(100)}") }
+                    executor.execute { loadFilteredFile(gen, seq, filteredPath, url, headers, startPositionMs, subtitleUrl) }
+                }.onFailure { LogBus.w("MpvPlayer", "起播任务投递失败：${it.message}") }
+            }, "mpv-play-download").apply { isDaemon = true }.start()
+            true
+        }.getOrDefault(false)
+    }
+
+    /**
+     * v1.3.21：只有最新一单下载能清下载标志——旧单被新起播顶掉时不清，
+     * 否则新单下载中途标志被误清，seek 又落回空闲 mpv。
+     */
+    private fun clearDownloadFlagIfCurrent(seq: Int) {
+        if (seq == playSeq.get()) downloadInFlight = false
+    }
+
+    /**
+     * 下载完成后的 loadfile 一步（只跑在 mpv executor 上）。H1 的二次核对
+     * 在这里做：loadfile 前再核对代次与请求序号，过期直接丢弃，stop 期间
+     * 的旧起播到不了 loadfile；M35 的序号核对与 H1 的代次核对并存。
+     */
+    private fun loadFilteredFile(
+        gen: Int,
+        seq: Int,
+        filteredPath: String?,
+        url: String,
+        headers: Map<String, String>,
+        startPositionMs: Long,
+        subtitleUrl: String?,
+    ) {
+        if (!initialized.get() || destroyed.get()) {
+            clearDownloadFlagIfCurrent(seq)
+            mainHandler.post { errorListener?.invoke("libmpv 初始化失败，请切回 Media3") }
+            return
+        }
+        if (gen != playGen || isStalePlayRequest(seq, playSeq.get())) {
+            clearDownloadFlagIfCurrent(seq)
+            LogBus.i("MpvPlayer", "起播已过期（期间已停播/有新起播），丢弃：${lastPlayHost}")
+            return
+        }
+        val playUrl = filteredPath ?: url
+        val loaded = runCatching {
+            // v1.3.20：本地 m3u8 起播前把 demuxer-lavf-format 强制成
+            // hls——lavf_check_file 里 forced_format 直接满分 100，
+            // 不走探测；非 m3u8 起播前清掉，免得 mp4 也被强制成 hls。
+            // setOptionString 同步生效、loadfile 异步入队，值在起播前
+            // 设好、只会被下一次起播改写，没有“设完立刻清”的竞态。
+            // 故障十三（2026-11-18 真机）：强制确实到 probe 层
+            // （lavf 两次 100 分 forced），但分片打不开时 hls 解复用
+            // 器照样放弃、mpv 退回 playlist 逐条播——强制只过探测关，
+            // 不过打开关；展开由 1.3.21 的诊断检测兜底（见
+            // logFilteredPlaylistDiagnosis），不再指望强制本身。
+            runCatching {
+                if (filteredPath != null) MPVLib.setOptionString("demuxer-lavf-format", "hls")
+                else MPVLib.setOptionString("demuxer-lavf-format", "")
+            }.onFailure { LogBus.w("MpvPlayer", "demuxer-lavf-format 设置失败：${it.message}") }
+            MPVLib.command(
+                arrayOf("loadfile", playUrl, "replace", "-1", buildFileOptions(headers, startPositionMs, subtitleUrl))
+            )
+            // 下载已移出 executor：下载期间用户点的暂停不再排在 loadfile
+            // 之后——按本地 paused 现值设，不把刚点的暂停顶掉。
+            MPVLib.setPropertyBoolean("pause", paused)
+            // v1.3.20：本地 m3u8 起播后打一次解复用器诊断（后台线程，
+            // 不堵 mpv executor）——playlist-count/duration/file-format
+            // + mpv 日志里的 probe 行，下次真机日志直接定性到底是
+            // lavf 接了还是 playlist 接了。
+            // v1.3.21：诊断线程带代次，顺带做展开检测。
+            if (filteredPath != null) logFilteredPlaylistDiagnosis(gen)
+        }.onSuccess {
+            // v0.107.0 P0-3：replace 会结束旧文件（若有），其 END_FILE 计一次忽略；
+            // 命令发出后再计数，保证与 handleEndFile（同 executor 串行）的先后顺序
+            if (hasFile) expectEndFileCount.incrementAndGet()
+            hasFile = true
+        }.onFailure {
+            paused = true
+            LogBus.e("MpvPlayer", "loadfile 失败：${it.message}")
+            mainHandler.post { errorListener?.invoke("libmpv loadfile 失败：${it.message?.take(100)}") }
+        }.isSuccess
+        // 下载窗口结束：之后点的 seek 正常走 executor，不再进 pending。
+        clearDownloadFlagIfCurrent(seq)
+        // v1.3.21：补发下载窗口内点的 seek（M31 把下载移出 executor 后，
+        // 窗口内的 seek 不再排在 loadfile 之后，不补就丢了）。被新起播
+        // 顶掉时不补——pending 留给新单的 loadfile。
+        if (loaded && seq == playSeq.get()) {
+            pendingSeekMs?.let { ms ->
+                pendingSeekMs = null
+                runCatching { MPVLib.command(arrayOf("seek", (ms / 1000.0).toString(), "absolute")) }
+                    .onFailure { LogBus.w("MpvPlayer", "补发下载窗口内的 seek 失败：${it.message}") }
             }
         }
     }
@@ -402,6 +540,12 @@ object MpvPlayerManager {
     }
 
     fun seekTo(ms: Long) {
+        // v1.3.21：下载进行中时还没有文件可 seek（M31 后下载在独立线程，
+        // seek 不再排在 loadfile 之后）——先记下，loadfile 成功后补发。
+        if (downloadInFlight) {
+            pendingSeekMs = ms
+            return
+        }
         execIfReady {
             runCatching {
                 MPVLib.command(arrayOf("seek", (ms / 1000.0).toString(), "absolute"))
@@ -413,7 +557,9 @@ object MpvPlayerManager {
         val hadFile = hasFile
         // v1.3.17：代次 +1，让已排队、还没执行的旧起播任务在 loadfile 前丢弃
         playGen++
-        if (hadFile) {
+        // L29：调用栈只在 debug 包下取——release 包每次 stop 都建
+        // Throwable 只是为了记一行日志，白白烧性能。
+        if (hadFile && com.movieshell.BuildConfig.DEBUG) {
             val who = Throwable().stackTrace.drop(1)
                 .filter { it.className.startsWith("com.movieshell") && !it.className.contains("MpvPlayerManager") && !it.className.contains("EngineHost") }
                 .take(3).joinToString(" ← ") { it.className.substringAfterLast('.').substringBefore('$') + "." + it.methodName + ":" + it.lineNumber }
@@ -421,6 +567,13 @@ object MpvPlayerManager {
         }
         hasFile = false
         paused = true
+        // L29：停播后位置/时长同步清零——否则 duration() 仍读旧值，
+        // 退出保存逻辑在 stop 之后读时长会用旧时长存盘。
+        lastPositionMs = 0L
+        lastDurationMs = 0L
+        sawExpandedPlaylist = false
+        // v1.3.21：停播丢弃下载窗口内未补发的 seek，不串到下一集。
+        pendingSeekMs = null
         execIfReady {
             runCatching { MPVLib.command(arrayOf("stop")) }
                 // v0.107.0 P0-3：命令发出后才计数；命令本身失败则不会有 END_FILE，不计数
@@ -435,8 +588,10 @@ object MpvPlayerManager {
     }
 
     fun setPlaybackSpeed(speed: Float) {
+        // L25：0/负数/极大值直传 speed 会让 mpv 行为未定义——钳到 0.25–4。
+        val clamped = clampPlaybackSpeed(speed)
         execIfReady {
-            runCatching { MPVLib.setPropertyDouble("speed", speed.toDouble()) }
+            runCatching { MPVLib.setPropertyDouble("speed", clamped.toDouble()) }
                 .onFailure { LogBus.w("MpvPlayer", "倍速设置失败：${it.message}") }
         }
     }
@@ -499,6 +654,9 @@ object MpvPlayerManager {
      * 默认跟字幕脚本自带排版（srt/vtt 转 ASS 的则全量生效）。
      */
     fun applySubtitleStyle(style: SubtitleStyle) {
+        // M32：先记下最新样式——init 未完成时 execIfReady 会静默丢掉
+        // 这次调用，init 完成时按这里记的值重放一次。
+        lastSubtitleStyle = style
         execIfReady {
             if (!initialized.get() || destroyed.get()) return@execIfReady
             runCatching {
@@ -530,8 +688,12 @@ object MpvPlayerManager {
     }
 
     /**
-     * v0.21.0：截图到 xiaying/Screenshots（mpv screenshot-to-file 命令，同步落盘）。
-     * 返回保存的文件，失败返回 null。调用方在 IO 线程调（命令本身线程安全）。
+     * v0.21.0：截图到 xiaying/Screenshots，返回保存的文件，失败返回 null。
+     * 调用方在 IO 线程调。
+     * M27/V6：截图命令排进 executor（不与 loadfile/stop 并发），且 mpv
+     * 手册写明截图编码/落盘默认就是异步的（standalone 命令恒异步），
+     * 命令返回不代表文件已写好——轮询确认文件存在且非空再报成功，
+     * 最多等 2 秒；调用线程最多等 5 秒。
      */
     fun screenshot(context: Context, title: String): File? {
         if (!initialized.get() || destroyed.get()) return null
@@ -541,8 +703,27 @@ object MpvPlayerManager {
                 StoragePaths.screenshotsDir(context),
                 "侠影_${safe}_${System.currentTimeMillis()}.png",
             )
-            MPVLib.command(arrayOf("screenshot-to-file", file.absolutePath))
-            if (file.exists() && file.length() > 0) {
+            val saved = AtomicBoolean(false)
+            val done = CountDownLatch(1)
+            val task = Runnable {
+                runCatching {
+                    MPVLib.command(arrayOf("screenshot-to-file", file.absolutePath))
+                    var waited = 0L
+                    while (waited <= 2000L) {
+                        if (file.exists() && file.length() > 0) {
+                            saved.set(true)
+                            break
+                        }
+                        Thread.sleep(100)
+                        waited += 100L
+                    }
+                }.onFailure { LogBus.w("MpvPlayer", "截图命令失败：${it.message}") }
+                done.countDown()
+            }
+            // 已在 executor 线程上时直接跑，否则排队——避免自己等自己死锁。
+            if (Thread.currentThread().name == "mpv-cmd") task.run() else executor.execute(task)
+            done.await(5, TimeUnit.SECONDS)
+            if (saved.get()) {
                 LogBus.i("MpvPlayer", "截图已保存：${file.absolutePath}")
                 file
             } else null
@@ -610,8 +791,17 @@ object MpvPlayerManager {
             // 换内核重试，让 mpv 继续播下一条。正常单片播放列表恒为 1 条，
             // 不会误伤；真失败时列表只剩当前一条，照常走错误路径。
             if (playlistCount() > 1) {
+                sawExpandedPlaylist = true
                 hasFile = true
                 LogBus.i("MpvPlayer", "分片过渡（播放列表多条），忽略本次 END_FILE")
+                return
+            }
+            // M29：展开播到最后一段时 END_FILE 的 eof 常为 false——位置
+            // 已接近时长，或列表刚由多条缩回 1 条，都是自然播完，不
+            // 是失败：不回调 errorListener，不触发换内核重试。
+            if (isFinalSegmentNaturalEnd(lastPositionMs, lastDurationMs, sawExpandedPlaylist)) {
+                paused = true
+                LogBus.i("MpvPlayer", "展开播放列表末段结束，判自然播完（位置 ${lastPositionMs}ms/时长 ${lastDurationMs}ms）")
                 return
             }
             // v0.154.0：异常结束即不在播，本地状态同步置 true，免得重试间隙界面仍显示在播
@@ -824,4 +1014,21 @@ internal fun extractMpvProbeLines(text: String, maxLines: Int = 6): String {
             line.contains("Trying demuxers")
     }.map { it.trim().take(200) }
     return hits.takeLast(maxLines).joinToString(" | ")
+}
+
+/** L25：倍速钳到 0.25–4，0/负数/极大值不直传 mpv。纯函数，可单测。 */
+internal fun clampPlaybackSpeed(speed: Float): Float = speed.coerceIn(0.25f, 4f)
+
+/** M35：起播请求已不是最新一次（有更新的 play() 排进来）即过期。纯函数，可单测。 */
+internal fun isStalePlayRequest(seq: Int, latestSeq: Int): Boolean = seq != latestSeq
+
+/**
+ * M29：展开播放列表末段的 END_FILE 是否算自然播完。纯函数，可单测。
+ * 位置已接近时长（2 秒内）即自然结束；列表刚由多条缩回 1 条且已播出
+ * 位置（positionMs > 0）也算——末段打不开时位置一般为 0，不会误判。
+ */
+internal fun isFinalSegmentNaturalEnd(positionMs: Long, durationMs: Long, sawExpandedPlaylist: Boolean): Boolean {
+    if (durationMs > 0 && positionMs > 0 && positionMs >= durationMs - 2000L) return true
+    if (sawExpandedPlaylist && positionMs > 0) return true
+    return false
 }

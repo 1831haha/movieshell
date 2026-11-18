@@ -43,7 +43,12 @@ object MpvAdFilter {
     ): String? {
         if (!SniffConfig.adFilterEnabled) return null
         if (live) return null
-        if (!AdFilteringDataSource.isPlaylistRequest(url, null)) return null
+        // M28：后缀不明时不再直接放行失败——无后缀 HLS（/play.php?id= 等）
+        // 在 isPlaylistRequest(url, null) 里拿不到头、只剩后缀判断，直接
+        // 返回 null 就永远走不到过滤。只有明确不是播放列表的地址才提前
+        // 返回；其余的先下载，download() 再按 Content-Type 与 #EXTM3U
+        // 内容判定，不是 m3u8 就返回 null。
+        if (isDefinitelyNotPlaylist(url)) return null
         val dir = File(context.filesDir, CACHE_DIR).apply { mkdirs() }
         // v1.3.21 H13：缓存键 v3，混入请求头摘要——同一地址换 Cookie/
         // Referer（如夸克 __pugs 续期、清 Referer 重试）是不同的播放列表，
@@ -100,6 +105,23 @@ object MpvAdFilter {
         return sha256("v3:$url|$digest")
     }
 
+    /**
+     * M28：明确不是播放列表才返回 true——非 http(s) 地址、已登记或按
+     * 后缀能认出的点播文件（.mp4/.ts/.m4s/.key 等）、DASH。无后缀 HLS
+     * 与未知地址返回 false，由 download() 按内容再判。纯函数，可单测。
+     */
+    internal fun isDefinitelyNotPlaylist(url: String): Boolean {
+        val lower = url.trim().lowercase()
+        if (!(lower.startsWith("http://") || lower.startsWith("https://"))) return true
+        when (MediaTypeSniffer.hint(url)) {
+            MediaTypeSniffer.Kind.PROGRESSIVE, MediaTypeSniffer.Kind.DASH -> return true
+            else -> {}
+        }
+        val path = lower.substringBefore("?").substringBefore("#")
+        return path.endsWith(".ts") || path.endsWith(".mp4") ||
+            path.endsWith(".m4s") || path.endsWith(".key")
+    }
+
     /** v1.3.21 H14：缓存命中校验——存在、1 小时内、非空、首行是 #EXTM3U。 */
     private fun isCacheValid(file: File): Boolean {
         if (!file.exists() || file.length() <= 0L) return false
@@ -118,6 +140,9 @@ object MpvAdFilter {
             val now = System.currentTimeMillis()
             val sevenDays = 7L * 24 * 60 * 60 * 1000
             files.forEachIndexed { idx, f ->
+                // L22：1 小时内改过的文件可能正在播（mpv 已打开），跳过不删；
+                // 1 小时也是缓存复用期，删了它下次还得重下。
+                if (now - f.lastModified() < 3_600_000L) return@forEachIndexed
                 if (idx >= 50 || now - f.lastModified() > sevenDays) f.delete()
             }
         }
@@ -191,14 +216,17 @@ object MpvAdFilter {
      * 认不出就拒收（ffprobe 实测：缺两标记报 Invalid data，补上即认出
      * hls），mpv 退回 playlist 解复用器，把每个分片当独立条目逐个播，
      * 每条触发一次 END_FILE、App 跟着逐条判失败。主播放列表（无 EXTINF）
-     * 不动；已有标记的不改值。纯函数，可单测。
+     * 不动；已有标记的不改值。M30：媒体列表再补 #EXT-X-ENDLIST，缺它
+     * 会被当直播处理（时长未知、播完不发 EOF）。
+     * 纯函数，可单测。
      */
     internal fun ensureHlsMarkers(content: String): String {
         val lines = content.lines()
         if (lines.none { it.trim().startsWith("#EXTINF") }) return content
         val hasTarget = lines.any { it.trim().startsWith("#EXT-X-TARGETDURATION") }
         val hasSequence = lines.any { it.trim().startsWith("#EXT-X-MEDIA-SEQUENCE") }
-        if (hasTarget && hasSequence) return content
+        val hasEndList = lines.any { it.trim() == "#EXT-X-ENDLIST" }
+        if (hasTarget && hasSequence && hasEndList) return content
         var maxDur = 0.0
         for (line in lines) {
             val t = line.trim()
@@ -218,6 +246,13 @@ object MpvAdFilter {
             ?: lines.indexOfFirst { it.trim() == "#EXTM3U" }
         val out = lines.toMutableList()
         if (anchor >= 0) out.addAll(anchor + 1, insert) else out.addAll(0, insert)
+        // M30：媒体列表补 #EXT-X-ENDLIST——缺它会被当直播处理（时长未知、
+        // 播完不发 EOF）；主列表无 EXTINF，早在上面原样返回了。
+        if (!hasEndList) {
+            var at = out.size
+            while (at > 0 && out[at - 1].isBlank()) at--
+            out.add(at, "#EXT-X-ENDLIST")
+        }
         return out.joinToString("\n")
     }
 
@@ -240,20 +275,63 @@ object MpvAdFilter {
         return best?.second
     }
 
-    /** 相对地址改绝对：分片行与 #EXT-X-KEY / #EXT-X-MAP 的 URI="..." 属性。 */
+    /**
+     * 相对地址改绝对：分片行与 #EXT-X-KEY / #EXT-X-MAP 的 URI="..." 属性。
+     * L24：只接受 http/https；其余 scheme 的行整段丢弃，不让 mpv 打开本地文件。
+     */
     internal fun resolveUris(content: String, baseUrl: String): String {
         val base = baseUrl.toHttpUrlOrNull() ?: return content
-        return content.lines().joinToString("\n") { line ->
+        val out = ArrayList<String>()
+        // 最近一个还没等到 URI 的 EXTINF / STREAM-INF 行在 out 里的下标；
+        // 它所属的段被丢弃时连同中间标签行一起删，不留裸 EXTINF。
+        var pendingTagIdx: Int? = null
+        for (line in content.lines()) {
             val t = line.trim()
             when {
-                t.startsWith("#") -> UriAttr.replace(line) { m ->
-                    val resolved = base.resolve(m.groupValues[1])?.toString() ?: m.groupValues[1]
-                    "URI=\"" + resolveKeepingQuery(base, resolved) + "\""
+                t.startsWith("#") -> {
+                    var badScheme = false
+                    val replaced = UriAttr.replace(line) { m ->
+                        val raw = m.groupValues[1]
+                        val resolved = base.resolve(raw)?.toString() ?: raw
+                        if (!isHttpUrl(resolved)) badScheme = true
+                        "URI=\"" + resolveKeepingQuery(base, resolved) + "\""
+                    }
+                    // L24：URI 属性只接受 http/https；file 等 scheme 整行丢弃。
+                    if (badScheme) continue
+                    if (t.startsWith("#EXTINF:") || t.startsWith("#EXT-X-STREAM-INF")) {
+                        pendingTagIdx?.let { idx ->
+                            while (out.size > idx) out.removeAt(out.size - 1)
+                        }
+                        pendingTagIdx = out.size
+                    }
+                    out.add(replaced)
                 }
-                t.isEmpty() -> line
-                else -> base.resolve(t)?.toString()?.let { resolveKeepingQuery(base, it) } ?: line
+                t.isEmpty() -> out.add(line)
+                else -> {
+                    val resolved = base.resolve(t)?.toString()
+                        ?.let { resolveKeepingQuery(base, it) }
+                    if (resolved != null && isHttpUrl(resolved)) {
+                        out.add(resolved)
+                        pendingTagIdx = null
+                    } else {
+                        // L24：解析不出 http(s) 地址（file 等异种 scheme、
+                        // 畸形地址）整段丢弃；相对地址解析失败同样丢弃——
+                        // 写盘后是本地文件，相对地址会被 mpv 按本地路径打开。
+                        pendingTagIdx?.let { idx ->
+                            while (out.size > idx) out.removeAt(out.size - 1)
+                        }
+                        pendingTagIdx = null
+                    }
+                }
             }
         }
+        return out.joinToString("\n")
+    }
+
+    /** 纯函数：只认 http/https。 */
+    internal fun isHttpUrl(url: String): Boolean {
+        val scheme = url.toHttpUrlOrNull()?.scheme?.lowercase()
+        return scheme == "http" || scheme == "https"
     }
 
     /**

@@ -21,6 +21,17 @@ class M3u8RuleAndNameTest {
         assertEquals(1, out.lines().count { it.startsWith("#EXT-X-DISCONTINUITY") })
     }
 
+    @Test fun `rule regex half deleted segment leaves no bare uri`() {
+        // 正则只删掉了 seg2 的 EXTINF 行、留下了裸 seg2.ts 行；替换后裸行须被删掉
+        val m = "#EXTM3U\n#EXT-X-TARGETDURATION:10\n" +
+            "#EXTINF:10.0,\nseg0.ts\n#EXTINF:10.0,\nseg1.ts\n#EXTINF:9.9,\nseg2.ts\n" +
+            "#EXTINF:10.0,\nseg3.ts\n#EXTINF:10.0,\nseg4.ts\n#EXTINF:10.0,\nseg5.ts\n#EXT-X-ENDLIST\n"
+        val out = M3u8AdFilter.applyRuleRegex(m, listOf(Regex("#EXTINF:9\\.9,\\n")))
+        assertFalse(out.contains("seg2.ts"))
+        assertTrue(out.contains("seg0.ts") && out.contains("seg5.ts"))
+        assertEquals(5, out.lines().count { it.trim().startsWith("#EXTINF") })
+    }
+
     @Test fun `rule regex keeps key lines`() {
         val m = "#EXTM3U\n" + seg(5, { "a$it.ts" }) + "#EXT-X-DISCONTINUITY\n#EXT-X-KEY:METHOD=AES-128,URI=\"k\"\n" +
             "#EXTINF:3.0,\nad.ts\n#EXT-X-DISCONTINUITY\n" + seg(5, { "b$it.ts" })

@@ -44,18 +44,27 @@ object MpvPluginLoader {
     fun libDir(context: Context): File =
         File(context.filesDir, "mpv-libs").also { it.mkdirs() }
 
-    /** 插件是否已安装（全部 .so 到位）。 */
+    /** 插件是否已安装（全部 .so 到位、可读、非空文件）。 */
     fun isInstalled(context: Context): Boolean {
         val dir = libDir(context)
-        return LIBS_IN_ORDER.all { File(dir, it).exists() }
+        return LIBS_IN_ORDER.all { name ->
+            val f = File(dir, name)
+            f.isFile && f.canRead() && f.length() > 0L
+        }
     }
 
     /**
      * 确保 native 库已加载。已加载过直接 true；未安装/加载失败返回 false，
      * 调用方（MpvPlayerManager）走 initFailed 兜底回退 Media3。
+     * v1.3.21 M33：.so 被删后 loaded 不再谎称已加载；加载失败清标记，
+     * 重装后可重试，不用重启 App。
      */
     fun ensureLoaded(context: Context): Boolean {
-        if (loaded.get()) return true
+        if (loaded.get()) {
+            if (isInstalled(context)) return true
+            loaded.set(false)
+            LogBus.w(TAG, "libmpv 插件文件已缺失，清除已加载标记")
+        }
         if (!isInstalled(context)) {
             LogBus.i(TAG, "libmpv 插件未安装")
             return false
@@ -69,12 +78,14 @@ object MpvPluginLoader {
             LogBus.i(TAG, "libmpv 插件 native 库加载成功")
             true
         }.onFailure {
+            loaded.set(false)
             LogBus.w(TAG, "libmpv 插件加载失败: ${it.message}")
         }.getOrDefault(false)
     }
 
     /** 卸载插件：删 .so 目录（需重启 App 生效，native 库进程内无法卸载）。 */
     fun uninstall(context: Context) {
+        loaded.set(false)
         libDir(context).deleteRecursively()
         LogBus.i(TAG, "libmpv 插件已删除，重启 App 后生效")
     }
