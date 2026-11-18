@@ -45,7 +45,9 @@ object MpvAdFilter {
         if (live) return null
         if (!AdFilteringDataSource.isPlaylistRequest(url, null)) return null
         val dir = File(context.filesDir, CACHE_DIR).apply { mkdirs() }
-        val file = File(dir, sha256(url) + ".m3u8")
+        // v1.3.19：缓存键加版本盐——旧缓存文件可能还带行首杂质，复用会
+        // 让修复不生效；旧文件由 pruneCache 慢慢清掉。
+        val file = File(dir, sha256("v2:" + url) + ".m3u8")
         // v1.1.31：同一地址 1 小时内的过滤结果直接复用——点播播放列表是静态的，
         // 换内核重试/同集重播不用每次都重新拉一次
         if (file.exists() && System.currentTimeMillis() - file.lastModified() < 3_600_000L) {
@@ -61,8 +63,12 @@ object MpvAdFilter {
             val text = download(client, url, headers) ?: return null
             val filtered = filterPlaylist(client, url, headers, text) ?: return null
             pruneCache(dir)
-            file.writeText(filtered, Charsets.UTF_8)
-            LogBus.i("MpvAdFilter", "去广告：${url.take(80)} -> 本地 ${file.name}（${filtered.length} 字符）")
+            // v1.3.19：写盘前再去一次行首杂质（链路里任何一步都可能留出空行），
+            // 并把首行打进日志——下次再逐条播，先看首行是不是 #EXTM3U。
+            val cleaned = stripLeadingJunk(filtered)
+            file.writeText(cleaned, Charsets.UTF_8)
+            val firstLine = cleaned.substringBefore('\n').take(20)
+            LogBus.i("MpvAdFilter", "去广告：${url.take(80)} -> 本地 ${file.name}（${cleaned.length} 字符，首行=${firstLine}）")
             file.absolutePath
         }.onFailure {
             LogBus.w("MpvAdFilter", "过滤失败，走原地址：${it.message}")
@@ -89,9 +95,11 @@ object MpvAdFilter {
             val body = resp.body ?: return null
             val bytes = body.bytes()
             if (bytes.size > MAX_PLAYLIST_BYTES) return null
-            val text = bytes.toString(Charsets.UTF_8)
+            // v1.3.19：先去行首杂质再判断——源站行首若有空行/空格/BOM，
+            // trimStart 检查能过、写盘却原样保留，hls probe 认不出 #EXTM3U。
+            val text = stripLeadingJunk(bytes.toString(Charsets.UTF_8))
             val ct = resp.header("Content-Type").orEmpty()
-            if (!text.trimStart().startsWith("#EXTM3U") && !ct.contains("mpegurl", ignoreCase = true)) return null
+            if (!text.startsWith("#EXTM3U") && !ct.contains("mpegurl", ignoreCase = true)) return null
             return text
         }
     }
@@ -122,6 +130,22 @@ object MpvAdFilter {
         // v1.3.17：写盘前补 HLS 标记（见 ensureHlsMarkers），否则 lavf
         // 认不出极简播放列表，mpv 会把分片当独立条目逐个播。
         return ensureHlsMarkers(resolveUris(M3u8AdFilter.filter(ruled, url), url))
+    }
+
+    /**
+     * v1.3.19：去行首杂质（空行/空格/BOM）。源站播放列表行首若有这些，
+     * hls probe 的 strncmp 认不出 #EXTM3U（回 0 分），mpv 退回 playlist
+     * 解复用器逐条播分片；前面的 trimStart 检查只管"认不认"，写盘必须真去掉。
+     * 1.3.18 的 probescore=25 对 0 分无效，白改了（ffprobe 实测：行首多个
+     * 空行/空格/BOM 都报 Invalid data，25 分的前提是文件本身能探出分）。
+     * 纯函数，可单测。
+     */
+    internal fun stripLeadingJunk(content: String): String {
+        var out = content.trimStart()
+        while (out.startsWith("\uFEFF")) {
+            out = out.substring(1).trimStart()
+        }
+        return out
     }
 
     /**

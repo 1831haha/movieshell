@@ -122,6 +122,28 @@ class MpvAdFilterTest {
     }
 
     @Test
+    fun stripLeadingJunk_leadingBlankLineRemoved() {
+        assertEquals(
+            "#EXTM3U\n#EXTINF:4.0,\nindex0.ts\n",
+            MpvAdFilter.stripLeadingJunk("\n#EXTM3U\n#EXTINF:4.0,\nindex0.ts\n"),
+        )
+    }
+
+    @Test
+    fun stripLeadingJunk_bomAndSpacesRemoved() {
+        assertEquals(
+            "#EXTM3U\n",
+            MpvAdFilter.stripLeadingJunk("\uFEFF  \n#EXTM3U\n"),
+        )
+    }
+
+    @Test
+    fun stripLeadingJunk_cleanFileUntouched() {
+        val content = "#EXTM3U\n#EXT-X-VERSION:3\n#EXTINF:4.0,\nindex0.ts\n"
+        assertEquals(content, MpvAdFilter.stripLeadingJunk(content))
+    }
+
+    @Test
     fun ensureHlsMarkers_minimalPlaylistGetsBoth() {
         val content = "#EXTM3U\n#EXT-X-VERSION:3\n#EXTINF:9.6,\nindex0.ts\n#EXTINF:10.2,\nindex1.ts\n#EXT-X-ENDLIST\n"
         assertEquals(
