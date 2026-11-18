@@ -130,6 +130,13 @@ object MpvPlayerManager {
                 // v1.2.2：RTSP 走 TCP 传输——运营商 IPTV 的 UDP 在手机网下常被拦，
                 // TCP 更稳；只影响 RTSP 解复用，其他流不动。
                 MPVLib.setOptionString("rtsp-transport", "tcp")
+                // v1.3.15：mpv 自己的日志落文件——END_FILE 回调不给原因，失败黑盒；
+                // 失败时把末尾打进 LogBus 才能定根因。写文件失败不影响播放。
+                runCatching {
+                    val logFile = File(app.filesDir, "mpv/mpv.log")
+                    logFile.parentFile?.mkdirs()
+                    MPVLib.setOptionString("log-file", logFile.absolutePath)
+                }.onFailure { LogBus.w("MpvPlayer", "mpv 日志文件设置失败：" + (it.message ?: "")) }
                 MPVLib.init()
                 MPVLib.observeProperty("time-pos", MPVLib.MPV_FORMAT_DOUBLE)
                 MPVLib.observeProperty("duration", MPVLib.MPV_FORMAT_DOUBLE)
@@ -526,6 +533,11 @@ object MpvPlayerManager {
                 (if (where.isNotBlank()) "（$where" else "（") +
                 "，$phase，起播后${elapsed}ms，eof=false）"
             LogBus.w("MpvPlayer", "播放异常结束（非自然播完）：$detail")
+            // v1.3.15：把 mpv 日志末尾打进 LogBus——END_FILE 不给原因，这是唯一真凶来源。
+            runCatching {
+                val tail = mpvLogTail(appContext)
+                if (tail.isNotBlank()) LogBus.w("MpvPlayer", "mpv 日志末尾：\n$tail")
+            }
             mainHandler.post { errorListener?.invoke(detail) }
         } else {
             // v0.217.0（F23）：自然播完同样置 paused——原来只有异常结束置，
@@ -533,6 +545,36 @@ object MpvPlayerManager {
             // 若 mpv 本身会回调 pause 属性，此处置 true 是幂等的，无副作用。
             paused = true
         }
+    }
+
+    /**
+     * v1.3.15：读 mpv 日志文件末尾（失败诊断用）。文件可能很大，只读最后 16KB；
+     * 读不到/文件不存在返回空串，不抛异常。
+     */
+    private fun mpvLogTail(context: Context?): String {
+        val ctx = context ?: return ""
+        return runCatching {
+            val f = File(ctx.filesDir, "mpv/mpv.log")
+            if (!f.exists() || f.length() <= 0L) return ""
+            val take = minOf(f.length(), 16_384L).toInt()
+            val buf = ByteArray(take)
+            var off = 0
+            f.inputStream().use { input ->
+                var skipped = 0L
+                val toSkip = f.length() - take
+                while (skipped < toSkip) {
+                    val s = input.skip(toSkip - skipped)
+                    if (s <= 0) break
+                    skipped += s
+                }
+                while (off < take) {
+                    val r = input.read(buf, off, take - off)
+                    if (r < 0) break
+                    off += r
+                }
+            }
+            mpvLogTailText(buf.decodeToString(endIndex = off))
+        }.getOrDefault("")
     }
 
     /**
@@ -566,4 +608,14 @@ object MpvPlayerManager {
         val bytes = value.toByteArray(Charsets.UTF_8)
         return "%${bytes.size}%$value"
     }
+}
+
+/**
+ * v1.3.15：取 mpv 日志文本的末尾若干行（失败诊断用）。纯函数，可单测；
+ * 空文本返回空串，超长先截到 maxChars 再取行。
+ */
+internal fun mpvLogTailText(text: String, maxLines: Int = 30, maxChars: Int = 8192): String {
+    if (text.isBlank()) return ""
+    val tail = text.takeLast(maxChars)
+    return tail.lines().filter { it.isNotBlank() }.takeLast(maxLines).joinToString("\n")
 }

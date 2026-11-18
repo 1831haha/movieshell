@@ -442,6 +442,9 @@ fun PlayerScreen(
             )
             // v0.63.0：看完自动删——本地下载文件播到 95% 以上且开关开着，删文件+清任务
             maybeAutoDeleteWatched(context, currentPlayUrl, isLive)
+            // v1.3.15：退出播放页清掉本集 libmpv 失败记录——下次再进同一集重新试，
+            // 免得一次失败把这集的 libmpv 永久钉死。
+            EngineHost.clearLibmpvFailed()
             if (!embedded) {
                 // v0.294.51：直播全屏回小窗时跳过停播——直播页已置
                 // returnToEmbedded，下面就是等着接续的嵌入播放器，停掉
@@ -958,6 +961,10 @@ fun PlayerScreen(
             return
         }
         val cur = EngineHost.engine()
+        // v1.3.15：libmpv 在此地址上已彻底失败（同内核重拉耗尽）——记下来，
+        // Media3 侧的编码 fallback 不再把它切回去空转。按 path 记，同一集换
+        // 解析（只换 auth_key）仍认得；退出播放页时清空。
+        if (cur == PlayerEngine.LIBMPV) EngineHost.markLibmpvFailed(playUrl)
         val other =
             if (cur == PlayerEngine.MEDIA3) PlayerEngine.LIBMPV else PlayerEngine.MEDIA3
         // v0.186.0 第 5 组：RTMP 与 RTP 只能走 libmpv，与 EngineHost 强制路由一致。
@@ -974,7 +981,12 @@ fun PlayerScreen(
             LogBus.w("Player", "跳过自动换内核：$other 不可用（未安装、初始化失败过或 RTMP/RTP/RTSP 不走 Media3）")
         }
         val alreadyTried = triedEngines + EngineHost.fallbackTriedEngines()
-        if (otherUsableWithInstall && other !in alreadyTried) {
+        // v1.3.15：libmpv 已在本集失败过，不再切回去——直接走换线路，免得原地空转。
+        val libmpvBlocked = other == PlayerEngine.LIBMPV && EngineHost.libmpvFailed(playUrl)
+        if (libmpvBlocked) {
+            LogBus.i("Player", "跳过自动换内核：libmpv 已在本集失败过")
+        }
+        if (!libmpvBlocked && otherUsableWithInstall && other !in alreadyTried) {
             triedEngines.add(cur)
             triedEngines.add(other)
             try {

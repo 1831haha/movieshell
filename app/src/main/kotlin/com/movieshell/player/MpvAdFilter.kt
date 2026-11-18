@@ -135,7 +135,7 @@ object MpvAdFilter {
             val uri = lines.drop(i + 1)
                 .firstOrNull { it.isNotBlank() && !it.trimStart().startsWith("#") }
                 ?.trim() ?: continue
-            val resolved = base.resolve(uri)?.toString() ?: continue
+            val resolved = base.resolve(uri)?.toString()?.let { resolveKeepingQuery(base, it) } ?: continue
             if (best == null || bw > best.first) best = bw to resolved
         }
         return best?.second
@@ -149,12 +149,26 @@ object MpvAdFilter {
             when {
                 t.startsWith("#") -> UriAttr.replace(line) { m ->
                     val resolved = base.resolve(m.groupValues[1])?.toString() ?: m.groupValues[1]
-                    "URI=\"$resolved\""
+                    "URI=\"" + resolveKeepingQuery(base, resolved) + "\""
                 }
                 t.isEmpty() -> line
-                else -> base.resolve(t)?.toString() ?: line
+                else -> base.resolve(t)?.toString()?.let { resolveKeepingQuery(base, it) } ?: line
             }
         }
+    }
+
+    /**
+     * v1.3.15：相对地址解析后丢了原 query（auth_key 这类 token）——分片/分路请求没
+     * token 可能被拒。只在同 host 且结果本身没 query 时把原 query 补回去；
+     * 跨 host 或已有 query 的不动。纯函数，可单测。
+     */
+    internal fun resolveKeepingQuery(base: okhttp3.HttpUrl, resolved: String): String {
+        val query = base.query
+        if (query.isNullOrBlank()) return resolved
+        val target = resolved.toHttpUrlOrNull() ?: return resolved
+        if (target.host != base.host) return resolved
+        if (!target.query.isNullOrBlank()) return resolved
+        return target.newBuilder().query(query).build().toString()
     }
 
     private fun sha256(s: String): String =

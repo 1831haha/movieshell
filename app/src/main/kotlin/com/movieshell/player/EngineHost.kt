@@ -55,6 +55,30 @@ object EngineHost {
     }
 
     /**
+     * v1.3.15：libmpv 已播失败过的地址 path（去 query，只留路径）。
+     * 同一集换解析只换 auth_key、path 不变，仍认得；不同集 path 不同，不影响。
+     * PlayerManager 编码 fallback 切 libmpv 前查它：已失败过的不再切回去，
+     * 避免 Media3 与 libmpv 原地空转。退出播放页时由 PlayerScreen 清空。
+     */
+    private val libmpvFailedPaths = mutableSetOf<String>()
+
+    fun markLibmpvFailed(url: String) {
+        val key = url.substringBefore("?").trim()
+        if (key.isBlank()) return
+        if (libmpvFailedPaths.size >= 50) libmpvFailedPaths.clear()
+        libmpvFailedPaths.add(key)
+    }
+
+    fun libmpvFailed(url: String): Boolean {
+        val key = url.substringBefore("?").trim()
+        return key.isNotBlank() && libmpvFailedPaths.contains(key)
+    }
+
+    fun clearLibmpvFailed() {
+        libmpvFailedPaths.clear()
+    }
+
+    /**
      * 起播（v0.25.0 加固：永不抛异常）。
      * - 地址非法 → 记日志 + Toast，返回 false；
      * - libmpv 初始化曾失败 → 直接禁用该引擎回退 Media3（不走自动切换），Toast 提示；

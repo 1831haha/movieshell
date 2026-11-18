@@ -65,6 +65,7 @@ import com.movieshell.data.store.SubRefreshStore
 import com.movieshell.data.sync.BackupManager
 import com.movieshell.data.sync.CloudSyncManager
 import com.movieshell.domain.model.PlayerEngine
+import com.movieshell.player.EngineHost
 import com.movieshell.player.EnginePlugins
 import com.movieshell.player.MagnetCache
 import com.movieshell.player.MagnetRemote
@@ -529,6 +530,9 @@ private fun settingRowContent(
                                         context,
                                         if (it.startsWith("Media3")) PlayerEngine.MEDIA3 else PlayerEngine.LIBMPV,
                                     )
+                                    // v1.3.15：设置换内核立即生效——清掉失败转移写下的临时覆盖，
+                                    // 否则当前播放的重试点仍走旧覆盖，换了也白换。
+                                    EngineHost.setEngineOverride(null)
                                     showEngineDialog = false
                                 } else {
                                     // v1.1.31：未安装不再只 Toast，直接跳市场页签装插件

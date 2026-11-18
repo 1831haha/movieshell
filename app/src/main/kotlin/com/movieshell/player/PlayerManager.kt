@@ -161,7 +161,7 @@ object PlayerManager {
             if (hasVideo && p.videoSize.width == 0) listenerSwitch("就绪 6 秒仍没有画面（有声音）")
         }, 6000)
     }
-    private fun listenerSwitch(reason: String) = switchToMpvImpl(reason)
+    private fun listenerSwitch(reason: String) = switchToMpvImpl(reason, escalateOnBlock = true)
 
     private val listener = object : Player.Listener {
         // v0.294.37：本机磁力 / 迅雷地址记首帧与画面尺寸，便于排查黑屏
@@ -212,10 +212,24 @@ object PlayerManager {
         private fun switchToMpv(reason: String) = switchToMpvImpl(reason)
     }
 
-    private fun switchToMpvImpl(reason: String) {
+    private fun switchToMpvImpl(reason: String, escalateOnBlock: Boolean = false) {
         run {
             if (decoderFallbackDone) return
             decoderFallbackDone = true
+            // v1.3.15：libmpv 已在本集失败过，不再切回去空转；留 Media3 真正试一次解码。
+            // 无画面才到这里时（6 秒检查）直接升级成播放失败，走换线路，不原地黑屏。
+            if (lastUrl.isNotBlank() && EngineHost.libmpvFailed(lastUrl)) {
+                LogBus.i("Player", "$reason；libmpv 已在本集失败过，不再自动切过去，留 Media3 尝试")
+                if (escalateOnBlock) {
+                    onError?.invoke(
+                        PlaybackException(
+                            "视频无画面且 libmpv 已失败过", null,
+                            PlaybackException.ERROR_CODE_DECODER_INIT_FAILED,
+                        ),
+                    )
+                }
+                return
+            }
             val app = appContext ?: return
             if (!MpvPluginLoader.isInstalled(app)) {
                 LogBus.w("Player", "$reason；未装 libmpv 插件，无法软解")
@@ -243,7 +257,11 @@ object PlayerManager {
             ) {
                 decoderFallbackDone = true
                 val app = appContext
-                if (app != null && MpvPluginLoader.isInstalled(app)) {
+                // v1.3.15：libmpv 已在本集失败过，不再切回去空转；落到下面的 onError 走换线路。
+                val mpvAlreadyFailed = lastUrl.isNotBlank() && EngineHost.libmpvFailed(lastUrl)
+                if (mpvAlreadyFailed) {
+                    LogBus.i("Player", "硬解初始化失败；libmpv 已在本集失败过，不再自动切过去")
+                } else if (app != null && MpvPluginLoader.isInstalled(app)) {
                     AppToast.show(app, "硬解失败，已自动切换 libmpv 重播", long = false)
                     LogBus.i("Player", "硬解初始化失败，自动切 libmpv 重播")
                     // v0.186.0 第 5 组：换内核三步固定——先取断点，再显式停
