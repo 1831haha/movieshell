@@ -84,4 +84,46 @@ class ShareLinkTest {
         assertEquals("45:25", ShareLink.humanDuration(2725))
         assertEquals("1:01:01", ShareLink.humanDuration(3661))
     }
+
+    @Test
+    fun sortShareFiles_naturalOrderNotLexicographic() {
+        // v1.3.9：字典序会把 "10" 排到 "2" 前面，集数就乱了。
+        val files = listOf(
+            ShareFile(fid = "10", name = "10.mp4"),
+            ShareFile(fid = "2", name = "02.mp4"),
+            ShareFile(fid = "1", name = "01.mp4"),
+        )
+        val sorted = ShareLink.sortShareFiles(files).map { it.name }
+        assertEquals(listOf("01.mp4", "02.mp4", "10.mp4"), sorted)
+    }
+
+    @Test
+    fun sortShareFiles_foldersFirstThenFiles() {
+        val files = listOf(
+            ShareFile(fid = "f2", name = "02.mp4"),
+            ShareFile(fid = "d2", name = "花絮", isDir = true),
+            ShareFile(fid = "f1", name = "01.mp4"),
+            ShareFile(fid = "d1", name = "正片", isDir = true),
+        )
+        val sorted = ShareLink.sortShareFiles(files).map { it.name }
+        assertEquals(listOf("正片", "花絮", "01.mp4", "02.mp4"), sorted)
+    }
+
+    @Test
+    fun sortShareFiles_chineseEpisodeNumbers() {
+        val files = listOf(
+            ShareFile(fid = "10", name = "第10集.mp4"),
+            ShareFile(fid = "2", name = "第2集.mp4"),
+        )
+        val sorted = ShareLink.sortShareFiles(files).map { it.name }
+        assertEquals(listOf("第2集.mp4", "第10集.mp4"), sorted)
+    }
+
+    @Test
+    fun episodeLabel_stripsExtension() {
+        assertEquals("01", ShareLink.episodeLabel("01.mp4"))
+        assertEquals("谷雨第1集", ShareLink.episodeLabel("谷雨第1集.mkv"))
+        assertEquals("a.b.c", ShareLink.episodeLabel("a.b.c.mp4"))
+        assertEquals("README", ShareLink.episodeLabel("README"))
+    }
 }

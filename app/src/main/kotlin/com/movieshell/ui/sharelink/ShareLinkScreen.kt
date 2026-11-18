@@ -3,6 +3,7 @@ package com.movieshell.ui.sharelink
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
@@ -16,14 +17,13 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Folder
-import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -42,6 +42,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalClipboardManager
@@ -98,6 +99,8 @@ fun copyTextForLink(input: String): String? = input.takeIf { it.isNotBlank() }
  * 空态/加载中/失败态都有可见反馈，不静默空白。
  * v1.3.7：进页自动填上次的链接（解析时保存），框内 × 一键清空，
  * 长按输入框复制整段链接，长按文件/文件夹行复制名字。
+ * v1.3.9：集数列表改成 6 列小方块网格（文件夹仍是一行一行），文件按
+ * 自然顺序排（ShareResolver.listDir 里统一排，六盘都受益），头上显示"共 N 集"。
  */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -435,6 +438,8 @@ fun ShareLinkScreen(
                     }
                 }
                 Spacer(Modifier.height(4.dp))
+                val folders = currentListing.files.filter { it.isDir }
+                val videos = currentListing.files.filter { !it.isDir }
                 if (currentListing.files.isEmpty()) {
                     Text(
                         text = "这个文件夹是空的",
@@ -442,91 +447,73 @@ fun ShareLinkScreen(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 } else {
-                    LazyColumn(
-                        modifier = Modifier.fillMaxSize(),
-                        verticalArrangement = Arrangement.spacedBy(4.dp),
+                    // v1.3.9：集数列表改成小方块网格——文件夹仍是一行一行，
+                    // 文件按 6 列排方块，点方块播对应集，正在取地址的方块转圈。
+                    Column(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .verticalScroll(rememberScrollState()),
                     ) {
-                        items(currentListing.files, key = { it.fid + it.name }) { file ->
-                            if (file.isDir) {
+                        folders.forEach { file ->
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .combinedClickable(
+                                        onClick = { openDir(file) },
+                                        onLongClick = { copyName(file.name) },
+                                    )
+                                    .padding(vertical = 10.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Filled.Folder,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.size(20.dp),
+                                )
+                                Spacer(Modifier.width(12.dp))
+                                Text(
+                                    text = file.name,
+                                    style = MaterialTheme.typography.bodyLarge,
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier.weight(1f),
+                                )
+                                Icon(
+                                    imageVector = Icons.AutoMirrored.Filled.ArrowForward,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.size(18.dp),
+                                )
+                            }
+                        }
+                        if (videos.isNotEmpty()) {
+                            if (folders.isNotEmpty()) Spacer(Modifier.height(8.dp))
+                            Text(
+                                text = "共 ${videos.size} 集",
+                                style = MaterialTheme.typography.titleSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                            Spacer(Modifier.height(8.dp))
+                            videos.chunked(EPISODE_COLUMNS).forEach { row ->
                                 Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .combinedClickable(
-                                            onClick = { openDir(file) },
-                                            onLongClick = { copyName(file.name) },
-                                        )
-                                        .padding(vertical = 10.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
                                 ) {
-                                    Icon(
-                                        imageVector = Icons.Filled.Folder,
-                                        contentDescription = null,
-                                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        modifier = Modifier.size(20.dp),
-                                    )
-                                    Spacer(Modifier.width(12.dp))
-                                    Text(
-                                        text = file.name,
-                                        style = MaterialTheme.typography.bodyLarge,
-                                        color = MaterialTheme.colorScheme.onSurface,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis,
-                                        modifier = Modifier.weight(1f),
-                                    )
-                                    Icon(
-                                        imageVector = Icons.AutoMirrored.Filled.ArrowForward,
-                                        contentDescription = null,
-                                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        modifier = Modifier.size(18.dp),
-                                    )
-                                }
-                            } else {
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .combinedClickable(
+                                    row.forEach { file ->
+                                        EpisodeChip(
+                                            file = file,
+                                            resolving = resolvingFid == file.fid,
                                             onClick = { playFile(file) },
                                             onLongClick = { copyName(file.name) },
                                         )
-                                        .padding(vertical = 10.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Filled.PlayArrow,
-                                        contentDescription = null,
-                                        tint = MaterialTheme.colorScheme.primary,
-                                        modifier = Modifier.size(20.dp),
-                                    )
-                                    Spacer(Modifier.width(12.dp))
-                                    Column(modifier = Modifier.weight(1f)) {
-                                        Text(
-                                            text = file.name,
-                                            style = MaterialTheme.typography.bodyLarge,
-                                            color = MaterialTheme.colorScheme.onSurface,
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis,
-                                        )
-                                        val meta = listOfNotNull(
-                                            ShareLink.humanSize(file.size).takeIf { it.isNotBlank() },
-                                            ShareLink.humanDuration(file.durationSec).takeIf { it.isNotBlank() },
-                                        ).joinToString(" · ")
-                                        if (meta.isNotBlank()) {
-                                            Text(
-                                                text = meta,
-                                                style = MaterialTheme.typography.bodySmall,
-                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                                maxLines = 1,
-                                                overflow = TextOverflow.Ellipsis,
-                                            )
-                                        }
                                     }
-                                    if (resolvingFid == file.fid) {
-                                        CircularProgressIndicator(
-                                            modifier = Modifier.size(18.dp),
-                                            strokeWidth = 2.dp,
-                                        )
+                                    repeat(EPISODE_COLUMNS - row.size) {
+                                        Spacer(Modifier.weight(1f))
                                     }
                                 }
+                                Spacer(Modifier.height(6.dp))
                             }
                         }
                     }
@@ -584,6 +571,45 @@ fun ShareLinkScreen(
                     currentListing?.let { openLoginFor(it.platform) }
                 },
             ) { Text("去登录，看全集") }
+        }
+    }
+}
+
+/** 集数网格一行的方块数。 */
+private const val EPISODE_COLUMNS = 6
+
+/** 集数小方块：点按播对应集，长按复制文件名，正在取地址时转圈。 */
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun EpisodeChip(
+    file: ShareFile,
+    resolving: Boolean,
+    onClick: () -> Unit,
+    onLongClick: () -> Unit,
+) {
+    Box(
+        modifier = Modifier
+            .weight(1f)
+            .height(44.dp)
+            .clip(RoundedCornerShape(10.dp))
+            .background(MaterialTheme.colorScheme.surfaceVariant)
+            .combinedClickable(onClick = onClick, onLongClick = onLongClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        if (resolving) {
+            CircularProgressIndicator(
+                modifier = Modifier.size(18.dp),
+                strokeWidth = 2.dp,
+            )
+        } else {
+            Text(
+                text = ShareLink.episodeLabel(file.name),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.padding(horizontal = 4.dp),
+            )
         }
     }
 }

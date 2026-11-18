@@ -23,7 +23,9 @@ object ShareResolver {
     ): ShareResult<ShareListing> = withContext(Dispatchers.IO) {
         val platform = ShareLink.platformOf(shareUrl)
             ?: return@withContext ShareResult.Err("这不是网盘分享链接，只认夸克、UC、百度、阿里、光鸭、迅雷六家的分享链接")
-        when (platform) {
+        // v1.3.9：各盘原序是服务端按更新时间排的，集数会被打散；统一在这里按
+        // 自然顺序排一次（文件夹在前），六盘都受益，UI 不用再排。
+        val result = when (platform) {
             SharePlatform.QUARK, SharePlatform.UC -> {
                 when (QuarkUcApi.check(platform, shareUrl, client)) {
                     QuarkUcApi.Check.DEAD ->
@@ -49,6 +51,12 @@ object ShareResolver {
             SharePlatform.ALIYUN -> AliyunApi.listDir(shareUrl, dirKey, client)
             SharePlatform.GUANGYA -> GuangyaApi.listDir(shareUrl, dirKey, client)
             SharePlatform.XUNLEI -> XunleiApi.listDir(shareUrl, dirKey, client)
+        }
+        return@withContext when (result) {
+            is ShareResult.Ok -> ShareResult.Ok(
+                result.value.copy(files = ShareLink.sortShareFiles(result.value.files)),
+            )
+            is ShareResult.Err -> result
         }
     }
 

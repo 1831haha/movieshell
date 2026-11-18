@@ -96,6 +96,57 @@ object ShareLink {
         return if (h > 0) "${h}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}"
         else "${m}:${s.toString().padStart(2, '0')}"
     }
+
+    /**
+     * v1.3.9：集数列表按顺序排——文件夹在前、文件在后，各组内按文件名自然排序
+     * （数字段按数值比，"02" < "10"，不是字典序的 "10" < "2"）。服务端原序
+     * 是按更新时间倒序，30 集会被打散。纯函数，可单测。
+     */
+    fun sortShareFiles(files: List<ShareFile>): List<ShareFile> =
+        files.sortedWith(
+            compareBy<ShareFile> { !it.isDir }
+                .thenBy(Comparator<String> { a, b -> compareNatural(a, b) }) { it.name },
+        )
+
+    /** 自然排序：数字段按数值比，其余按字典比（忽略大小写）。纯函数，可单测。 */
+    fun compareNatural(a: String, b: String): Int {
+        val aParts = splitNatural(a)
+        val bParts = splitNatural(b)
+        for (i in 0 until minOf(aParts.size, bParts.size)) {
+            val (aIsDigit, x) = aParts[i]
+            val (bIsDigit, y) = bParts[i]
+            val cmp = if (aIsDigit && bIsDigit) {
+                // 数字段：先比去零后的位数，再比字典——数值比，不怕 Long 溢出。
+                val xs = x.trimStart('0')
+                val ys = y.trimStart('0')
+                when {
+                    xs.length != ys.length -> xs.length.compareTo(ys.length)
+                    else -> xs.compareTo(ys)
+                }
+            } else {
+                x.compareTo(y, ignoreCase = true)
+            }
+            if (cmp != 0) return cmp
+        }
+        return aParts.size.compareTo(bParts.size)
+    }
+
+    /** 把名字切成数字段/非数字段交替的块。 */
+    private fun splitNatural(s: String): List<Pair<Boolean, String>> {
+        val out = ArrayList<Pair<Boolean, String>>()
+        var i = 0
+        while (i < s.length) {
+            val digit = s[i].isDigit()
+            var j = i + 1
+            while (j < s.length && s[j].isDigit() == digit) j++
+            out.add(digit to s.substring(i, j))
+            i = j
+        }
+        return out
+    }
+
+    /** 集数小方块上的字：去掉后缀，"01.mp4" → "01"。纯函数，可单测。 */
+    fun episodeLabel(name: String): String = name.substringBeforeLast(".", missingDelimiterValue = name)
 }
 
 /** 分享里的一项：文件夹或文件。dirKey 是下钻用的键（各盘含义不同，见各盘 Api）。 */
