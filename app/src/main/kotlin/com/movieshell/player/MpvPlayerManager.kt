@@ -74,6 +74,13 @@ object MpvPlayerManager {
      * 主线程只做 increment/decrement，AtomicInteger 足够，无需 CAS 循环。
      */
     private val expectEndFileCount = AtomicInteger(0)
+    /**
+     * v1.3.17：起播代次——stop() 每次 +1；play() 在 executor 里真正
+     * loadfile 前核对代次，代次变了说明这次起播是停播前排队的旧任务
+     * （MpvAdFilter 下载 m3u8 会堵住单线程 executor 数秒，stop 命令
+     * 排在后面，旧 loadfile 会在 stop 之后才执行、把已停的播又拉起来）。
+     */
+    @Volatile private var playGen = 0
     /** 是否有已加载的文件（首播前不计忽略，避免把真正的失败吞掉） */
     @Volatile var hasFile = false
         private set
@@ -302,9 +309,15 @@ object MpvPlayerManager {
         lastPlayHost = runCatching { Uri.parse(url).host.orEmpty() }.getOrDefault("")
         lastPlayExt = url.substringBefore("?").substringAfterLast(".", "").take(8)
         lastPlayStartMs = SystemClock.elapsedRealtime()
+        // v1.3.17：起播代次快照——executor 里 loadfile 前核对，过期丢弃
+        val gen = playGen
         executor.execute {
             if (!initialized.get() || destroyed.get()) {
                 mainHandler.post { errorListener?.invoke("libmpv 初始化失败，请切回 Media3") }
+                return@execute
+            }
+            if (gen != playGen) {
+                LogBus.i("MpvPlayer", "起播已过期（期间已停播），丢弃：${lastPlayHost}")
                 return@execute
             }
             runCatching {
@@ -356,6 +369,8 @@ object MpvPlayerManager {
 
     fun stop() {
         val hadFile = hasFile
+        // v1.3.17：代次 +1，让已排队、还没执行的旧起播任务在 loadfile 前丢弃
+        playGen++
         if (hadFile) {
             val who = Throwable().stackTrace.drop(1)
                 .filter { it.className.startsWith("com.movieshell") && !it.className.contains("MpvPlayerManager") && !it.className.contains("EngineHost") }
@@ -367,7 +382,12 @@ object MpvPlayerManager {
         execIfReady {
             runCatching { MPVLib.command(arrayOf("stop")) }
                 // v0.107.0 P0-3：命令发出后才计数；命令本身失败则不会有 END_FILE，不计数
-                .onSuccess { if (hadFile) expectEndFileCount.incrementAndGet() }
+                .onSuccess {
+                    if (hadFile) expectEndFileCount.incrementAndGet()
+                    // v1.3.17：stop 只停当前条，不清播放列表——分片被展开成
+                    // 播放列表时余下的分片还在队列里；一并清空才算真停。
+                    runCatching { MPVLib.command(arrayOf("playlist-clear")) }
+                }
                 .onFailure { LogBus.w("MpvPlayer", "stop 失败：${it.message}") }
         }
     }
@@ -515,6 +535,14 @@ object MpvPlayerManager {
     }
 
     /**
+     * v1.3.17：当前 mpv 播放列表条数（读不到按 1 计）。正常单片播放恒为
+     * 1 条；>1 说明分片被展开成播放列表（见 ensureHlsMarkers 注释）。
+     */
+    private fun playlistCount(): Int = runCatching {
+        MPVLib.getPropertyString("playlist-count")?.trim()?.toIntOrNull() ?: 1
+    }.getOrDefault(1)
+
+    /**
      * END_FILE 处理：自然播完（eof-reached=true）同步置 paused（界面不再以为在播）；
      * 异常结束则回调 onError（调用方走自动换线路重试）。
      * v0.107.0 P0-3：我们自己 stop()/loadfile 触发的按计数忽略；
@@ -528,6 +556,16 @@ object MpvPlayerManager {
         }
         val eof = runCatching { MPVLib.getPropertyBoolean("eof-reached") }.getOrNull() == true
         if (!eof) {
+            // v1.3.17：播放列表里还有不止一条——这是分片被当独立条目展开
+            // （极简 m3u8 没被 lavf 认出，见 MpvAdFilter.ensureHlsMarkers），
+            // 本次 END_FILE 只是分片过渡，不是失败：不回调 onError、不触发
+            // 换内核重试，让 mpv 继续播下一条。正常单片播放列表恒为 1 条，
+            // 不会误伤；真失败时列表只剩当前一条，照常走错误路径。
+            if (playlistCount() > 1) {
+                hasFile = true
+                LogBus.i("MpvPlayer", "分片过渡（播放列表多条），忽略本次 END_FILE")
+                return
+            }
             // v0.154.0：异常结束即不在播，本地状态同步置 true，免得重试间隙界面仍显示在播
             paused = true
             // v0.152.0：不再只回一句"libmpv 播放失败"——2026-10-22 直播案（libmpv 5 秒后断、

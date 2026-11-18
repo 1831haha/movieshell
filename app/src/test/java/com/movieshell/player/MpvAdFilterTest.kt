@@ -120,4 +120,26 @@ class MpvAdFilterTest {
         val content = "#EXTM3U\n#EXT-X-VERSION:3\n#EXTINF:10.0,\n0001.ts\n"
         assertNull(MpvAdFilter.pickBestVariant(content, "https://cdn.example.com/vod/index.m3u8"))
     }
+
+    @Test
+    fun ensureHlsMarkers_minimalPlaylistGetsBoth() {
+        val content = "#EXTM3U\n#EXT-X-VERSION:3\n#EXTINF:9.6,\nindex0.ts\n#EXTINF:10.2,\nindex1.ts\n#EXT-X-ENDLIST\n"
+        assertEquals(
+            "#EXTM3U\n#EXT-X-VERSION:3\n#EXT-X-TARGETDURATION:11\n#EXT-X-MEDIA-SEQUENCE:0\n" +
+                "#EXTINF:9.6,\nindex0.ts\n#EXTINF:10.2,\nindex1.ts\n#EXT-X-ENDLIST\n",
+            MpvAdFilter.ensureHlsMarkers(content),
+        )
+    }
+
+    @Test
+    fun ensureHlsMarkers_existingMarkersKept() {
+        val content = "#EXTM3U\n#EXT-X-VERSION:3\n#EXT-X-TARGETDURATION:10\n#EXT-X-MEDIA-SEQUENCE:5\n#EXTINF:10.0,\nindex0.ts\n"
+        assertEquals(content, MpvAdFilter.ensureHlsMarkers(content))
+    }
+
+    @Test
+    fun ensureHlsMarkers_masterPlaylistUntouched() {
+        val content = "#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=5000000\n high.m3u8\n"
+        assertEquals(content, MpvAdFilter.ensureHlsMarkers(content))
+    }
 }

@@ -124,6 +124,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -483,6 +486,29 @@ fun PlayerScreen(
         }
         activity.addOnPictureInPictureModeChangedListener(listener)
         onDispose { activity.removeOnPictureInPictureModeChangedListener(listener) }
+    }
+
+    // v1.3.17：切后台自动暂停——按 Home/手势退出 App 时播放页不 dispose，
+    // 之前没有任何生命周期处理，mpv 在后台继续播（分片列表还会自推进），
+    // 正是「退出了还在响」。画中画不触发 onStop，另加 isInPictureInPictureMode
+    // 双保险；回到前台清掉后台标记，失败重试的延迟任务才允许再起播。
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            when (event) {
+                Lifecycle.Event.ON_STOP -> {
+                    val activity = context as? Activity
+                    if (activity?.isInPictureInPictureMode != true) {
+                        EngineHost.backgrounded = true
+                        EngineHost.pauseAll()
+                    }
+                }
+                Lifecycle.Event.ON_START -> EngineHost.backgrounded = false
+                else -> {}
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
     // v0.27.7：重力感应自动横屏（设置→播放→开关，默认开）。sensor 监听收敛在

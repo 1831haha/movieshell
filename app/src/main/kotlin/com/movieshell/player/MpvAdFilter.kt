@@ -119,7 +119,46 @@ object MpvAdFilter {
         val ruled = runCatching {
             M3u8AdFilter.applyRuleRegex(text, SniffRules.m3u8BodyRegex(url))
         }.getOrDefault(text)
-        return resolveUris(M3u8AdFilter.filter(ruled, url), url)
+        // v1.3.17：写盘前补 HLS 标记（见 ensureHlsMarkers），否则 lavf
+        // 认不出极简播放列表，mpv 会把分片当独立条目逐个播。
+        return ensureHlsMarkers(resolveUris(M3u8AdFilter.filter(ruled, url), url))
+    }
+
+    /**
+     * v1.3.17：给媒体播放列表补 HLS 标记。CDN 的 splitOut 这类极简 m3u8
+     * 只有 #EXTM3U / #EXT-X-VERSION / #EXTINF，没有 TARGETDURATION、
+     * MEDIA-SEQUENCE、STREAM-INF；libavformat 的 hls probe 只认后三者，
+     * 认不出就拒收（ffprobe 实测：缺两标记报 Invalid data，补上即认出
+     * hls），mpv 退回 playlist 解复用器，把每个分片当独立条目逐个播，
+     * 每条触发一次 END_FILE、App 跟着逐条判失败。主播放列表（无 EXTINF）
+     * 不动；已有标记的不改值。纯函数，可单测。
+     */
+    internal fun ensureHlsMarkers(content: String): String {
+        val lines = content.lines()
+        if (lines.none { it.trim().startsWith("#EXTINF") }) return content
+        val hasTarget = lines.any { it.trim().startsWith("#EXT-X-TARGETDURATION") }
+        val hasSequence = lines.any { it.trim().startsWith("#EXT-X-MEDIA-SEQUENCE") }
+        if (hasTarget && hasSequence) return content
+        var maxDur = 0.0
+        for (line in lines) {
+            val t = line.trim()
+            if (t.startsWith("#EXTINF:")) {
+                t.substringAfter(":").substringBefore(",").trim().toDoubleOrNull()?.let {
+                    if (it > maxDur) maxDur = it
+                }
+            }
+        }
+        val target = kotlin.math.ceil(maxDur).toInt().coerceAtLeast(1)
+        val insert = buildList {
+            if (!hasTarget) add("#EXT-X-TARGETDURATION:" + target)
+            if (!hasSequence) add("#EXT-X-MEDIA-SEQUENCE:0")
+        }
+        val anchor = lines.indexOfFirst { it.trim().startsWith("#EXT-X-VERSION") }
+            .takeIf { it >= 0 }
+            ?: lines.indexOfFirst { it.trim() == "#EXTM3U" }
+        val out = lines.toMutableList()
+        if (anchor >= 0) out.addAll(anchor + 1, insert) else out.addAll(0, insert)
+        return out.joinToString("\n")
     }
 
     /** 主播放列表里取最高码率分路的绝对地址；不是主列表返回 null。 */

@@ -78,6 +78,11 @@ object EngineHost {
         libmpvFailedPaths.clear()
     }
 
+    /** v1.3.17：App 是否在后台（PlayerScreen 的生命周期观察者维护）。
+     * 后台时拒绝新的起播——失败重试的延迟任务不得在后台把已暂停的播放
+     * 重新拉起来；回到前台（ON_START）即清掉。 */
+    @Volatile var backgrounded = false
+
     /**
      * 起播（v0.25.0 加固：永不抛异常）。
      * - 地址非法 → 记日志 + Toast，返回 false；
@@ -97,6 +102,11 @@ object EngineHost {
         // 该台服务器的 EmbyServer.ignoreCert）；其他入口默认关。
         ignoreCert: Boolean = false,
     ): Boolean {
+        // v1.3.17：后台拒绝起播（见 backgrounded 注释）
+        if (backgrounded) {
+            LogBus.i("Play", "后台中，拒绝起播")
+            return false
+        }
         val t0 = SystemClock.elapsedRealtime()
         appCtx = context.applicationContext
         stopGen++
@@ -229,6 +239,15 @@ object EngineHost {
 
     fun pause() = route({ PlayerManager.pause() }, { MpvPlayerManager.pause() })
 
+    /**
+     * v1.3.17：两个引擎都暂停——切后台时不知道实际在播的是哪一个，
+     * 只停「当前」引擎可能漏掉另一个（与 stop 双停同理）。
+     */
+    fun pauseAll() {
+        PlayerManager.pause()
+        MpvPlayerManager.pause()
+    }
+
     fun resume() = route({ PlayerManager.resume() }, { MpvPlayerManager.resume() })
 
     /**
@@ -248,7 +267,11 @@ object EngineHost {
     fun seekTo(ms: Long) = route({ PlayerManager.seekTo(ms) }, { MpvPlayerManager.seekTo(ms) })
 
     fun stop() {
-        route({ PlayerManager.stop() }, { MpvPlayerManager.stop() })
+        // v1.3.17：两个引擎都停——只停「当前」引擎时，失败转移来回切后
+        // 实际在播的可能是另一个（mpv 的分片播放列表还在自推进），
+        // 退出播放页就停不干净。停空闲引擎是 no-op。
+        PlayerManager.stop()
+        MpvPlayerManager.stop()
         // v0.294.36：停播后 8 秒内没有重新读流就结束磁力进程
         // v0.294.38：换内核 / 重试是「停 → 马上再播同一地址」，不算离开：2 秒内又播了就不释放
         // v0.294.42：列表连点下一磁力时 prepare 可能略晚于 stop——多等几秒，preparing/keep 会作废释放
