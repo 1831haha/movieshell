@@ -1427,19 +1427,23 @@ object ServicePluginManager {
         val handle = running[id]
         if (handle != null) {
             handle.userStopped = true
-            // v1.3.28：先杀整棵进程树再杀直接子进程——danmu/hello-service 的
-            // server.sh 是 `while true; do nc -l … | serve_once; done` 前台循环，
-            // 只 destroy() 掉 sh，nc 子进程成孤儿继续占端口，再启动就绑不上。
-            // Android 的 Process 没有 pid()/toHandle()，ProcessHandle 类也不在
-            // android.jar 里——按 /proc 扫 cmdline 找本服务进程、递归读 children
-            // 收集后代再杀（core/util/ProcTree 纯函数 + 单测）；扫不到或失败
-            // 就退回只杀直接子进程。
-            runCatching { killProcessTree(context, id) }
+            // v1.3.29：先快照整棵树，再杀父进程，最后杀快照里的后代——
+            // 旧顺序（先杀后代、后杀父进程）有竞态：danmu/hello 的 server.sh
+            // 是 while true 循环，杀掉 nc 的瞬间循环立刻重起一个 nc，父进程
+            // 再死时新 nc 成孤儿继续占端口（1.3.28 真机实证：17:21 停弹幕后
+            // 17:26 重起仍 bind 失败，孤儿 nc 一直活到 17:27 还在接连接）。
+            // 先杀父进程则循环无法再重起，快照里的后代一次杀净；快照含所有
+            // 按 cmdline 找到的同服务根进程（陈旧残留也杀），不只 handle 那一个。
+            val treePids = runCatching { collectServiceTreePids(context, id) }
+                .getOrDefault(emptyList())
             runCatching {
                 handle.process.destroy()
                 if (!handle.process.waitFor(3, TimeUnit.SECONDS)) {
                     handle.process.destroyForcibly()
                 }
+            }
+            for (pid in treePids) {
+                runCatching { android.os.Process.killProcess(pid) }
             }
             running.remove(id)
         }
@@ -1452,16 +1456,21 @@ object ServicePluginManager {
     }
 
     /**
-     * v1.3.28：杀掉 id 服务的整棵进程树（不含主进程本身——主进程由调用方
-     * destroy()）。按 cmdline 含可执行文件绝对路径定位服务进程（.sh 服务
-     * 是 `sh <脚本>`，原生服务是 linker64/直执 <程序>），再递归读
-     * /proc/<pid>/task/<pid>/children 收集后代，深的先杀。
+     * v1.3.29：快照 id 服务的整棵进程树 pid，供 stopLocked 先杀父进程后
+     * 按序杀后代（见 stopLocked 的竞态说明）。根在后、后代按深度倒序——
+     * 列表先是深的后代、最后是根进程。按 cmdline 含可执行文件绝对路径
+     * 定位服务进程（.sh 服务是 `sh <脚本>`，原生服务是 linker64/直执
+     * <程序>），再递归读 /proc/<pid>/task/<pid>/children 收集后代。
+     * Android 的 Process 没有 pid()/toHandle()，ProcessHandle 类也不在
+     * android.jar 里（core/util/ProcTree 纯函数 + 单测）。扫不到或失败
+     * 返回空表，调用方退回只杀直接子进程。
      */
-    private fun killProcessTree(context: Context, id: String) {
-        val entry = loadRegistry(context)[id] ?: return
+    private fun collectServiceTreePids(context: Context, id: String): List<Int> {
+        val entry = loadRegistry(context)[id] ?: return emptyList()
         val exePath = runCatching { effectiveLaunch(context, entry).exe.absolutePath }
-            .getOrNull() ?: return
+            .getOrNull() ?: return emptyList()
         val roots = findProcessesWithCmdline(exePath)
+        val ordered = ArrayList<Int>()
         for (root in roots) {
             val descendants = collectProcDescendants(root) { pid ->
                 runCatching {
@@ -1469,10 +1478,11 @@ object ServicePluginManager {
                         .let { parseProcChildren(it) }
                 }.getOrDefault(emptyList())
             }
-            for (pid in descendants.asReversed()) {
-                runCatching { android.os.Process.killProcess(pid) }
-            }
+            ordered += descendants.asReversed()
+            ordered += root
         }
+        LogBus.i(TAG, "[$id] 进程树快照：根=${roots}，待杀=${ordered}")
+        return ordered
     }
 
     /** 扫 /proc，找 cmdline 里某个参数恰好等于 needle 的进程 pid。 */
