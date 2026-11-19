@@ -34,6 +34,29 @@ class PlayFailureClassTest {
         )
     }
 
+    // v1.3.25 审查修（TeleAgent L1）：补齐 4003/4004/4005/4006；注意 Media3
+    // 没有 ERROR_CODE_DECODING_TIMEOUT（只有通用 ERROR_CODE_TIMEOUT），不认。
+    @Test
+    fun `media3 decode error codes extended`() {
+        assertTrue(PlayFailureClass.isDecodeFailure("ERROR_CODE_DECODING_FAILED: Failed to decode sample"))
+        assertTrue(
+            PlayFailureClass.isDecodeFailure(
+                "ERROR_CODE_DECODING_FORMAT_EXCEEDS_CAPABILITIES: 10-bit not supported",
+            ),
+        )
+        assertTrue(
+            PlayFailureClass.isDecodeFailure(
+                "ERROR_CODE_DECODING_FORMAT_UNSUPPORTED: Codec not supported",
+            ),
+        )
+        assertTrue(
+            PlayFailureClass.isDecodeFailure(
+                "ERROR_CODE_DECODING_RESOURCES_RECLAIMED: Resources reclaimed",
+            ),
+        )
+        assertFalse(PlayFailureClass.isDecodeFailure("ERROR_CODE_DECODING_TIMEOUT: Timed out"))
+    }
+
     @Test
     fun `decode text hints`() {
         assertTrue(PlayFailureClass.isDecodeFailure("Decoder init failed: OMX.MTK.VIDEO.DECODER.AVC"))

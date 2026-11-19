@@ -1,5 +1,6 @@
 package com.movieshell.ui.music
 
+import android.net.Uri
 import com.movieshell.ui.theme.ok
 
 import com.movieshell.ui.components.AppSwitch
@@ -263,6 +264,36 @@ fun MusicSourceScreen(onBack: () -> Unit = {}) {
     var pendingRiskyMusicImport by remember {
         mutableStateOf<Triple<String, String, SourceRiskScanner.Report>?>(null)
     }
+    // v1.3.25 审查修（TeleAgent L4）：转屏恢复标记——脚本全文（可达 4MB）塞不进
+    // saved state；只存 (uri, displayName)，回来后重读重扫重建。
+    var pendingRiskyMusicResume by rememberSaveable { mutableStateOf<Pair<String, String>?>(null) }
+    LaunchedEffect(pendingRiskyMusicResume) {
+        val resume = pendingRiskyMusicResume ?: return@LaunchedEffect
+        if (pendingRiskyMusicImport != null) return@LaunchedEffect
+        val (uriString, displayName) = resume
+        val uri = runCatching { Uri.parse(uriString) }.getOrNull()
+        if (uri == null) {
+            pendingRiskyMusicResume = null
+            return@LaunchedEffect
+        }
+        val text = withContext(Dispatchers.IO) {
+            runCatching {
+                context.contentResolver.openInputStream(uri)?.use {
+                    SourceRiskScanner.readCappedBytes(it)?.toString(Charsets.UTF_8)
+                }
+            }.getOrNull()
+        }
+        if (text == null) {
+            pendingRiskyMusicResume = null
+            return@LaunchedEffect
+        }
+        val report = SourceRiskScanner.scanText(text)
+        if (report.hasHighRisk) {
+            pendingRiskyMusicImport = Triple(text, displayName, report)
+        } else {
+            pendingRiskyMusicResume = null
+        }
+    }
 
     fun importMusicJs(text: String, displayName: String) {
         scope.launch {
@@ -327,6 +358,7 @@ fun MusicSourceScreen(onBack: () -> Unit = {}) {
             val report = SourceRiskScanner.scanText(text)
             if (report.hasHighRisk) {
                 pendingRiskyMusicImport = Triple(text, displayName, report)
+                pendingRiskyMusicResume = uri.toString() to displayName
                 return@launch
             }
             report.findings.forEach { finding ->
@@ -623,9 +655,13 @@ fun MusicSourceScreen(onBack: () -> Unit = {}) {
         com.movieshell.ui.sources.SourceRiskDialog(
             fileName = "$displayName.js",
             report = report,
-            onDismissRequest = { pendingRiskyMusicImport = null },
+            onDismissRequest = {
+                pendingRiskyMusicImport = null
+                pendingRiskyMusicResume = null
+            },
             onConfirm = {
                 pendingRiskyMusicImport = null
+                pendingRiskyMusicResume = null
                 importMusicJs(text, displayName)
             },
         )

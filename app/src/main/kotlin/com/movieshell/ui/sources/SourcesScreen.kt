@@ -1055,6 +1055,38 @@ fun SourcesScreen(
     var pendingImportDir by rememberSaveable { mutableStateOf<String?>(null) }
     // v1.3.25 合并 2：扫出高危的待确认导入（uri + 报告 + 目标），弹窗确认后重调一次。
     var pendingRiskyImport by remember { mutableStateOf<Triple<Uri, ImportResult.Risky, ImportTarget>?>(null) }
+    // v1.3.25 审查修（TeleAgent L4）：转屏恢复标记——pendingRiskyImport 含
+    // Report 塞不进 saved state；只存 (uri, dirName, fileName)，回来后重读重扫重建。
+    var pendingRiskyResume by rememberSaveable { mutableStateOf<Triple<String, String, String>?>(null) }
+    LaunchedEffect(pendingRiskyResume) {
+        val resume = pendingRiskyResume ?: return@LaunchedEffect
+        if (pendingRiskyImport != null) return@LaunchedEffect
+        val (uriString, dirName, fileName) = resume
+        val target = listOf(IMPORT_DPRY, IMPORT_PY, IMPORT_PHP, IMPORT_WEB)
+            .firstOrNull { it.dirName == dirName }
+        val uri = runCatching { Uri.parse(uriString) }.getOrNull()
+        if (target == null || uri == null) {
+            pendingRiskyResume = null
+            return@LaunchedEffect
+        }
+        val bytes = withContext(Dispatchers.IO) {
+            runCatching {
+                context.contentResolver.openInputStream(uri)?.use {
+                    SourceRiskScanner.readCappedBytes(it)
+                }
+            }.getOrNull()
+        }
+        if (bytes == null) {
+            pendingRiskyResume = null
+            return@LaunchedEffect
+        }
+        val report = SourceRiskScanner.scanText(bytes.toString(Charsets.UTF_8))
+        if (report.hasHighRisk) {
+            pendingRiskyImport = Triple(uri, ImportResult.Risky(report, fileName), target)
+        } else {
+            pendingRiskyResume = null
+        }
+    }
     // v1.1.21：无授权时点导入先弹去授权（不直接跳系统设置页，先讲清原因）。
     var showStoragePermDialog by remember { mutableStateOf(false) }
     // v1.3.25 合并 2：导入结果统一处理（文件选择器与风险弹窗确认共用）。
@@ -1094,8 +1126,10 @@ fun SourcesScreen(
                 AppToast.show(context, "请选择 ${target.extensions.joinToString(" / ")} 文件", long = true)
             is ImportResult.Failed ->
                 AppToast.show(context, "导入失败：${r.reason}", long = true)
-            is ImportResult.Risky ->
+            is ImportResult.Risky -> {
                 pendingRiskyImport = Triple(uri, r, target)
+                pendingRiskyResume = Triple(uri.toString(), target.dirName, r.fileName)
+            }
         }
     }
     val importLauncher = rememberLauncherForActivityResult(
@@ -2001,9 +2035,13 @@ fun SourcesScreen(
         SourceRiskDialog(
             fileName = risky.fileName,
             report = risky.report,
-            onDismissRequest = { pendingRiskyImport = null },
+            onDismissRequest = {
+                pendingRiskyImport = null
+                pendingRiskyResume = null
+            },
             onConfirm = {
                 pendingRiskyImport = null
+                pendingRiskyResume = null
                 refreshScope.launch {
                     val r = withContext(Dispatchers.IO) {
                         importRuleFile(context, uri, target, skipRiskScan = true)

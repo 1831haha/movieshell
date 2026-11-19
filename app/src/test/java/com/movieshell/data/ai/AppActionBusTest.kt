@@ -70,6 +70,15 @@ class AppActionBusTest {
         assertEquals("已跳到 86400 秒处", ok.summary)
     }
 
+    // v1.3.25 审查修（TeleAgent M1）：NaN 穿透范围校验直达 Media3 崩进程。
+    @Test
+    fun `dispatch set_speed rejects non-finite speed`() = runTestBlocking {
+        assertTrue(AppActionBus.dispatch(null, "set_speed", mapOf("speed" to "NaN")) is AppActionBus.ActionResult.Fail)
+        assertTrue(AppActionBus.dispatch(null, "set_speed", mapOf("speed" to "Infinity")) is AppActionBus.ActionResult.Fail)
+        val ok = AppActionBus.dispatch(null, "set_speed", mapOf("speed" to "2"))
+        assertTrue(ok is AppActionBus.ActionResult.Ok)
+    }
+
     @Test
     fun `dispatch set_speed validates range`() = runTestBlocking {
         assertTrue(AppActionBus.dispatch(null, "set_speed", mapOf("speed" to "0.1")) is AppActionBus.ActionResult.Fail)

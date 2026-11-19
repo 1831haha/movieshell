@@ -62,6 +62,9 @@ object MpvPlayerManager {
     /** v0.208.0：最近一次画面档位（-1=未设置过）；拉伸档依赖容器尺寸，surface 尺寸变化时需重算。 */
     @Volatile private var currentAspectMode: Int = -1
     @Volatile private var lastPositionMs: Long = 0L
+    // v1.3.25 审查修（TeleAgent L2）：本次起播时 mpv 日志长度基线——mpvLogTail
+    // 只读这之后的新内容，旧集的解码失败行不进下一集的判定。
+    @Volatile private var logTailBaselineBytes: Long = 0L
     @Volatile private var lastDurationMs: Long = 0L
     @Volatile private var paused = true
     /** v0.152.0：失败诊断用——最近一次起播的 host/后缀/起播时刻（jdtech MPVLib 的
@@ -419,6 +422,12 @@ object MpvPlayerManager {
         lastPositionMs = 0L
         lastDurationMs = 0L
         sawExpandedPlaylist = false
+        // v1.3.25 审查修（TeleAgent L2）：记下本次起播时日志文件长度，mpvLogTail
+        // 只读这之后的新内容——同一 mpv 实例内切集不重启，旧集的解码失败行
+        // 会留在日志尾里，下一集网络失败时误判成解码失败、提前跳步换内核。
+        logTailBaselineBytes = appContext?.let { ctx ->
+            runCatching { File(ctx.filesDir, "mpv/mpv.log").length() }.getOrDefault(0L)
+        } ?: 0L
         // v1.3.25 合并 7：新文件起播先清掉上一文件的旧音轨，新的等
         // FILE_LOADED 后由 refreshAudioTracks() 推上来，不拿旧的冒充。
         PlayerManager.publishMpvAudioTracks(emptyList())
@@ -947,20 +956,24 @@ object MpvPlayerManager {
     /**
      * v1.3.15：读 mpv 日志文件末尾（失败诊断用）。文件可能很大，只读最后 16KB；
      * 读不到/文件不存在返回空串，不抛异常。
+     * v1.3.25 审查修（TeleAgent L2）：只读本次起播（logTailBaselineBytes）
+     * 之后的新内容，上限仍是最后 16KB——旧集的解码失败行不再误触发下一集。
      */
     private fun mpvLogTail(context: Context?): String {
         val ctx = context ?: return ""
         return runCatching {
             val f = File(ctx.filesDir, "mpv/mpv.log")
             if (!f.exists() || f.length() <= 0L) return ""
-            val take = minOf(f.length(), 16_384L).toInt()
+            val len = f.length()
+            val start = maxOf(logTailBaselineBytes, len - 16_384L)
+            val take = (len - start).toInt().coerceAtLeast(0)
+            if (take <= 0) return ""
             val buf = ByteArray(take)
             var off = 0
             f.inputStream().use { input ->
                 var skipped = 0L
-                val toSkip = f.length() - take
-                while (skipped < toSkip) {
-                    val s = input.skip(toSkip - skipped)
+                while (skipped < start) {
+                    val s = input.skip(start - skipped)
                     if (s <= 0) break
                     skipped += s
                 }

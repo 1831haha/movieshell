@@ -126,6 +126,10 @@ else -> postOrFail(PlayerCommands.Command.SeekTo(seconds * 1000), "已跳到 ${s
 val speed = args["speed"]?.toFloatOrNull()
 when {
 speed == null -> ActionResult.Fail("没给倍速，请说几倍速")
+// v1.3.25 审查修（TeleAgent M1）：NaN 穿透范围校验（NaN 与任何数比
+// 大小都是 false）→ Media3 PlaybackParameters 要求 speed > 0，
+// 抛 IllegalArgumentException 崩进程。先拦非有限数。
+!speed.isFinite() -> ActionResult.Fail("倍速必须是 0.25 到 4 之间的数字")
 speed < 0.25f || speed > 4f -> ActionResult.Fail("倍速只支持 0.25 到 4 倍")
 else -> postOrFail(PlayerCommands.Command.SetSpeed(speed), "倍速已设为 ${speed}X")
 }

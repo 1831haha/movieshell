@@ -23,10 +23,18 @@ object PlayFailureClass {
     const val DECODE_FAILED_MARKER = "decode-failed"
 
     /** Media3 的确定性解码错误码（EngineHost 拼码后可认）。 */
+    // v1.3.25 审查修（TeleAgent L1）：补齐 4003/4004/4005/4006——原来只认
+    // 三码，最常见的解码失败（解码中失败、格式超能力/不支持、资源被收回）
+    // 不触发快进换内核。注意 Media3 没有 ERROR_CODE_DECODING_TIMEOUT
+    // 这个码（只有通用的 ERROR_CODE_TIMEOUT，不专指解码），不加。
     private val MEDIA3_DECODE_CODES = setOf(
         "ERROR_CODE_DECODER_INIT_FAILED",
         "ERROR_CODE_DECODER_QUERY_FAILED",
         "ERROR_CODE_VIDEO_FRAME_PROCESSING_FAILED",
+        "ERROR_CODE_DECODING_FAILED",
+        "ERROR_CODE_DECODING_FORMAT_EXCEEDS_CAPABILITIES",
+        "ERROR_CODE_DECODING_FORMAT_UNSUPPORTED",
+        "ERROR_CODE_DECODING_RESOURCES_RECLAIMED",
     )
 
     /** 错误串里的解码失败文案（大小写不敏感）。 */
