@@ -551,4 +551,45 @@ class QuarkUcApiTest {
         assertFalse(QuarkUcApi.cookieHasPugs("__puus=aaa; _UP_A=bbb"))
         assertFalse(QuarkUcApi.cookieHasPugs("notpugs=x"))
     }
+
+    @Test fun downloadSaved_retries500AndKeepsEarlyCookie() {
+        server.enqueue(MockResponse().setResponseCode(500).setBody("temporary")
+            .addHeader("Set-Cookie", "__pugs=early; Path=/"))
+        server.enqueue(json("""{"code":0,"data":[{"download_url":"https://example.com/video"}]}"""))
+        val result = QuarkUcApi.downloadSaved(ShareHttp.defaultClient(), cfg, "session=test", "saved1")
+        assertEquals("https://example.com/video", result.first)
+        assertEquals("early", result.second)
+        assertEquals(2, server.requestCount)
+        repeat(2) {
+            val req = server.takeRequest()
+            assertTrue(req.path!!.contains("/file/download"))
+            assertTrue(req.body.readUtf8().contains("saved1"))
+        }
+    }
+
+    @Test fun downloadSaved_persistent500StopsAfterThreeAndKeepsCookie() {
+        server.enqueue(MockResponse().setResponseCode(500).addHeader("Set-Cookie", "__pugs=kept; Path=/"))
+        repeat(2) { server.enqueue(MockResponse().setResponseCode(500)) }
+        assertEquals("" to "kept", QuarkUcApi.downloadSaved(ShareHttp.defaultClient(), cfg, "session=test", "saved1"))
+        assertEquals(3, server.requestCount)
+    }
+
+    @Test fun harvestPugs_shareDownloadRetries500() {
+        server.enqueue(MockResponse().setResponseCode(500))
+        server.enqueue(json("""{"code":23018}""").addHeader("Set-Cookie", "__pugs=share; Path=/"))
+        val result = QuarkUcApi.harvestPugs(ShareHttp.defaultClient(), cfg,
+            ShareSession.QuarkUc("pwd", "st", ""),
+            ShareFile(fid = "f1", name = "01.mp4", size = 1L, fidToken = "ft"), "session=test")
+        assertEquals("share", result)
+        assertEquals(2, server.requestCount)
+    }
+
+    @Test fun downloadSaved_ucListShapeStillWorksWithRetry() {
+        server.enqueue(MockResponse().setResponseCode(500))
+        server.enqueue(json("""{"code":0,"data":["https://example.com/uc"]}"""))
+        val result = QuarkUcApi.downloadSaved(ShareHttp.defaultClient(), cfg.copy(fidsAsList = true), "session=test", "saved1")
+        assertEquals("https://example.com/uc", result.first)
+        assertEquals(2, server.requestCount)
+        repeat(2) { assertTrue(server.takeRequest().body.readUtf8().contains("\"fids\":[\"saved1\"]")) }
+    }
 }

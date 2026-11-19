@@ -256,7 +256,7 @@ object QuarkUcApi {
         body.put("stoken", session.stoken)
         body.put("speedup_session", "")
         body.put("token", "")
-        val resp = ShareHttp.postJson(client, "${cfg.apiBase}/file/download?${cfg.pr}", cookie, cfg.ua, cfg.referer, body)
+        val resp = ShareHttp.postDownloadJson(client, "${cfg.apiBase}/file/download?${cfg.pr}", cookie, cfg.ua, cfg.referer, body)
         val json = resp.json ?: return Triple("", resp.pugs, -1)
         val code = json.optInt("code", -1)
         if (code != 0) return Triple("", resp.pugs, code)
@@ -783,7 +783,7 @@ object QuarkUcApi {
     ): Pair<String, String> {
         val body = JSONObject()
         if (cfg.fidsAsList) body.put("fids", JSONArray().put(savedFid)) else body.put("fids", savedFid)
-        val resp = ShareHttp.postJson(client, "${cfg.apiBase}/file/download?${cfg.pr}&uc_param_str=", cookie, cfg.ua, cfg.referer, body)
+        val resp = ShareHttp.postDownloadJson(client, "${cfg.apiBase}/file/download?${cfg.pr}&uc_param_str=", cookie, cfg.ua, cfg.referer, body)
         // v1.3.22：json/data 为空也要保住响应里已经解析到的 __pugs。
         val json = resp.json ?: return "" to resp.pugs
         val data = json.opt("data") ?: return "" to resp.pugs
