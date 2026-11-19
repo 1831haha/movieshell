@@ -701,7 +701,7 @@ object MpvPlayerManager {
     }
 
     /**
-     * v1.3.25 合并 5：Anime4K 画质增强。首次用时把 assets/anime4k 里的 8 个
+     * v1.3.25 合并 5：Anime4K 画质增强。首次用时把 assets/anime4k 里的 9 个
      * 着色器拷到 filesDir/anime4k（mpv 只能读文件路径，读不了 assets），
      * 再设 glsl-shaders 属性；OFF 设空串卸载。只在 executor 上调。
      */
