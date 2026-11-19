@@ -27,6 +27,7 @@ import androidx.compose.material.icons.filled.RssFeed
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Subtitles
 import androidx.compose.material.icons.filled.Terminal
+import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
@@ -103,15 +104,30 @@ fun PluginStatusBadge(status: PluginStatus) {
     }
 }
 
-/** 同行尾随的小号色调按钮。 */
+/**
+ * 同行尾随的小号按钮。v1.3.27：安装/更新与卸载做成两个颜色——安装类用主色填充
+ *（Button），卸载用色调按钮（FilledTonalButton），一眼区分；启动/停止等其他
+ * 调用点不动（primary 默认 false）。
+ */
 @Composable
-fun PluginCompactAction(text: String, onClick: () -> Unit, enabled: Boolean = true) {
-    FilledTonalButton(
-        onClick = onClick,
-        enabled = enabled,
-        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp),
-        modifier = Modifier.height(32.dp).defaultMinSize(minWidth = 56.dp),
-    ) { Text(text, fontSize = 12.sp, maxLines = 1) }
+fun PluginCompactAction(text: String, onClick: () -> Unit, enabled: Boolean = true, primary: Boolean = false) {
+    val padding = PaddingValues(horizontal = 12.dp, vertical = 0.dp)
+    val sizing = Modifier.height(32.dp).defaultMinSize(minWidth = 56.dp)
+    if (primary) {
+        Button(
+            onClick = onClick,
+            enabled = enabled,
+            contentPadding = padding,
+            modifier = sizing,
+        ) { Text(text, fontSize = 12.sp, maxLines = 1) }
+    } else {
+        FilledTonalButton(
+            onClick = onClick,
+            enabled = enabled,
+            contentPadding = padding,
+            modifier = sizing,
+        ) { Text(text, fontSize = 12.sp, maxLines = 1) }
+    }
 }
 
 @Composable
@@ -183,8 +199,8 @@ fun MarketCompactAction(
     when {
         !supported -> PluginCompactAction("不支持", {}, enabled = false)
         needApp && !installed -> PluginCompactAction("需新版", {}, enabled = false)
-        !installed -> PluginCompactAction("安装", onInstall)
-        hasUpdate && !needApp -> PluginCompactAction("更新", onInstall)
+        !installed -> PluginCompactAction("安装", onInstall, primary = true)
+        hasUpdate && !needApp -> PluginCompactAction("更新", onInstall, primary = true)
         else -> PluginCompactAction("卸载", onUninstall)
     }
 }

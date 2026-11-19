@@ -57,6 +57,8 @@ import kotlinx.coroutines.launch
 fun ClashSettingsScreen(
     onBack: () -> Unit = {},
     onOpenServicePage: () -> Unit = {},
+    // v1.3.27：安装在市场页（plugin_center/2），服务页只管已装服务的启停。
+    onOpenMarketPage: () -> Unit = {},
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -81,7 +83,8 @@ fun ClashSettingsScreen(
     LaunchedEffect(Unit) { refresh() }
 
     val statusText = when {
-        !installed -> "未安装：去插件中心 → 服务页安装 clash 插件"
+        // v1.3.27：安装在市场页，不在服务页（服务页只列已装的服务）。
+        !installed -> "未安装：去插件中心 → 市场页安装 clash 插件"
         running -> "运行中 · 控制端口 ${ClashProxy.controllerPort()} · 混合端口 ${ClashProxy.mixedPort()}"
         else -> "已安装，未运行"
     }
@@ -148,11 +151,19 @@ fun ClashSettingsScreen(
                                 },
                                 variant = AppButtonVariant.Ghost,
                             )
-                            AppButton(
-                                text = "服务页",
-                                onClick = onOpenServicePage,
-                                variant = AppButtonVariant.Ghost,
-                            )
+                            // v1.3.27：未装时去市场安装（服务页没有安装入口），已装才去服务页。
+                            if (!installed) {
+                                AppButton(
+                                    text = "去市场安装",
+                                    onClick = onOpenMarketPage,
+                                )
+                            } else {
+                                AppButton(
+                                    text = "服务页",
+                                    onClick = onOpenServicePage,
+                                    variant = AppButtonVariant.Ghost,
+                                )
+                            }
                         }
                     }
                 }

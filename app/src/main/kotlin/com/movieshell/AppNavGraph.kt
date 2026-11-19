@@ -668,6 +668,7 @@ fun NavGraphBuilder.appDestinations(
                             ClashSettingsScreen(
                                 onBack = { navController.popBackStack() },
                                 onOpenServicePage = { navController.navigate("plugin_center/1") },
+                                onOpenMarketPage = { navController.navigate("plugin_center/2") },
                             )
                         }
                         // v1.2.14：TMDB 独立设置页

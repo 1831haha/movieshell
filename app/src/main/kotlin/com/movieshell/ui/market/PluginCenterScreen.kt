@@ -160,7 +160,7 @@ private fun InstalledPluginsBody(onDetail: (String, String) -> Unit) {
                 status = if (hasUpdate) PluginStatus.Updatable else PluginStatus.Installed,
                 onClick = mp?.let { m -> { onDetail(p.id, m.sourceMarket) } },
             ) {
-                if (hasUpdate && mp != null) PluginCompactAction("更新", { doUpdate(mp) })
+                if (hasUpdate && mp != null) PluginCompactAction("更新", { doUpdate(mp) }, primary = true)
                 else PluginCompactAction("卸载", { uninstallFor = p })
             }
         }
