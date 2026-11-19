@@ -1180,6 +1180,7 @@ object ServicePluginManager {
             LogBus.w(TAG, "端口 $want 为保留端口，自动顺延")
         }
         val start = if (want > 0 && (want !in RESERVED_PORTS || allowReserved)) want else BASE_PORT
+        val own = reg[excludeId]
         val ownPort = own?.port
         val ownCount = own?.portCount?.coerceAtLeast(1) ?: 1
         val ownRange = ownPort != null && want == ownPort && n == ownCount
@@ -1429,16 +1430,20 @@ object ServicePluginManager {
             // 只 destroy() 掉 sh，nc 子进程成孤儿继续占端口，再启动就绑不上。
             // ProcessHandle 需 API 26+（本项目 minSdk 26），失败也不影响主流程。
             runCatching {
-                handle.process.toHandle().descendants().use { stream ->
-                    stream.forEach { d -> runCatching { d.destroy() } }
+                ProcessHandle.of(handle.process.pid()).ifPresent { ph ->
+                    ph.descendants().use { stream ->
+                        stream.forEach { d -> runCatching { d.destroy() } }
+                    }
                 }
             }
             runCatching {
                 handle.process.destroy()
                 if (!handle.process.waitFor(3, TimeUnit.SECONDS)) {
                     runCatching {
-                        handle.process.toHandle().descendants().use { stream ->
-                            stream.forEach { d -> runCatching { d.destroyForcibly() } }
+                        ProcessHandle.of(handle.process.pid()).ifPresent { ph ->
+                            ph.descendants().use { stream ->
+                                stream.forEach { d -> runCatching { d.destroyForcibly() } }
+                            }
                         }
                     }
                     handle.process.destroyForcibly()
@@ -1779,8 +1784,8 @@ object ServicePluginManager {
             null
         }
         val defMatchesSpec = specForGuard?.let { spec ->
-            def.command.trim() == "__plugin:$id__/${spec.workDir}/${spec.command}" &&
-                def.workDir.trim() == "__plugin:$id__/${spec.workDir}" &&
+            def.command.trim() == "__plugin:${id}__/${spec.workDir}/${spec.command}" &&
+                def.workDir.trim() == "__plugin:${id}__/${spec.workDir}" &&
                 def.args == spec.args &&
                 def.env.filter { it.first.isNotBlank() } ==
                 spec.env.entries.map { it.key to it.value } &&
