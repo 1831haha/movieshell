@@ -1,5 +1,6 @@
 package com.movieshell.ui.sources
 
+import com.movieshell.core.log.LogBus
 import com.movieshell.core.util.SafeFileName
 import com.movieshell.ui.components.AppSearchBar
 import com.movieshell.ui.theme.V5
@@ -107,6 +108,7 @@ import com.movieshell.data.source_mgr.DrpySourceManager
 import com.movieshell.data.store.HomeCache
 import com.movieshell.data.source_mgr.PhpSourceManager
 import com.movieshell.data.source.PluginMarket
+import com.movieshell.data.source.SourceRiskScanner
 import com.movieshell.data.source_mgr.PySourceManager
 import com.movieshell.core.util.SourceDeleteCleanup
 import com.movieshell.data.source_mgr.SourceProbe
@@ -200,14 +202,18 @@ internal sealed interface ImportResult {
     data class Ok(val fileName: String) : ImportResult
     object WrongExt : ImportResult
     data class Failed(val reason: String) : ImportResult
+    /** v1.3.25 合并 2：扫出高危风险——未写入，等用户在弹窗里确认后重调（skipRiskScan=true）。 */
+    data class Risky(val report: SourceRiskScanner.Report, val fileName: String) : ImportResult
 }
 
 /**
  * 把用户选中的文件拷贝到规则目录（见 targetDir）。
  * - 文件名取原名（重名则加时间戳后缀避免覆盖）
  * - 后缀不在允许列表内 -> WrongExt
+ * - v1.3.25 合并 2：先读字节（上限 4MB）扫风险，高危返回 Risky 不写盘；
+ *   网页源只是嗅探书签、不执行规则，不扫；中危只记日志，不拦路。
  */
-internal fun importRuleFile(context: Context, uri: Uri, target: ImportTarget): ImportResult {
+internal fun importRuleFile(context: Context, uri: Uri, target: ImportTarget, skipRiskScan: Boolean = false): ImportResult {
     // v1.1.21：无授权时不许再静默写进私有回退目录，先拦下来。
     if (!StoragePaths.hasAccess(context)) {
         return ImportResult.Failed("需要先授予存储权限，才能导入本地规则")
@@ -222,6 +228,16 @@ internal fun importRuleFile(context: Context, uri: Uri, target: ImportTarget): I
     if (target.extensions.none { it.equals(ext, ignoreCase = true) }) {
         return ImportResult.WrongExt
     }
+    val bytes = context.contentResolver.openInputStream(uri)?.use { input ->
+        SourceRiskScanner.readCappedBytes(input)
+    } ?: return ImportResult.Failed("无法读取所选文件，或文件超过 4MB")
+    if (!skipRiskScan && target.dirName != "web") {
+        val report = SourceRiskScanner.scanText(bytes.toString(Charsets.UTF_8))
+        if (report.hasHighRisk) return ImportResult.Risky(report, displayName)
+        report.findings.forEach { finding ->
+            LogBus.w("SourceRisk", "导入 $displayName 中危：" + finding.title)
+        }
+    }
     return try {
         val dir = targetDir(context, target.dirName)
         var dst = SafeFileName.childInside(dir, displayName)
@@ -231,9 +247,7 @@ internal fun importRuleFile(context: Context, uri: Uri, target: ImportTarget): I
             dst = SafeFileName.childInside(dir, "${base}_${System.currentTimeMillis()}$ext")
                 ?: return ImportResult.Failed("文件名非法")
         }
-        context.contentResolver.openInputStream(uri)?.use { input ->
-            dst.outputStream().use { input.copyTo(it) }
-        } ?: return ImportResult.Failed("无法读取所选文件")
+        dst.writeBytes(bytes)
         ImportResult.Ok(dst.name)
     } catch (e: Exception) {
         ImportResult.Failed(e.message ?: "未知错误")
@@ -1039,18 +1053,13 @@ fun SourcesScreen(
     // v0.294.5：导入目标改 rememberSaveable（存 dirName）——系统选择器期间 Activity 被回收/转屏，
     // 回来时 remember 已重置，选好的文件被静默丢弃。
     var pendingImportDir by rememberSaveable { mutableStateOf<String?>(null) }
+    // v1.3.25 合并 2：扫出高危的待确认导入（uri + 报告 + 目标），弹窗确认后重调一次。
+    var pendingRiskyImport by remember { mutableStateOf<Triple<Uri, ImportResult.Risky, ImportTarget>?>(null) }
     // v1.1.21：无授权时点导入先弹去授权（不直接跳系统设置页，先讲清原因）。
     var showStoragePermDialog by remember { mutableStateOf(false) }
-    val importLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.GetContent(),
-    ) { uri ->
-        val target = listOf(IMPORT_DPRY, IMPORT_PY, IMPORT_PHP, IMPORT_WEB)
-            .firstOrNull { it.dirName == pendingImportDir }
-        pendingImportDir = null
-        if (target == null || uri == null) return@rememberLauncherForActivityResult
-        // v0.294.5：拷文件放 IO 线程（原来在主线程拷，大文件/慢存储会卡顿甚至 ANR）
-        refreshScope.launch {
-        when (val r = withContext(Dispatchers.IO) { importRuleFile(context, uri, target) }) {
+    // v1.3.25 合并 2：导入结果统一处理（文件选择器与风险弹窗确认共用）。
+    fun onImportResult(r: ImportResult, target: ImportTarget, uri: Uri) {
+        when (r) {
             is ImportResult.Ok -> {
                 when (target.dirName) {
                     "drpy" -> {
@@ -1085,7 +1094,21 @@ fun SourcesScreen(
                 AppToast.show(context, "请选择 ${target.extensions.joinToString(" / ")} 文件", long = true)
             is ImportResult.Failed ->
                 AppToast.show(context, "导入失败：${r.reason}", long = true)
+            is ImportResult.Risky ->
+                pendingRiskyImport = Triple(uri, r, target)
         }
+    }
+    val importLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.GetContent(),
+    ) { uri ->
+        val target = listOf(IMPORT_DPRY, IMPORT_PY, IMPORT_PHP, IMPORT_WEB)
+            .firstOrNull { it.dirName == pendingImportDir }
+        pendingImportDir = null
+        if (target == null || uri == null) return@rememberLauncherForActivityResult
+        // v0.294.5：拷文件放 IO 线程（原来在主线程拷，大文件/慢存储会卡顿甚至 ANR）
+        refreshScope.launch {
+            val r = withContext(Dispatchers.IO) { importRuleFile(context, uri, target) }
+            onImportResult(r, target, uri)
         }
     }
 
@@ -1971,6 +1994,24 @@ fun SourcesScreen(
                     style = MaterialTheme.typography.bodyMedium,
                 )
         }
+    }
+
+    // ---- v1.3.25 合并 2：源高危风险确认（确认后重调一次，跳过扫描） ----
+    pendingRiskyImport?.let { (uri, risky, target) ->
+        SourceRiskDialog(
+            fileName = risky.fileName,
+            report = risky.report,
+            onDismissRequest = { pendingRiskyImport = null },
+            onConfirm = {
+                pendingRiskyImport = null
+                refreshScope.launch {
+                    val r = withContext(Dispatchers.IO) {
+                        importRuleFile(context, uri, target, skipRiskScan = true)
+                    }
+                    onImportResult(r, target, uri)
+                }
+            },
+        )
     }
 
     // ---- v0.112.0：订阅级备注/分组编辑 ----

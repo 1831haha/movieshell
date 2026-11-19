@@ -7,6 +7,7 @@ import android.util.Log
 import com.movieshell.core.util.SafeFileName
 import com.movieshell.core.util.StoragePaths
 import com.movieshell.data.source.ChaquopyEngine
+import com.movieshell.data.source.SourceRiskScanner
 import com.movieshell.data.store.NovelStore
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -46,6 +47,8 @@ object PyBookSourceManager {
         /** v0.76.0：是影视 spider（有 vod 方法、无 bookSearch），可一键转去影视源导入 */
         data object IsVideoSpider : ImportResult
         data class Failed(val msg: String) : ImportResult
+        /** v1.3.25 合并 2：扫出高危风险——未写入，等用户在弹窗里确认后重调（skipRiskScan=true）。 */
+        data class Risky(val report: SourceRiskScanner.Report, val fileName: String) : ImportResult
     }
 
     private val _rules = MutableStateFlow<List<PyBookRule>>(emptyList())
@@ -118,7 +121,7 @@ object PyBookSourceManager {
     }
 
     /** 导入 .py 书源文件：先写 .tmp、校验含 bookSearch、通过再改名。 */
-    suspend fun import(context: Context, uri: Uri): ImportResult = withContext(Dispatchers.IO) {
+    suspend fun import(context: Context, uri: Uri, skipRiskScan: Boolean = false): ImportResult = withContext(Dispatchers.IO) {
         // v1.1.21：无授权时不许再静默写进私有回退目录。
         if (!StoragePaths.hasAccess(context)) {
             return@withContext ImportResult.Failed("需要先授予存储权限，才能导入 PY 书源")
@@ -169,6 +172,24 @@ object PyBookSourceManager {
                     ImportResult.IsVideoSpider
                 } else {
                     ImportResult.InvalidRule
+                }
+            }
+            // v1.3.25 合并 2：高危风险先拦，等用户确认后再导（中危只记日志，不拦路）。
+            if (!skipRiskScan) {
+                val bytes = runCatching { staging.readBytes() }.getOrNull()
+                if (bytes == null || bytes.size > SourceRiskScanner.MAX_SCAN_BYTES) {
+                    staging.delete()
+                    tmp = null
+                    return@withContext ImportResult.Failed("文件读不到或超过 4MB")
+                }
+                val report = SourceRiskScanner.scanText(bytes.toString(Charsets.UTF_8))
+                if (report.hasHighRisk) {
+                    staging.delete()
+                    tmp = null
+                    return@withContext ImportResult.Risky(report, dst.name)
+                }
+                report.findings.forEach { finding ->
+                    Log.w(TAG, "导入 ${dst.name} 中危：" + finding.title)
                 }
             }
             if (!staging.renameTo(dst)) {

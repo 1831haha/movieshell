@@ -58,7 +58,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.movieshell.core.log.LogBus
 import com.movieshell.data.source.MusicApi
+import com.movieshell.data.source.SourceRiskScanner
 import com.movieshell.data.store.MusicSource
 import com.movieshell.core.util.AtomicFile
 import com.movieshell.data.store.MusicSourceStore
@@ -257,27 +259,13 @@ fun MusicSourceScreen(onBack: () -> Unit = {}) {
             }
     }
 
-    // v0.103.0：本地 .js 文件导入。mime 传 */*（很多文件管理器给 .js 报奇怪 mime），
-    // 选完后校验扩展名或内容头含 EVENT_NAMES/globalThis.lx，不对则 Toast。
-    val jsImportLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.GetContent(),
-    ) { uri ->
-        if (uri == null) return@rememberLauncherForActivityResult
+    // v1.3.25 合并 2：扫出高危的待确认音乐源（脚本全文 + 显示名 + 报告）。
+    var pendingRiskyMusicImport by remember {
+        mutableStateOf<Triple<String, String, SourceRiskScanner.Report>?>(null)
+    }
+
+    fun importMusicJs(text: String, displayName: String) {
         scope.launch {
-            val text = withContext(Dispatchers.IO) {
-                runCatching {
-                    context.contentResolver.openInputStream(uri)?.use {
-                        it.readBytes().toString(Charsets.UTF_8)
-                    }
-                }.getOrNull()
-            }
-            val looksJs = uri.path.orEmpty().endsWith(".js", ignoreCase = true) ||
-                text.orEmpty().contains("EVENT_NAMES") ||
-                text.orEmpty().contains("globalThis.lx")
-            if (text.isNullOrBlank() || !looksJs) {
-                AppToast.show(context, "不是有效的洛雪音源脚本", long = false)
-                return@launch
-            }
             val tmp = withContext(Dispatchers.IO) {
                 runCatching {
                     val f = File.createTempFile("lx_import", ".js", context.cacheDir)
@@ -289,8 +277,6 @@ fun MusicSourceScreen(onBack: () -> Unit = {}) {
                 AppToast.show(context, "导入失败：无法读取文件", long = false)
                 return@launch
             }
-            val displayName = uri.lastPathSegment?.takeIf { it.isNotBlank() }
-                ?.removeSuffix(".js") ?: "本地音源"
             val added = MusicSourceStore.addLocal(context, displayName, tmp)
             runCatching { tmp.delete() }
             if (added != null) {
@@ -307,6 +293,46 @@ fun MusicSourceScreen(onBack: () -> Unit = {}) {
             } else {
                 AppToast.show(context, "导入失败", long = false)
             }
+        }
+    }
+
+    // v0.103.0：本地 .js 文件导入。mime 传 */*（很多文件管理器给 .js 报奇怪 mime），
+    // 选完后校验扩展名或内容头含 EVENT_NAMES/globalThis.lx，不对则 Toast。
+    val jsImportLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.GetContent(),
+    ) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        scope.launch {
+            val text = withContext(Dispatchers.IO) {
+                runCatching {
+                    context.contentResolver.openInputStream(uri)?.use {
+                        SourceRiskScanner.readCappedBytes(it)?.toString(Charsets.UTF_8)
+                    }
+                }.getOrNull()
+            }
+            if (text == null) {
+                AppToast.show(context, "导入失败：无法读取文件，或文件超过 4MB", long = false)
+                return@launch
+            }
+            val looksJs = uri.path.orEmpty().endsWith(".js", ignoreCase = true) ||
+                text.contains("EVENT_NAMES") ||
+                text.contains("globalThis.lx")
+            if (text.isBlank() || !looksJs) {
+                AppToast.show(context, "不是有效的洛雪音源脚本", long = false)
+                return@launch
+            }
+            val displayName = uri.lastPathSegment?.takeIf { it.isNotBlank() }
+                ?.removeSuffix(".js") ?: "本地音源"
+            // v1.3.25 合并 2：高危先弹风险确认，确认后走 importMusicJs。
+            val report = SourceRiskScanner.scanText(text)
+            if (report.hasHighRisk) {
+                pendingRiskyMusicImport = Triple(text, displayName, report)
+                return@launch
+            }
+            report.findings.forEach { finding ->
+                LogBus.w("SourceRisk", "导入 $displayName 中危：" + finding.title)
+            }
+            importMusicJs(text, displayName)
         }
     }
 
@@ -590,6 +616,19 @@ fun MusicSourceScreen(onBack: () -> Unit = {}) {
                 }
             }
         }
+    }
+
+    // v1.3.25 合并 2：音乐源高危风险确认（确认后走 importMusicJs）。
+    pendingRiskyMusicImport?.let { (text, displayName, report) ->
+        com.movieshell.ui.sources.SourceRiskDialog(
+            fileName = "$displayName.js",
+            report = report,
+            onDismissRequest = { pendingRiskyMusicImport = null },
+            onConfirm = {
+                pendingRiskyMusicImport = null
+                importMusicJs(text, displayName)
+            },
+        )
     }
 
     // 添加音乐源

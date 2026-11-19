@@ -211,6 +211,8 @@ fun BookSourceScreen(
     // v0.76.0：导进来的是影视 spider——弹窗提示，可一键转去影视源导入
     // v0.294.5：rememberSaveable——转屏/进程重建后“导入为影视源”确认不丢
     var videoSpiderUri by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf<android.net.Uri?>(null) }
+    // v1.3.25 合并 2：扫出高危的 PY 书源待确认导入（uri + 报告）。
+    var pendingRiskyPyImport by remember { mutableStateOf<Pair<android.net.Uri, PyBookSourceManager.ImportResult.Risky>?>(null) }
 
     LaunchedEffect(Unit) {
         BookSourceManager.load(context)
@@ -250,6 +252,9 @@ fun BookSourceScreen(
                 PyBookSourceManager.ImportResult.IsVideoSpider -> videoSpiderUri = uri
                 is PyBookSourceManager.ImportResult.Failed ->
                     AppToast.show(context, "导入失败：${r.msg}", long = false)
+                // v1.3.25 合并 2：高危先弹风险确认，确认后重调一次。
+                is PyBookSourceManager.ImportResult.Risky ->
+                    pendingRiskyPyImport = uri to r
             }
         }
     }
@@ -309,6 +314,12 @@ fun BookSourceScreen(
                             "请选择 .py 文件"
                         is com.movieshell.ui.sources.ImportResult.Failed ->
                             "导入失败：${r.reason}"
+                        // v1.3.25 合并 2：此流没有风险确认弹窗，高危直接拒收
+                        //（想导请到源管理页手动导入，那里可确认放行）。
+                        is com.movieshell.ui.sources.ImportResult.Risky ->
+                            "该源有高危风险，已拒绝导入：" +
+                                (r.report.findings.firstOrNull()?.title ?: "未知风险") +
+                                "；确认要导请到源管理页手动导入"
                     }
                     AppToast.show(context, msg, long = true)
                 }
@@ -319,6 +330,27 @@ fun BookSourceScreen(
                     "没有 bookSearch），放进书源管理用不了。要直接导入为影视源吗？",
             )
         }
+    }
+
+    // v1.3.25 合并 2：PY 书源高危风险确认（确认后重调一次，跳过扫描）。
+    pendingRiskyPyImport?.let { (uri, risky) ->
+        com.movieshell.ui.sources.SourceRiskDialog(
+            fileName = risky.fileName,
+            report = risky.report,
+            onDismissRequest = { pendingRiskyPyImport = null },
+            onConfirm = {
+                pendingRiskyPyImport = null
+                scope.launch {
+                    when (val r = PyBookSourceManager.import(context, uri, skipRiskScan = true)) {
+                        is PyBookSourceManager.ImportResult.Ok ->
+                            AppToast.show(context, "已导入 ${r.fileName}", long = false)
+                        is PyBookSourceManager.ImportResult.Failed ->
+                            AppToast.show(context, "导入失败：${r.msg}", long = false)
+                        else -> Unit
+                    }
+                }
+            },
+        )
     }
 
     Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {

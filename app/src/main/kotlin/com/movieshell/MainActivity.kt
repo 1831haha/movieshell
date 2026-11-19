@@ -405,6 +405,15 @@ class MainActivity : ComponentActivity() {
                             AppToast.show(appCtx, "请选择 ${target.extensions.joinToString(" / ")} 文件", long = true)
                         is ImportResult.Failed ->
                             AppToast.show(appCtx, "导入失败：${r.reason}", long = true)
+                        // v1.3.25 合并 2：分享流没有确认弹窗，高危直接拒收（想导请到源管理页手动导入，那里可确认放行）。
+                        is ImportResult.Risky ->
+                            AppToast.show(
+                                appCtx,
+                                "该源有高危风险，已拒绝导入：" +
+                                    (r.report.findings.firstOrNull()?.title ?: "未知风险") +
+                                    "；确认要导请到源管理页手动导入",
+                                long = true,
+                            )
                     }
                 }
                 val backStackEntry by navController.currentBackStackEntryAsState()
