@@ -2239,13 +2239,12 @@ fun PlayerScreen(
 
         // v0.40.0：顶部栏按目标界面重做——返回 + 标题 + 画中画 + 投屏 + 齿轮
         // 锁定时隐藏顶栏（只留解锁按钮防误触）
-        // v0.65：加时钟 + 分辨率行（对标目标界面）
+        // v0.65：加时钟（对标目标界面）
         var clockText by remember { mutableStateOf("") }
         // v1.1.19：真实画面尺寸与实测码率改走 PlayerManager 的流（尺寸变化即推，
         // 不再 10 秒轮询）；时钟仍 10 秒一刷。
         val realVideoSize by PlayerManager.videoSize.collectAsState()
         val bitrateBps by PlayerManager.bitrateEstimate.collectAsState()
-        val streamInfo = VideoQuality.resolutionText(realVideoSize?.width ?: 0, realVideoSize?.height ?: 0)
         LaunchedEffect(uiVm.controlsVisible) {
             if (!uiVm.controlsVisible) return@LaunchedEffect
             while (true) {
@@ -2298,61 +2297,10 @@ fun PlayerScreen(
                     // weight 在顶栏 Row 里有明确宽度，溢出判断才准）
                     modifier = Modifier.weight(1f).basicMarquee(),
                 )
-                // v1.1.19：顶栏右侧按效果图排布——分辨率角标、清晰度按钮、网速、时钟。
+                // v1.3.32：顶栏右侧一整条细边小胶囊——清晰度小字 + 网速 + 时钟 + 图标放一起；
+                // “1920×1080”字样去掉（嵌入行与全屏分辨率行一并删），1080P 不再是单独大药丸。
                 // 清晰度按真实流尺寸定（拿不到时退线路名推测）；点它轮换到下一条线路，
                 // 同集重播；只有一条线路时只提示，不做假切换。直播没有线路概念，不显示。
-                // v0.69.1：嵌入模式分辨率并入标题行（单独的分辨率行只在全屏保留）
-                if (embedded && streamInfo.isNotBlank()) {
-                    Text(
-                        text = streamInfo,
-                        color = Color.White.copy(alpha = 0.7f),
-                        style = MaterialTheme.typography.bodySmall,
-                        maxLines = 1,
-                    )
-                    Spacer(Modifier.width(4.dp))
-                }
-                if (!isLive) {
-                    val lineName = PlaySession.currentLine()?.name
-                    val quality = VideoQuality.label(
-                        realVideoSize?.width ?: 0, realVideoSize?.height ?: 0, lineName,
-                    )
-                    Box(
-                        modifier = Modifier
-                            .height(26.dp)
-                            .clip(RoundedCornerShape(50))
-                            .background(Color.Black.copy(alpha = 0.4f))
-                            .border(1.dp, Color.White.copy(alpha = 0.4f), RoundedCornerShape(50))
-                            .clickable {
-                                val lines = PlaySession.lines
-                                if (lines.size <= 1) {
-                                    AppToast.show(context, "当前只有一条线路", long = false)
-                                } else {
-                                    val next = (PlaySession.lineIndex + 1) % lines.size
-                                    val nextName = lines[next].name
-                                    switchEpisode(next, PlaySession.episodeIndex)
-                                    val nextQ = VideoQuality.parseLineHint(nextName) ?: "自动"
-                                    AppToast.show(context, "已切换到「$nextName」线路 · $nextQ", long = false)
-                                }
-                            }
-                            .padding(horizontal = 8.dp),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Text(
-                            text = quality,
-                            color = Color.White,
-                            style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp),
-                            maxLines = 1,
-                        )
-                    }
-                    Spacer(Modifier.width(4.dp))
-                    Text(
-                        text = VideoQuality.bitrateText(bitrateBps),
-                        color = Color.White.copy(alpha = 0.7f),
-                        style = MaterialTheme.typography.bodySmall,
-                        maxLines = 1,
-                    )
-                    Spacer(Modifier.width(4.dp))
-                }
                 // v0.24.0：直播角标（v0.27.0：柔和错误色胶囊）
                 if (isLive) {
                     Surface(
@@ -2369,115 +2317,150 @@ fun PlayerScreen(
                     }
                     Spacer(Modifier.width(4.dp))
                 }
-                // v0.65：时钟（对标目标界面右上角时间）
-                if (clockText.isNotBlank()) {
-                    Text(
-                        text = clockText,
-                        color = Color.White,
-                        style = MaterialTheme.typography.bodySmall,
-                    )
-                    Spacer(Modifier.width(4.dp))
-                }
-                // 画中画
-                RoundControlButton(
-                    icon = Icons.Filled.PictureInPictureAlt,
-                    desc = "画中画",
-                    onClick = { enterPip(context) },
-                )
-                // F1：投屏是占位按钮（v0.40.0 起只弹“开发中”），未实现前隐藏，
-                // 不占顶栏位置；真要做时接 DLNA 或 Cast 再加回。
-                // v0.121.0：嵌入模式横屏入口——用户反馈详情页"没有切横屏的按钮"（底栏全屏键
-                // 在窄屏上会被挤出可视区）。点播跳独立播放页，直播原地旋转（与底栏逻辑一致）。
-                // v0.264.0：顶栏是切屏，不是全屏——嵌入点播与直播都只原地翻转，
-                // 不跳页；嵌入点播原地横屏的容器问题由 DetailScreen 横屏分支处理
-                // （横屏时嵌入容器改 fillMaxSize、不再套 16:9 + 滚动偏移）。
-                if (embedded) {
-                    RoundControlButton(
-                        icon = Icons.Filled.ScreenRotation,
-                        desc = "切屏",
-                        onClick = { toggleEmbeddedLandscape() },
-                    )
-                } else {
-                    // v0.264.0：独立页顶栏补切屏按钮——旋转图标、按方向给目标文案，
-                    // 只调 toggleOrientation()，不跳页、不退出全屏。
-                    RoundControlButton(
-                        icon = Icons.Filled.ScreenRotation,
-                        desc = if (cfgOrientation == Configuration.ORIENTATION_LANDSCAPE) "切换竖屏" else "切换横屏",
-                        onClick = { toggleOrientation() },
-                    )
-                }
-                // v0.259.0：三个点菜单整体删除，改成信息 + 追剧开关 + 齿轮；
-                // 追剧开关紧邻齿轮左侧，齿轮点开底部页（六组），信息点开简介弹窗。
-                // 音轨选择在齿轮页轨道组里（多音轨时出选项，单音轨明示）；
-                // 片头/片尾在齿轮播放组里用跳过设置管理，不在顶栏单独造开关。
-                RoundControlButton(
-                    icon = Icons.Filled.Info,
-                    desc = "简介",
-                    onClick = { uiVm.showInfoDialog = true },
-                )
-                if (!isLive && followPlayerKey != null && vodId != null) {
-                    RoundControlButton(
-                        icon = if (playerFollowing) Icons.Filled.PlaylistAddCheck
-                        else Icons.Filled.PlaylistAdd,
-                        desc = if (playerFollowing) "已追剧" else "追剧",
-                        tint = if (playerFollowing) MediaProgressFill else Color.White,
-                        onClick = {
-                            val key = followPlayerKey
-                            val id = vodId
-                            scope.launch {
-                                if (playerFollowing) {
-                                    if (FollowStore.unfollow(context, FollowStore.idOf(key, id))) {
-                                        AppToast.show(context, "已取消追剧", long = false)
-                                    } else {
-                                        AppToast.show(context, "取消追剧失败，请重试", long = false)
-                                    }
-                                } else {
-                                    // 封面为空是允许的：FollowStore.follow 会保留库内已有封面，
-                                    // 全新记录无封面时下次进详情页由详情加载回填，不编造封面。
-                                    val ok = FollowStore.follow(
-                                        context,
-                                        FollowItem(
-                                            id = FollowStore.idOf(key, id),
-                                            vodId = id,
-                                            name = title,
-                                            pic = "",
-                                            sourceType = playSourceType,
-                                            sourceKey = key,
-                                            episodeCount = PlaySession.lines.sumOf { it.episodes.size },
-                                        ),
-                                    )
-                                    AppToast.show(
-                                        context,
-                                        if (ok) "已追剧，有更新会提醒你" else "追剧失败，请重试",
-                                        long = false,
-                                    )
-                                }
-                            }
-                        },
-                    )
-                }
-                // v0.261.0：横屏不需要齿轮按钮——常用功能已在横屏底栏，
-                // 不常用的回竖屏点齿轮调；竖屏才显示齿轮。
-                if (cfgOrientation != Configuration.ORIENTATION_LANDSCAPE) {
-                    RoundControlButton(
-                        icon = Icons.Filled.Settings,
-                        desc = "设置",
-                        onClick = { uiVm.showGearSheet = true },
-                    )
-                }
-            }
-            // v0.65：分辨率行（对标目标界面 3840x1920 · 码率）
-            // v0.69.1：嵌入模式已并入标题行，这里只在全屏显示
-            if (streamInfo.isNotBlank() && !embedded) {
                 Row(
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 2.dp),
-                    horizontalArrangement = Arrangement.End,
+                    modifier = Modifier
+                        .height(28.dp)
+                        .clip(RoundedCornerShape(50))
+                        .background(Color.Black.copy(alpha = 0.4f))
+                        .border(1.dp, Color.White.copy(alpha = 0.25f), RoundedCornerShape(50))
+                        .padding(horizontal = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Text(
-                        text = streamInfo,
-                        color = Color.White.copy(alpha = 0.85f),
-                        style = MaterialTheme.typography.bodySmall,
+                    if (!isLive) {
+                        val lineName = PlaySession.currentLine()?.name
+                        val quality = VideoQuality.label(
+                            realVideoSize?.width ?: 0, realVideoSize?.height ?: 0, lineName,
+                        )
+                        Box(
+                            modifier = Modifier
+                                .clickable {
+                                    val lines = PlaySession.lines
+                                    if (lines.size <= 1) {
+                                        AppToast.show(context, "当前只有一条线路", long = false)
+                                    } else {
+                                        val next = (PlaySession.lineIndex + 1) % lines.size
+                                        val nextName = lines[next].name
+                                        switchEpisode(next, PlaySession.episodeIndex)
+                                        val nextQ = VideoQuality.parseLineHint(nextName) ?: "自动"
+                                        AppToast.show(context, "已切换到「$nextName」线路 · $nextQ", long = false)
+                                    }
+                                }
+                                .padding(horizontal = 2.dp, vertical = 4.dp),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Text(
+                                text = quality,
+                                color = Color.White,
+                                style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp),
+                                maxLines = 1,
+                            )
+                        }
+                        Spacer(Modifier.width(6.dp))
+                        Text(
+                            text = VideoQuality.bitrateText(bitrateBps),
+                            color = Color.White.copy(alpha = 0.7f),
+                            style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp),
+                            maxLines = 1,
+                        )
+                        Spacer(Modifier.width(6.dp))
+                    }
+                    // v0.65：时钟（对标目标界面右上角时间）
+                    if (clockText.isNotBlank()) {
+                        Text(
+                            text = clockText,
+                            color = Color.White,
+                            style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp),
+                            maxLines = 1,
+                        )
+                        Spacer(Modifier.width(6.dp))
+                    }
+                    // F1：投屏是占位按钮（v0.40.0 起只弹“开发中”），未实现前隐藏，
+                    // 不占顶栏位置；真要做时接 DLNA 或 Cast 再加回。
+                    // 画中画
+                    CapsuleIconButton(
+                        icon = Icons.Filled.PictureInPictureAlt,
+                        desc = "画中画",
+                        onClick = { enterPip(context) },
                     )
+                    // v0.121.0：嵌入模式横屏入口——用户反馈详情页"没有切横屏的按钮"（底栏全屏键
+                    // 在窄屏上会被挤出可视区）。点播跳独立播放页，直播原地旋转（与底栏逻辑一致）。
+                    // v0.264.0：顶栏是切屏，不是全屏——嵌入点播与直播都只原地翻转，
+                    // 不跳页；嵌入点播原地横屏的容器问题由 DetailScreen 横屏分支处理
+                    // （横屏时嵌入容器改 fillMaxSize、不再套 16:9 + 滚动偏移）。
+                    if (embedded) {
+                        CapsuleIconButton(
+                            icon = Icons.Filled.ScreenRotation,
+                            desc = "切屏",
+                            onClick = { toggleEmbeddedLandscape() },
+                        )
+                    } else {
+                        // v0.264.0：独立页顶栏补切屏按钮——旋转图标、按方向给目标文案，
+                        // 只调 toggleOrientation()，不跳页、不退出全屏。
+                        CapsuleIconButton(
+                            icon = Icons.Filled.ScreenRotation,
+                            desc = if (cfgOrientation == Configuration.ORIENTATION_LANDSCAPE) "切换竖屏" else "切换横屏",
+                            onClick = { toggleOrientation() },
+                        )
+                    }
+                    // v0.259.0：三个点菜单整体删除，改成信息 + 追剧开关 + 齿轮；
+                    // 追剧开关紧邻齿轮左侧，齿轮点开底部页（六组），信息点开简介弹窗。
+                    // 音轨选择在齿轮页轨道组里（多音轨时出选项，单音轨明示）；
+                    // 片头/片尾在齿轮播放组里用跳过设置管理，不在顶栏单独造开关。
+                    CapsuleIconButton(
+                        icon = Icons.Filled.Info,
+                        desc = "简介",
+                        onClick = { uiVm.showInfoDialog = true },
+                    )
+                    if (!isLive && followPlayerKey != null && vodId != null) {
+                        CapsuleIconButton(
+                            icon = if (playerFollowing) Icons.Filled.PlaylistAddCheck
+                            else Icons.Filled.PlaylistAdd,
+                            desc = if (playerFollowing) "已追剧" else "追剧",
+                            tint = if (playerFollowing) MediaProgressFill else Color.White,
+                            onClick = {
+                                val key = followPlayerKey
+                                val id = vodId
+                                scope.launch {
+                                    if (playerFollowing) {
+                                        if (FollowStore.unfollow(context, FollowStore.idOf(key, id))) {
+                                            AppToast.show(context, "已取消追剧", long = false)
+                                        } else {
+                                            AppToast.show(context, "取消追剧失败，请重试", long = false)
+                                        }
+                                    } else {
+                                        // 封面为空是允许的：FollowStore.follow 会保留库内已有封面，
+                                        // 全新记录无封面时下次进详情页由详情加载回填，不编造封面。
+                                        val ok = FollowStore.follow(
+                                            context,
+                                            FollowItem(
+                                                id = FollowStore.idOf(key, id),
+                                                vodId = id,
+                                                name = title,
+                                                pic = "",
+                                                sourceType = playSourceType,
+                                                sourceKey = key,
+                                                episodeCount = PlaySession.lines.sumOf { it.episodes.size },
+                                            ),
+                                        )
+                                        AppToast.show(
+                                            context,
+                                            if (ok) "已追剧，有更新会提醒你" else "追剧失败，请重试",
+                                            long = false,
+                                        )
+                                    }
+                                }
+                            },
+                        )
+                    }
+                    // v0.261.0：横屏不需要齿轮按钮——常用功能已在横屏底栏，
+                    // 不常用的回竖屏点齿轮调；竖屏才显示齿轮。
+                    if (cfgOrientation != Configuration.ORIENTATION_LANDSCAPE) {
+                        CapsuleIconButton(
+                            icon = Icons.Filled.Settings,
+                            desc = "设置",
+                            onClick = { uiVm.showGearSheet = true },
+                        )
+                    }
                 }
             }
             } // Column：顶栏区

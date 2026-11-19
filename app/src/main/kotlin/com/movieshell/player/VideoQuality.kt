@@ -43,10 +43,6 @@ object VideoQuality {
         if (width > 0 && height > 0) fromSize(width, height)
         else lineName?.let { parseLineHint(it) } ?: "自动"
 
-    /** 分辨率角标：真实尺寸才显示（“1920×1080”），拿不到显示空串，调用方隐藏。 */
-    fun resolutionText(width: Int, height: Int): String =
-        if (width > 0 && height > 0) "${width}×${height}" else ""
-
     /** 码率（bit/s）→ 网速文案（“8.1MB/s”）；0 表示当前无网络流量，显示短横线。 */
     fun bitrateText(bitsPerSec: Long): String {
         val bytes = bitsPerSec / 8

@@ -140,7 +140,7 @@ object ChaquopyEngine : PyEngine {
         val ctx = appContext
         // 只在应用内提示层已挂载时弹：后台线程调系统 Toast 可能因无 Looper 崩，
         // 未挂载时只记日志，不丢提示也不冒险。
-        if (ctx != null && AppToast.mounted.get()) {
+        if (ctx != null && AppToast.isMounted()) {
             AppToast.show(ctx, msg, long = true)
         }
     }

@@ -150,6 +150,25 @@ internal fun RoundControlButton(
     }
 }
 
+/**
+ * v1.3.32：顶栏胶囊内的小图标按钮——28dp 触摸区 + 18dp 白图标，无圆底；
+ * 与胶囊同高（28dp），放进细边胶囊里不撑高。只在顶栏胶囊内用。
+ */
+@Composable
+internal fun CapsuleIconButton(
+    icon: ImageVector,
+    desc: String,
+    tint: Color = Color.White,
+    onClick: () -> Unit,
+) {
+    Box(
+        modifier = Modifier.size(28.dp).clickable(onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(icon, contentDescription = desc, tint = tint, modifier = Modifier.size(18.dp))
+    }
+}
+
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class, ExperimentalLayoutApi::class) // v0.84.0：Slider 自定义 track 用到实验性 SliderState API；v0.255.0：标题跑马灯 basicMarquee
 
 /** 左半屏上下滑动：调节屏幕亮度。返回调节后的亮度百分比，失败返回 -1 */
