@@ -734,10 +734,15 @@ internal fun SingleChoiceDialog(
     selected: String,
     onDismiss: () -> Unit,
     onSelect: (String) -> Unit,
+    // v1.3.25 UI 优化：可选副标题（放 TechDialog 的 subtitle 位）与每档小字说明
+    //（按选项文案取），都不传时与原来完全一致，其他调用处不受影响。
+    subtitle: String? = null,
+    descriptions: Map<String, String>? = null,
 ) {
     TechDialog(
         onDismissRequest = onDismiss,
         title = title,
+        subtitle = subtitle,
     ) {
             // v1.2.15：收紧行高 + 选中行浅底高亮（效果图定版）；点行即选即关，不加确认按钮。
             Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
@@ -755,11 +760,19 @@ internal fun SingleChoiceDialog(
                             .padding(horizontal = 12.dp, vertical = 10.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Text(
-                            option,
-                            style = MaterialTheme.typography.bodyMedium,
-                            modifier = Modifier.weight(1f),
-                        )
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                option,
+                                style = MaterialTheme.typography.bodyMedium,
+                            )
+                            descriptions?.get(option)?.let { desc ->
+                                Text(
+                                    desc,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                        }
                         RadioButton(
                             selected = isSelected,
                             onClick = { onSelect(option) },
@@ -865,6 +878,9 @@ internal fun SegItem(
     title: String,
     subtitle: String? = null,
     onClick: (() -> Unit)? = null,
+    // v1.3.25 UI 优化：禁用态（灰态说明行，如暂无每日备份）——整行 45% 透明、
+    // 不可点、无箭头；默认 true，其他调用处不受影响。
+    enabled: Boolean = true,
     trailing: (@Composable () -> Unit)? = null,
     // v0.294.4：自定义 40dp 前导图（关于侠影用品牌标）；为 null 走默认 primaryContainer 圆底图标
     leading: (@Composable () -> Unit)? = null,
@@ -885,7 +901,8 @@ internal fun SegItem(
             .fillMaxWidth()
             .clip(shape)
             .background(cs.surfaceContainerLowest)
-            .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
+            .then(if (onClick != null && enabled) Modifier.clickable(onClick = onClick) else Modifier)
+            .then(if (!enabled) Modifier.alpha(0.45f) else Modifier)
             .padding(horizontal = 16.dp, vertical = 14.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -918,7 +935,7 @@ internal fun SegItem(
                     Spacer(Modifier.width(8.dp))
                     trailing()
                 }
-                onClick != null && content == null -> {
+                onClick != null && enabled && content == null -> {
                     Spacer(Modifier.width(8.dp))
                     Icon(Icons.Filled.ChevronRight, null, tint = cs.onSurfaceVariant)
                 }

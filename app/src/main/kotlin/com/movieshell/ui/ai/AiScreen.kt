@@ -731,21 +731,29 @@ fun AiScreen() {
             }
             // v1.3.25 合并 3：AI 操作开关——开着时“暂停/切集/搜片/换源”
             // 这类话由 AI 直接操作 App，执行结果写进对话；关了只聊天。
+            // v1.3.25 UI 优化：开关放右侧（与设置页习惯一致），标题与说明分两行，
+            // 关掉时说明同步变灰。
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "允许 AI 操作 App",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = v.onSurface,
+                    )
+                    Text(
+                        text = "暂停、切集、搜片、换源，执行结果写进对话",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = v.onSurfaceVariant.copy(alpha = if (agentMode) 1f else 0.55f),
+                    )
+                }
                 Switch(
                     checked = agentMode,
                     onCheckedChange = { agentMode = it },
                     enabled = !thinking,
-                )
-                Text(
-                    text = "允许 AI 操作 App（暂停 / 切集 / 搜片 / 换源）",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = v.onSurfaceVariant,
-                    modifier = Modifier.weight(1f),
                 )
             }
             Spacer(Modifier.height(8.dp))

@@ -68,6 +68,9 @@ fun TechDialog(
     confirmText: String = "确定",
     onConfirm: (() -> Unit)? = null,
     confirmEnabled: Boolean = true,
+    /** v1.3.25 UI 优化：危险确认（如高危风险仍要导入）——确认按钮改 error 色，
+     * 与普通确认区分；默认 false，其他 90 多处弹窗不受影响。 */
+    confirmDanger: Boolean = false,
     /** 取消按钮文案；传 null 则隐藏取消按钮（如不可取消的进度弹窗） */
     dismissText: String? = "取消",
     /** v0.240.0：弹窗宽度占屏幕宽的比例；null 则走平台默认宽（其他弹窗不受影响）。 */
@@ -194,8 +197,8 @@ fun TechDialog(
                             shape = RoundedCornerShape(50),
                             modifier = Modifier.weight(1f).height(if (compact) 36.dp else 40.dp),
                             colors = ButtonDefaults.buttonColors(
-                                containerColor = MaterialTheme.colorScheme.primary,
-                                contentColor = MaterialTheme.colorScheme.onPrimary,
+                                containerColor = if (confirmDanger) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
+                                contentColor = if (confirmDanger) MaterialTheme.colorScheme.onError else MaterialTheme.colorScheme.onPrimary,
                                 // v1.2.14 E片：M3 默认禁用字 onSurface 38% 只有 2.34:1（浅）/3.03:1（深）；
                                 // 禁用字改 65%（5.21/6.59），禁用底仍是淡底、仍一眼可辨是禁用态。
                                 disabledContainerColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f),

@@ -38,6 +38,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import coil.imageLoader
@@ -167,12 +168,19 @@ fun PicsViewerScreen(
                 }
                 Text(
                     // v0.167.0：源返回的标题常带 HTML 标签（如 <span class="post_title_topimg">(120P)</span>），只留文字
+                    // v1.3.25 UI 优化：标题单行截断，右侧提示降级为小字半透明，不再三段挤一行。
                     text = title.stripHtml(),
                     color = Color.White,
                     style = MaterialTheme.typography.titleMedium,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f),
                 )
-                Text("共 ${images.size} 张 · 双击图片可放大", color = Color.White)
+                Text(
+                    "共 ${images.size} 张 · 双击图片可放大",
+                    color = Color.White.copy(alpha = 0.6f),
+                    style = MaterialTheme.typography.bodySmall,
+                )
             }
         }
         // v1.3.25 合并 8：全屏缩放查看（key 按图，换图即复位缩放状态）。
@@ -281,12 +289,19 @@ private fun ZoomableImageViewer(
                     Icon(Icons.AutoMirrored.Filled.ArrowBack, "返回", tint = Color.White)
                 }
                 Text(
+                    // v1.3.25 UI 优化：与列表顶栏同款——标题单行截断，右侧计数降级为小字半透明。
                     text = title.stripHtml(),
                     color = Color.White,
                     style = MaterialTheme.typography.titleMedium,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f),
                 )
-                Text(indexText, color = Color.White)
+                Text(
+                    indexText,
+                    color = Color.White.copy(alpha = 0.6f),
+                    style = MaterialTheme.typography.bodySmall,
+                )
             }
         }
     }

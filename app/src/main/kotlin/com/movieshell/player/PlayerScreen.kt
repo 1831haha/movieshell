@@ -101,7 +101,7 @@ import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.SkipPrevious
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
+import MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.TextButton
@@ -127,12 +127,13 @@ import androidx.compose.runtime.setValue
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
-import androidx.compose.ui.Alignment
+import Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.text.style.TextOverflow
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.takeWhile
 import kotlinx.coroutines.withTimeoutOrNull
@@ -1608,15 +1609,15 @@ fun PlayerScreen(
             dismissText = "关闭",
         ) {
                 androidx.compose.foundation.layout.Column {
-                    androidx.compose.material3.Text(err.reason)
-                    androidx.compose.foundation.layout.Spacer(
+                    Text(err.reason)
+                    Spacer(
                         Modifier.size(8.dp)
                     )
                     err.suggestions.forEach { s ->
-                        androidx.compose.material3.Text(
+                        Text(
                             text = "• $s",
-                            style = androidx.compose.material3.MaterialTheme.typography.bodySmall,
-                            color = androidx.compose.material3.MaterialTheme.colorScheme.onSurfaceVariant,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
                     // v0.149 DS 案例 4：源侧 Referer 导致换流后播不了时，给一条
@@ -1648,7 +1649,7 @@ fun PlayerScreen(
                                 }
                             },
                         ) {
-                            androidx.compose.material3.Text("清除 Referer 后重试")
+                            Text("清除 Referer 后重试")
                         }
                     }
                     // v0.294.7（H7）：播不了时可直接打开原网页手动嗅探
@@ -1659,7 +1660,7 @@ fun PlayerScreen(
                                 openManualSniff()
                             },
                         ) {
-                            androidx.compose.material3.Text("网页嗅探本集")
+                            Text("网页嗅探本集")
                         }
                     }
                     // v1.1.31：Media3 播不了时，libmpv（FFmpeg 软解）可能播得了——
@@ -1673,7 +1674,7 @@ fun PlayerScreen(
                                 onOpenPluginCenter()
                             },
                         ) {
-                            androidx.compose.material3.Text("安装 libmpv 插件试试")
+                            Text("安装 libmpv 插件试试")
                         }
                     }
                 }
@@ -1707,17 +1708,17 @@ fun PlayerScreen(
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(Icons.Filled.Check, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(16.dp))
                     Spacer(Modifier.width(8.dp))
-                    androidx.compose.material3.Text("能播 Media3 播不了的格式")
+                    Text("能播 Media3 播不了的格式")
                 }
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(Icons.Filled.Check, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(16.dp))
                     Spacer(Modifier.width(8.dp))
-                    androidx.compose.material3.Text("AC3 · DTS · TrueHD · AV1 · 杜比视界")
+                    Text("AC3 · DTS · TrueHD · AV1 · 杜比视界")
                 }
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(Icons.Filled.Check, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(16.dp))
                     Spacer(Modifier.width(8.dp))
-                    androidx.compose.material3.Text("装完在播放页右上角「更多」里切换内核")
+                    Text("装完在播放页右上角「更多」里切换内核")
                 }
             }
         }
@@ -3061,7 +3062,10 @@ fun PlayerScreen(
                             variant = AppButtonVariant.Ghost,
                         )
                         // v1.3.25 合并 5：Anime4K 画质增强快速切换（仅 libmpv 引擎生效）。
-                        Spacer(Modifier.height(8.dp))
+                        // v1.3.25 UI 优化：补组标题（与“屏显”“其它”同款）；Media3 引擎下
+                        // 点档位仍存偏好（切回 libmpv 即生效），但要 Toast 明说，否则点了没反应。
+                        Text("画质增强", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface)
+                        Spacer(Modifier.height(4.dp))
                         FlowRow(
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
                             verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -3074,6 +3078,9 @@ fun PlayerScreen(
                                     onClick = {
                                         PlayerSettings.setAnime4KMode(context, mode.key)
                                         EngineHost.setAnime4K(mode)
+                                        if (EngineHost.engine() != PlayerEngine.LIBMPV) {
+                                            AppToast.show(context, "当前是 Media3 引擎，切 libmpv 后生效", long = false)
+                                        }
                                     },
                                 )
                             }
@@ -3182,78 +3189,78 @@ fun PlayerScreen(
             ) {
                     androidx.compose.foundation.layout.Column {
                         // 字号
-                        androidx.compose.material3.Text("字号", style = androidx.compose.material3.MaterialTheme.typography.labelLarge)
+                        Text("字号", style = MaterialTheme.typography.labelLarge)
                         androidx.compose.foundation.layout.Row {
                             listOf("小", "中", "大").forEachIndexed { i, label ->
                                 androidx.compose.material3.FilterChip(
                                     selected = sizeIdx == i,
                                     onClick = { ds.setTextSize(context, i) },
-                                    label = { androidx.compose.material3.Text(label) },
+                                    label = { Text(label) },
                                     modifier = Modifier.padding(end = 8.dp),
                                 )
                             }
                         }
-                        androidx.compose.foundation.layout.Spacer(Modifier.size(8.dp))
+                        Spacer(Modifier.size(8.dp))
                         // 透明度
-                        androidx.compose.material3.Text("透明度：$alphaV%", style = androidx.compose.material3.MaterialTheme.typography.labelLarge)
+                        Text("透明度：$alphaV%", style = MaterialTheme.typography.labelLarge)
                         androidx.compose.material3.Slider(
                             value = alphaV.toFloat(),
                             onValueChange = { ds.setAlpha(context, it.toInt()) },
                             valueRange = 30f..100f,
                         )
                         // 速度
-                        androidx.compose.material3.Text("速度", style = androidx.compose.material3.MaterialTheme.typography.labelLarge)
+                        Text("速度", style = MaterialTheme.typography.labelLarge)
                         androidx.compose.foundation.layout.Row {
                             listOf("慢", "中", "快").forEachIndexed { i, label ->
                                 androidx.compose.material3.FilterChip(
                                     selected = speedIdx == i,
                                     onClick = { ds.setSpeed(context, i) },
-                                    label = { androidx.compose.material3.Text(label) },
+                                    label = { Text(label) },
                                     modifier = Modifier.padding(end = 8.dp),
                                 )
                             }
                         }
-                        androidx.compose.foundation.layout.Spacer(Modifier.size(8.dp))
+                        Spacer(Modifier.size(8.dp))
                         // 区域
-                        androidx.compose.material3.Text("显示区域", style = androidx.compose.material3.MaterialTheme.typography.labelLarge)
+                        Text("显示区域", style = MaterialTheme.typography.labelLarge)
                         androidx.compose.foundation.layout.Row {
                             listOf("全屏", "上半屏").forEachIndexed { i, label ->
                                 androidx.compose.material3.FilterChip(
                                     selected = areaIdx == i,
                                     onClick = { ds.setArea(context, i) },
-                                    label = { androidx.compose.material3.Text(label) },
+                                    label = { Text(label) },
                                     modifier = Modifier.padding(end = 8.dp),
                                 )
                             }
                         }
-                        androidx.compose.foundation.layout.Spacer(Modifier.size(8.dp))
+                        Spacer(Modifier.size(8.dp))
                         // 行高（v0.150.0：对标 DS danmakuLineHeight）
-                        androidx.compose.material3.Text("行高", style = androidx.compose.material3.MaterialTheme.typography.labelLarge)
+                        Text("行高", style = MaterialTheme.typography.labelLarge)
                         androidx.compose.foundation.layout.Row {
                             listOf("紧凑", "标准", "宽松").forEachIndexed { i, label ->
                                 androidx.compose.material3.FilterChip(
                                     selected = lineHeightIdx == i,
                                     onClick = { ds.setLineHeight(context, i) },
-                                    label = { androidx.compose.material3.Text(label) },
+                                    label = { Text(label) },
                                     modifier = Modifier.padding(end = 8.dp),
                                 )
                             }
                         }
-                        androidx.compose.foundation.layout.Spacer(Modifier.size(8.dp))
+                        Spacer(Modifier.size(8.dp))
                         // v1.2.22：自定义弹幕接口——用户在 TG 频道看到的 LogVar 站可贴进来，
                         // App 直接按弹弹play 协议拉，与内置源、本地服务三路合并显示。
-                        androidx.compose.material3.Text("自定义弹幕接口", style = androidx.compose.material3.MaterialTheme.typography.labelLarge)
-                        androidx.compose.material3.Text(
+                        Text("自定义弹幕接口", style = MaterialTheme.typography.labelLarge)
+                        Text(
                             "每行一个 LogVar 弹幕站地址，如 dm.999.team；只取 host 部分。图里那 8 个站已在插件内置的 14 家里，不用重复贴。",
-                            style = androidx.compose.material3.MaterialTheme.typography.bodySmall,
-                            color = androidx.compose.material3.MaterialTheme.colorScheme.onSurfaceVariant,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
-                        androidx.compose.foundation.layout.Row(
-                            verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
                         ) {
-                            androidx.compose.material3.Text(
+                            Text(
                                 text = if (customHosts.isEmpty()) "未添加" else "已加 ${customHosts.size} 个",
-                                style = androidx.compose.material3.MaterialTheme.typography.bodyMedium,
+                                style = MaterialTheme.typography.bodyMedium,
                                 modifier = Modifier.weight(1f),
                             )
                             AppButton(
@@ -3265,22 +3272,26 @@ fun PlayerScreen(
                                 variant = AppButtonVariant.Ghost,
                             )
                         }
-                        androidx.compose.foundation.layout.Spacer(Modifier.size(8.dp))
+                        Spacer(Modifier.size(8.dp))
                         // v1.3.25 合并 8：内置弹幕接口可配——默认弹弹play 官方站，
                         // 官方站不可用时可填镜像站 host，留空恢复默认。
-                        androidx.compose.material3.Text("内置弹幕接口", style = androidx.compose.material3.MaterialTheme.typography.labelLarge)
-                        androidx.compose.material3.Text(
-                            "默认 api.dandanplay.net；官方站不可用时可填镜像站 host，留空恢复默认。",
-                            style = androidx.compose.material3.MaterialTheme.typography.bodySmall,
-                            color = androidx.compose.material3.MaterialTheme.colorScheme.onSurfaceVariant,
+                        // v1.3.25 UI 优化：全限定名收回 import；host 单行截断不挤“编辑”；
+                        // 说明缩短。
+                        Text("内置弹幕接口", style = MaterialTheme.typography.labelLarge)
+                        Text(
+                            "默认官方站；不可用时可填镜像站 host，留空恢复默认。",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
-                        androidx.compose.foundation.layout.Row(
-                            verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
                         ) {
-                            androidx.compose.material3.Text(
+                            Text(
                                 text = builtinHost,
-                                style = androidx.compose.material3.MaterialTheme.typography.bodyMedium,
+                                style = MaterialTheme.typography.bodyMedium,
                                 modifier = Modifier.weight(1f),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
                             )
                             AppButton(
                                 text = "编辑",

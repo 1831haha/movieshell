@@ -35,6 +35,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -763,20 +764,28 @@ private fun settingRowContent(
         SettingsLayoutStore.ITEM_ANIME4K -> {
             // v1.3.25 合并 5：Anime4K 画质增强——仅 libmpv 引擎生效，
             // 换档即时生效（正在用 libmpv 播时直接挂着色器）。
+            // v1.3.25 UI 优化：副标题只留当前档位，“仅 libmpv 生效”与发热提示
+            // 移到弹窗里（副标题 + 每档小字），行面不再挤三句话。
             val anime4kKey by PlayerSettings.anime4kMode.collectAsState()
             var showDialog by remember { mutableStateOf(false) }
             val mode = Anime4K.fromKey(anime4kKey)
             SettingRowContent(
                 icon = Icons.Outlined.AutoAwesome,
                 title = "画质增强（Anime4K）",
-                subtitle = "仅 libmpv 引擎生效，当前：" + mode.label +
-                    if (mode == Anime4K.Mode.VL) "（画质档发热明显）" else "",
+                subtitle = "当前：" + mode.label,
                 onClick = { showDialog = true },
                 dialog = {
                     if (showDialog) {
                         SingleChoiceDialog(
                             title = "画质增强（Anime4K）",
+                            subtitle = "仅 libmpv 引擎生效",
                             options = Anime4K.Mode.values().map { it.label },
+                            descriptions = mapOf(
+                                Anime4K.Mode.OFF.label to "关闭画质增强",
+                                Anime4K.Mode.S.label to "轻量，省电",
+                                Anime4K.Mode.M.label to "均衡，多数片源够用",
+                                Anime4K.Mode.VL.label to "最清晰，发热明显",
+                            ),
                             selected = mode.label,
                             onDismiss = { showDialog = false },
                             onSelect = { label ->
@@ -1478,6 +1487,8 @@ internal fun BackupExpandBlock(style: SettingRowStyle, isLastRow: Boolean) {
     // v1.3.25 合并 8：每日自动备份恢复入口——展开时查一次。
     var hasDailyBackup by remember { mutableStateOf(false) }
     var dailyBackupTime by remember { mutableStateOf(0L) }
+    // v1.3.25 UI 优化：恢复进行中状态——大备份恢复要几秒，行面禁用防连点。
+    var isRestoringDaily by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) {
         hasPreSnapshot = BackupManager.hasPreRestoreSnapshot(context)
         hasDailyBackup = BackupManager.hasDailyBackup(context)
@@ -1491,12 +1502,18 @@ internal fun BackupExpandBlock(style: SettingRowStyle, isLastRow: Boolean) {
         }
     }
     fun restoreDailyBackup() {
+        if (isRestoringDaily) return
+        isRestoringDaily = true
         scope.launch {
-            when (val r = BackupManager.restoreDailyBackup(context)) {
-                is BackupManager.RestoreResult.Ok ->
-                    AppToast.show(context, "已从每日自动备份恢复", long = false)
-                is BackupManager.RestoreResult.Failed ->
-                    AppToast.show(context, "恢复失败：${r.reason}", long = true)
+            try {
+                when (val r = BackupManager.restoreDailyBackup(context)) {
+                    is BackupManager.RestoreResult.Ok ->
+                        AppToast.show(context, "已从每日自动备份恢复", long = false)
+                    is BackupManager.RestoreResult.Failed ->
+                        AppToast.show(context, "恢复失败：${r.reason}", long = true)
+                }
+            } finally {
+                isRestoringDaily = false
             }
         }
     }
@@ -1582,13 +1599,24 @@ internal fun BackupExpandBlock(style: SettingRowStyle, isLastRow: Boolean) {
                     onClick = { importLauncher.launch("application/json") },
                 )
                 // v1.3.25 合并 8：每日自动备份恢复入口（每天静默备一份，单文件覆盖）
+                // v1.3.25 UI 优化：无备份时也留一行灰态说明（用户才知道有每日备份），
+                // 恢复中行面禁用防连点。
                 if (hasDailyBackup) {
                     SegItem(
                         position = if (isLastRow && !hasPreSnapshot) SegPos.Last else SegPos.Middle,
                         icon = Icons.Outlined.Schedule,
                         title = "恢复每日自动备份",
-                        subtitle = "每天自动备份一次，最新：$dailyBackupTimeText",
+                        subtitle = if (isRestoringDaily) "正在恢复…" else "每天自动备份一次，最新：$dailyBackupTimeText",
+                        enabled = !isRestoringDaily,
                         onClick = { restoreDailyBackup() },
+                    )
+                } else {
+                    SegItem(
+                        position = if (isLastRow && !hasPreSnapshot) SegPos.Last else SegPos.Middle,
+                        icon = Icons.Outlined.Schedule,
+                        title = "恢复每日自动备份",
+                        subtitle = "暂无备份，今晚首次备份后可用",
+                        enabled = false,
                     )
                 }
                 // v0.216.0（C15）：上次恢复中断/失败后留下的恢复前快照
@@ -1640,10 +1668,23 @@ internal fun BackupExpandBlock(style: SettingRowStyle, isLastRow: Boolean) {
                     SettingsRow(
                         icon = Icons.Outlined.Schedule,
                         title = "恢复每日自动备份",
-                        subtitle = "每天自动备份一次，最新：$dailyBackupTimeText",
+                        subtitle = if (isRestoringDaily) "正在恢复…" else "每天自动备份一次，最新：$dailyBackupTimeText",
                         onClick = { restoreDailyBackup() },
+                        clickable = !isRestoringDaily,
                         divider = hasPreSnapshot,
                     )
+                } else {
+                    // v1.3.25 UI 优化：无备份时也留一行灰态说明（与 Card 分支同款）。
+                    Box(Modifier.alpha(0.45f)) {
+                        SettingsRow(
+                            icon = Icons.Outlined.Schedule,
+                            title = "恢复每日自动备份",
+                            subtitle = "暂无备份，今晚首次备份后可用",
+                            onClick = {},
+                            clickable = false,
+                            divider = hasPreSnapshot,
+                        )
+                    }
                 }
                 if (hasPreSnapshot) {
                     SettingsRow(
