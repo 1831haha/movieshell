@@ -1284,6 +1284,11 @@ object ServicePluginManager {
 
     fun start(context: Context, id: String) {
         synchronized(lock) { startLocked(context, id) }
+        // v1.3.30：clash 启动后混合端口就位，PY 代理状态要重推（只对 clash 推，
+        // 其他服务启停不碰 Python）。推失败不影响启停本身。
+        if (id == ClashProxy.PLUGIN_ID) {
+            runCatching { PySourceManager.refreshPyProxyState() }
+        }
     }
 
     private fun startLocked(context: Context, id: String) {
@@ -1421,6 +1426,10 @@ object ServicePluginManager {
 
     fun stop(context: Context, id: String) {
         synchronized(lock) { stopLocked(context, id) }
+        // v1.3.30：clash 停掉后混合端口消失，PY 代理状态要重推（关代理）。
+        if (id == ClashProxy.PLUGIN_ID) {
+            runCatching { PySourceManager.refreshPyProxyState() }
+        }
     }
 
     private fun stopLocked(context: Context, id: String) {

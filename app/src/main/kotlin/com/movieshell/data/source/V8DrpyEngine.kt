@@ -106,9 +106,12 @@ class V8DrpyEngine(
 
     companion object {
         private const val TAG = "V8Drpy"
-        private const val JS_TIMEOUT_MS = 15_000L
-        /** v0.257.0：单次 drpy 执行的累计 HTTP 请求预算（毫秒），给解析留约 3 秒。 */
-        private const val DRPY_REQUEST_BUDGET_MS = 12_000L
+        /** v1.3.30：JS 硬超时 15→30 秒，与 drpy 超时放宽同批（GPT 第二轮建议档）。 */
+        private const val JS_TIMEOUT_MS = 30_000L
+        /** v0.257.0：单次 drpy 执行的累计 HTTP 请求预算（毫秒），给解析留约 3 秒。
+         * v1.3.30：12→25 秒，与 JS 超时同批放宽（GPT 第二轮建议档）；doRequest()
+         * 里剩余预算的派生逻辑不动。 */
+        private const val DRPY_REQUEST_BUDGET_MS = 25_000L
         /** v0.110.0：home 缓存窗口 60s（原 10s）。规则标识 = 引擎实例本身，切源建新实例。 */
         private const val HOME_CACHE_MS = 60_000L
         /** v0.135.0：home 首调为空时重试前的等待，给规则未完成的异步取数留落地时间。 */

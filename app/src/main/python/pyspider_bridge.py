@@ -19,6 +19,7 @@ import sys
 import traceback
 import types
 import zipfile
+from urllib.parse import urlparse
 
 _spiders = {}
 
@@ -91,6 +92,21 @@ _last_resp_info = None
 # v0.294.5：调用方未指定 timeout 时的默认值（连接, 读取）秒
 _DEFAULT_TIMEOUT = (15, 15)
 
+# v1.3.30：PY 代理按源开关——Kotlin 侧（ChaquopyEngine.setPyProxy）把当前
+# PY 源的代理状态推过来：开着就给 clash 混合端口地址，否则空串。
+# 所有 PY 请求都过 _install_resp_sniffer 改写后的 HTTPAdapter.send，
+# 在那里按请求补 proxies。规则自己显式传了 proxies 的不动。
+_CLASH_PROXY_URL = ""
+
+
+def set_clash_proxy(url):
+    """Kotlin 侧调：url 为 "http://127.0.0.1:<混合端口>"，空串/None 即关代理。"""
+    global _CLASH_PROXY_URL
+    try:
+        _CLASH_PROXY_URL = url or ""
+    except Exception:
+        _CLASH_PROXY_URL = ""
+
 
 def _install_resp_sniffer():
     try:
@@ -105,6 +121,23 @@ def _install_resp_sniffer():
         # 防止一个挂死的请求把 PY 调用线程永久占住、后续调用排队堆积。
         if kwargs.get("timeout") is None:
             kwargs["timeout"] = _DEFAULT_TIMEOUT
+        # v1.3.30：当前 PY 源开了代理开关时补 proxies（规则显式传了的不动，
+        # 本地地址不走代理）。_CLASH_PROXY_URL 由 Kotlin 侧推，见 set_clash_proxy。
+        # 注意不能只判 proxies 字典非空：requests 合并环境变量后字典里可能
+        # 有与本次请求无关的键（如沙箱的 node_use_env），要按 scheme 逐项看；
+        # 用 setdefault 合并，规则显式给过的 scheme 绝不覆盖。
+        if _CLASH_PROXY_URL:
+            try:
+                _pu = urlparse(str(getattr(request, "url", "")))
+                _h = (_pu.hostname or "").lower()
+                _scheme = (_pu.scheme or "http").lower()
+            except Exception:
+                _h, _scheme = "", "http"
+            if _h and _h not in ("127.0.0.1", "localhost", "::1"):
+                _p = dict(kwargs.get("proxies") or {})
+                _p.setdefault("http", _CLASH_PROXY_URL)
+                _p.setdefault("https", _CLASH_PROXY_URL)
+                kwargs["proxies"] = _p
         resp = orig_send(self, request, **kwargs)
         try:
             raw = resp.content[:200] if resp is not None else b""

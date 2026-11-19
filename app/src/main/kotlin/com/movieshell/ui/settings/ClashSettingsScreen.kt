@@ -12,9 +12,14 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Terminal
 import androidx.compose.material.icons.outlined.Code
 import androidx.compose.material.icons.outlined.Extension
 import androidx.compose.material.icons.outlined.Link
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -24,6 +29,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -32,6 +38,7 @@ import com.movieshell.data.source_mgr.ApiSource
 import com.movieshell.data.store.ApiSourceStore
 import com.movieshell.data.source_mgr.ClashProxy
 import com.movieshell.data.source_mgr.DrpySourceManager
+import com.movieshell.data.source_mgr.PySourceManager
 import com.movieshell.data.source_mgr.ServicePluginManager
 import com.movieshell.data.source_mgr.SubSiteStore
 import com.movieshell.data.store.RuleInfo
@@ -40,6 +47,8 @@ import com.movieshell.ui.components.AppButtonVariant
 import com.movieshell.ui.components.AppCard
 import com.movieshell.ui.components.AppSwitch
 import com.movieshell.ui.components.AppToast
+import com.movieshell.ui.components.CapsuleTabBar
+import com.movieshell.ui.components.TechTextField
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import com.movieshell.ui.components.TabTopBar
@@ -52,8 +61,8 @@ import kotlinx.coroutines.launch
  *
  * 三块：① clash 服务状态（启动/停止/探活/去服务页）；② 订阅链接（只存本机，
  * 带 Clash UA 更新订阅，写进私有目录给 mihomo 的 file 型 provider 读）；
- * ③ 每源一个“走代理”开关（JS 规则 + CMS 订阅；PY/PHP/网页源 v1 不支持，
- * 见页内说明）。只代理开了开关的源，其他源一点不受影响。
+ * ③ 每源一个“走代理”开关（JS/PY 规则 + CMS 订阅，支持搜索与分组折叠；
+ * PHP/网页源不支持，见页内说明）。只代理开了开关的源，其他源一点不受影响。
  */
 @Composable
 fun ClashSettingsScreen(
@@ -72,13 +81,23 @@ fun ClashSettingsScreen(
     var installed by remember { mutableStateOf(false) }
     var running by remember { mutableStateOf(false) }
     var jsRules by remember { mutableStateOf<List<RuleInfo>>(emptyList()) }
+    var pyRules by remember { mutableStateOf<List<RuleInfo>>(emptyList()) }
     var cmsSubs by remember { mutableStateOf<List<ApiSource>>(emptyList()) }
     var proxyOn by remember { mutableStateOf<Set<String>>(emptySet()) }
+    // v1.3.30：源列表搜索 + 胶囊过滤（0=全部 1=已开启 2=未开启）。
+    var proxyQuery by remember { mutableStateOf("") }
+    var proxyFilter by remember { mutableStateOf(0) }
+    // v1.3.30：分组展开记忆——用户点过组头才记（hasExpandedMemory），没记过时
+    // 有已开的组默认展开、其余收起。rememberSaveable 才能扛过旋转/进程重建
+    // （check_imports.py 抓不住 rememberSaveable 漏 import，见 AGENTS.md）。
+    var hasExpandedMemory by rememberSaveable { mutableStateOf(false) }
+    var expandedGroups by rememberSaveable { mutableStateOf(emptyList<String>()) }
 
     fun refresh() {
         installed = ClashProxy.isInstalled(context)
         running = ClashProxy.isRunning()
         jsRules = runCatching { DrpySourceManager.listRules() }.getOrDefault(emptyList())
+        pyRules = runCatching { PySourceManager.listRules() }.getOrDefault(emptyList())
         cmsSubs = runCatching { ApiSourceStore.load(context) }.getOrDefault(emptyList())
         proxyOn = ClashProxy.enabledKeys()
     }
@@ -97,6 +116,88 @@ fun ClashSettingsScreen(
         running -> "运行中 · 控制端口 ${ClashProxy.controllerPort()} · 混合端口 ${ClashProxy.mixedPort()}"
         else -> "已安装，未运行"
     }
+
+    // v1.3.30：分组默认展开态——有已开的组默认展开、其余收起；用户点过组头后
+    // 以记忆为准。展开记忆只记“用户点过的结果”，默认态不写入记忆（源列表
+    // 变化时默认态仍能跟上）。
+    fun isGroupExpanded(key: String): Boolean {
+        if (hasExpandedMemory) return expandedGroups.contains(key)
+        return when (key) {
+            "py" -> pyRules.any { proxyOn.contains(ClashProxy.pyKey(it.name)) }
+            "cms" -> cmsSubs.any { proxyOn.contains(ClashProxy.cmsKey(it.url)) }
+            else -> jsRules.any { proxyOn.contains(ClashProxy.jsKey(it.name)) }
+        }
+    }
+    fun toggleGroup(key: String) {
+        val current = setOf("js", "py", "cms").filter { isGroupExpanded(it) }.toMutableSet()
+        if (current.contains(key)) current.remove(key) else current.add(key)
+        expandedGroups = current.toList()
+        hasExpandedMemory = true
+    }
+
+    // v1.3.30：搜索 + 胶囊叠加过滤——按源名（标题/文件名/订阅名/地址）实时过滤。
+    val proxyQueryTrimmed = proxyQuery.trim()
+    val isFiltering = proxyQueryTrimmed.isNotEmpty() || proxyFilter != 0
+    fun matchQuery(text: String): Boolean =
+        proxyQueryTrimmed.isEmpty() || text.contains(proxyQueryTrimmed, ignoreCase = true)
+    fun matchFilter(on: Boolean): Boolean = when (proxyFilter) {
+        1 -> on
+        2 -> !on
+        else -> true
+    }
+    fun matchSource(on: Boolean, vararg texts: String): Boolean =
+        matchFilter(on) && texts.any { matchQuery(it) }
+
+    // v1.3.30：平铺过滤结果（搜索或胶囊过滤时分组隐藏，改出平铺结果）。
+    val flatItems = buildList {
+        jsRules.forEach { rule ->
+            val key = ClashProxy.jsKey(rule.name)
+            if (matchSource(proxyOn.contains(key), rule.title, rule.name)) {
+                add(ProxyListItem.SourceRow(0, rule.title.ifBlank { rule.name }, rule.name, key))
+            }
+        }
+        pyRules.forEach { rule ->
+            val key = ClashProxy.pyKey(rule.name)
+            if (matchSource(proxyOn.contains(key), rule.title, rule.name)) {
+                add(ProxyListItem.SourceRow(1, rule.title.ifBlank { rule.name }, rule.name, key))
+            }
+        }
+        cmsSubs.forEach { sub ->
+            val key = ClashProxy.cmsKey(sub.url)
+            if (matchSource(proxyOn.contains(key), sub.name, sub.url)) {
+                add(ProxyListItem.SourceRow(2, sub.name.ifBlank { sub.url }, sub.url, key))
+            }
+        }
+    }
+
+    // v1.3.30：分组折叠列表（无过滤时）——组头 + 组内行，空组展开后给一行提示。
+    val groupedItems = buildList {
+        add(ProxyListItem.Header("js"))
+        if (isGroupExpanded("js")) {
+            if (jsRules.isEmpty()) add(ProxyListItem.EmptyNote("暂无本地 JS 规则"))
+            else jsRules.forEach { rule ->
+                add(ProxyListItem.SourceRow(0, rule.title.ifBlank { rule.name }, rule.name, ClashProxy.jsKey(rule.name)))
+            }
+        }
+        add(ProxyListItem.Header("py"))
+        if (isGroupExpanded("py")) {
+            if (pyRules.isEmpty()) add(ProxyListItem.EmptyNote("暂无本地 PY 规则"))
+            else pyRules.forEach { rule ->
+                add(ProxyListItem.SourceRow(1, rule.title.ifBlank { rule.name }, rule.name, ClashProxy.pyKey(rule.name)))
+            }
+        }
+        add(ProxyListItem.Header("cms"))
+        if (isGroupExpanded("cms")) {
+            if (cmsSubs.isEmpty()) add(ProxyListItem.EmptyNote("暂无 CMS 订阅"))
+            else cmsSubs.forEach { sub ->
+                add(ProxyListItem.SourceRow(2, sub.name.ifBlank { sub.url }, sub.url, ClashProxy.cmsKey(sub.url)))
+            }
+        }
+    }
+    val proxyItems = if (isFiltering) flatItems else groupedItems
+    // 提示行（EmptyNote）是透明文字不占 SegItem 位置——圆角按 SegItem 行算。
+    val proxySegItems = proxyItems.filter { it !is ProxyListItem.EmptyNote }
+    fun proxySegPos(item: ProxyListItem): SegPos = clashPos(proxySegItems.indexOf(item), proxySegItems.size)
 
     Scaffold(
         topBar = { TabTopBar(title = "Clash 代理", onBack = onBack) },
@@ -279,77 +380,142 @@ fun ClashSettingsScreen(
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
                         )
-                        if (jsRules.isEmpty()) {
+                        // v1.3.30：搜索框（胶囊，TechTextField）+ 全部/已开启/未开启
+                        // 胶囊——按源名实时过滤；过滤时分组隐藏、改出平铺结果。
+                        TechTextField(
+                            value = proxyQuery,
+                            onValueChange = { proxyQuery = it },
+                            placeholder = "搜索源名…",
+                            singleLine = true,
+                            leadingIcon = {
+                                Icon(
+                                    imageVector = Icons.Filled.Search,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            },
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+                        )
+                        CapsuleTabBar(
+                            titles = listOf("全部", "已开启", "未开启"),
+                            selected = proxyFilter,
+                            onSelect = { proxyFilter = it },
+                        )
+                        if (isFiltering) {
                             Text(
-                                text = "暂无本地 JS 规则",
+                                text = "共 ${proxyItems.size} 个结果",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
                             )
-                        } else {
-                            jsRules.forEachIndexed { index, rule ->
-                                val key = ClashProxy.jsKey(rule.name)
-                                SegItem(
-                                    position = clashPos(index, jsRules.size),
-                                    icon = Icons.Outlined.Code,
-                                    title = rule.title.ifBlank { rule.name },
-                                    subtitle = rule.name,
-                                    trailing = {
-                                        AppSwitch(
-                                            checked = proxyOn.contains(key),
-                                            onCheckedChange = { on ->
-                                                ClashProxy.setSourceProxied(key, on)
-                                                if (on) {
-                                                    DrpySourceManager.ruleHost(rule.name)?.let {
-                                                        ClashProxy.registerHosts(key, listOf(it))
-                                                    }
-                                                }
-                                                proxyOn = ClashProxy.enabledKeys()
-                                            },
-                                        )
-                                    },
+                            if (proxyItems.isEmpty()) {
+                                Text(
+                                    text = "没有匹配的源",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
                                 )
                             }
                         }
-                        if (cmsSubs.isEmpty()) {
-                            Text(
-                                text = "暂无 CMS 订阅",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-                            )
-                        } else {
-                            cmsSubs.forEachIndexed { index, sub ->
-                                val key = ClashProxy.cmsKey(sub.url)
-                                SegItem(
-                                    position = clashPos(index, cmsSubs.size),
-                                    icon = Icons.Outlined.Link,
-                                    title = sub.name.ifBlank { sub.url },
-                                    subtitle = sub.url,
-                                    trailing = {
-                                        AppSwitch(
-                                            checked = proxyOn.contains(key),
-                                            onCheckedChange = { on ->
-                                                ClashProxy.setSourceProxied(key, on)
-                                                if (on) {
-                                                    // 订阅 URL 本身是订阅地址，不是站地址；
-                                                    // 从缓存的站点 api 地址里取 host  prime。
-                                                    val hosts = runCatching {
-                                                        SubSiteStore.getCached(context, sub.url)?.sites
-                                                            ?.mapNotNull { ClashProxy.hostOf(it.api) }
-                                                            .orEmpty()
-                                                    }.getOrDefault(emptyList())
-                                                    if (hosts.isNotEmpty()) ClashProxy.registerHosts(key, hosts)
-                                                }
-                                                proxyOn = ClashProxy.enabledKeys()
-                                            },
-                                        )
-                                    },
-                                )
+                        proxyItems.forEach { item ->
+                            when (item) {
+                                is ProxyListItem.Header -> {
+                                    val key = item.key
+                                    val headerIcon = when (key) {
+                                        "py" -> Icons.Filled.Terminal
+                                        "cms" -> Icons.Outlined.Link
+                                        else -> Icons.Outlined.Code
+                                    }
+                                    val headerName = when (key) {
+                                        "py" -> "PY 规则"
+                                        "cms" -> "CMS 订阅"
+                                        else -> "JS 规则"
+                                    }
+                                    val headerTotal = when (key) {
+                                        "py" -> pyRules.size
+                                        "cms" -> cmsSubs.size
+                                        else -> jsRules.size
+                                    }
+                                    val headerOn = when (key) {
+                                        "py" -> pyRules.count { proxyOn.contains(ClashProxy.pyKey(it.name)) }
+                                        "cms" -> cmsSubs.count { proxyOn.contains(ClashProxy.cmsKey(it.url)) }
+                                        else -> jsRules.count { proxyOn.contains(ClashProxy.jsKey(it.name)) }
+                                    }
+                                    SegItem(
+                                        position = proxySegPos(item),
+                                        icon = headerIcon,
+                                        title = headerName,
+                                        subtitle = "${headerTotal} 个 · 已开 ${headerOn}",
+                                        onClick = { toggleGroup(key) },
+                                        trailing = {
+                                            Icon(
+                                                imageVector = if (isGroupExpanded(key)) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
+                                                contentDescription = null,
+                                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            )
+                                        },
+                                    )
+                                }
+                                is ProxyListItem.SourceRow -> {
+                                    val rowIcon = when (item.kind) {
+                                        1 -> Icons.Filled.Terminal
+                                        2 -> Icons.Outlined.Link
+                                        else -> Icons.Outlined.Code
+                                    }
+                                    SegItem(
+                                        position = proxySegPos(item),
+                                        icon = rowIcon,
+                                        title = item.title,
+                                        subtitle = item.subtitle,
+                                        trailing = {
+                                            AppSwitch(
+                                                checked = proxyOn.contains(item.key),
+                                                onCheckedChange = { on ->
+                                                    ClashProxy.setSourceProxied(item.key, on)
+                                                    when (item.kind) {
+                                                        1 -> {
+                                                            // PY：按源名判定，不记 host 集；
+                                                            // 拨开关后重推 Python 侧代理状态。
+                                                            PySourceManager.refreshPyProxyState()
+                                                        }
+                                                        2 -> {
+                                                            if (on) {
+                                                                // 订阅 URL 本身是订阅地址，不是站地址；
+                                                                // 从缓存的站点 api 地址里取 host  prime。
+                                                                val hosts = runCatching {
+                                                                    SubSiteStore.getCached(context, item.subtitle)?.sites
+                                                                        ?.mapNotNull { ClashProxy.hostOf(it.api) }
+                                                                        .orEmpty()
+                                                                }.getOrDefault(emptyList())
+                                                                if (hosts.isNotEmpty()) ClashProxy.registerHosts(item.key, hosts)
+                                                            }
+                                                        }
+                                                        else -> {
+                                                            if (on) {
+                                                                DrpySourceManager.ruleHost(item.subtitle)?.let {
+                                                                    ClashProxy.registerHosts(item.key, listOf(it))
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                    proxyOn = ClashProxy.enabledKeys()
+                                                },
+                                            )
+                                        },
+                                    )
+                                }
+                                is ProxyListItem.EmptyNote -> {
+                                    Text(
+                                        text = item.text,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                                    )
+                                }
                             }
                         }
                         Text(
-                            text = "PY 规则走 Python 请求、PHP 走原生 php、网页源走浏览器，v1 暂不支持走代理。",
+                            text = "PHP 走原生 php、网页源走浏览器，暂不支持走代理。",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
@@ -367,6 +533,17 @@ private fun clashPos(index: Int, size: Int): SegPos = when {
     index == 0 -> SegPos.First
     index == size - 1 -> SegPos.Last
     else -> SegPos.Middle
+}
+
+/**
+ * v1.3.30：按源走代理列表的行——组头 / 源行 / 空组提示行。
+ * SourceRow.kind：0=JS 规则 1=PY 规则 2=CMS 订阅；subtitle 兼作查 host/
+ * 查缓存站点的键（JS/PY 为规则文件名，CMS 为订阅地址）。
+ */
+private sealed interface ProxyListItem {
+    data class Header(val key: String) : ProxyListItem
+    data class SourceRow(val kind: Int, val title: String, val subtitle: String, val key: String) : ProxyListItem
+    data class EmptyNote(val text: String) : ProxyListItem
 }
 
 @Composable

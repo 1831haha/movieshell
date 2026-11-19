@@ -16,6 +16,7 @@ import com.movieshell.data.source.DrpyEngine
 import com.movieshell.data.source.RuleImportExpander
 import com.movieshell.data.source.V8DrpyEngine
 import java.io.File
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -290,37 +291,59 @@ object DrpySourceManager {
     private fun isStale(gen: Int, eng: V8DrpyEngine?): Boolean =
         gen != generation || engine !== eng
 
+    // v1.3.30：runCatching 会吞 CancellationException——世代没变时取消进
+    // recordFailure 记 E（GPT 第二轮推翻“良性”结论后的定论）。以下 7 处
+    // 一律改 try/catch，取消显式重抛，只有普通异常才走 isStale/recordFailure。
+    // playRaw 本就重抛（见下），不用改。
     suspend fun home(): List<Vod> {
         val eng = engine
         val gen = generation
-        val outcome = runCatching { eng?.home() }
+        val result = try {
+            eng?.home()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            if (isStale(gen, eng)) return emptyList()
+            recordFailure("home", e)
+            return emptyList()
+        }
         if (isStale(gen, eng)) return emptyList()
-        return outcome
-            .onFailure { recordFailure("home", it) }
-            .onSuccess { managerLastError = null }
-            .getOrNull().orEmpty()
+        managerLastError = null
+        return result.orEmpty()
     }
 
     suspend fun categories(): List<CategoryType> {
         val eng = engine
         val gen = generation
-        val outcome = runCatching { eng?.categories() }
+        val result = try {
+            eng?.categories()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            if (isStale(gen, eng)) return emptyList()
+            recordFailure("categories", e)
+            return emptyList()
+        }
         if (isStale(gen, eng)) return emptyList()
-        return outcome
-            .onFailure { recordFailure("categories", it) }
-            .onSuccess { managerLastError = null }
-            .getOrNull().orEmpty()
+        managerLastError = null
+        return result.orEmpty()
     }
 
     suspend fun category(tid: String, pg: Int, filter: Map<String, String> = emptyMap()): List<Vod> {
         val eng = engine
         val gen = generation
-        val outcome = runCatching { eng?.category(tid, pg, filter) }
+        val result = try {
+            eng?.category(tid, pg, filter)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            if (isStale(gen, eng)) return emptyList()
+            recordFailure("category", e)
+            return emptyList()
+        }
         if (isStale(gen, eng)) return emptyList()
-        return outcome
-            .onFailure { recordFailure("category", it) }
-            .onSuccess { managerLastError = null }
-            .getOrNull().orEmpty()
+        managerLastError = null
+        return result.orEmpty()
     }
 
     /** S2：drpy import 从可信副本展开，展开后已无 import 语句，
@@ -352,34 +375,52 @@ object DrpySourceManager {
     suspend fun filters(tid: String): List<FilterGroup> {
         val eng = engine
         val gen = generation
-        val outcome = runCatching { eng?.filters(tid) }
+        val result = try {
+            eng?.filters(tid)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            if (isStale(gen, eng)) return emptyList()
+            recordFailure("filters", e)
+            return emptyList()
+        }
         if (isStale(gen, eng)) return emptyList()
-        return outcome
-            .onFailure { recordFailure("filters", it) }
-            .onSuccess { managerLastError = null }
-            .getOrNull().orEmpty()
+        managerLastError = null
+        return result.orEmpty()
     }
 
     suspend fun detail(vodId: String): VodDetail {
         val eng = engine
         val gen = generation
-        val outcome = runCatching { eng?.detail(vodId) }
+        val result = try {
+            eng?.detail(vodId)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            if (isStale(gen, eng)) return VodDetail(vodId = vodId)
+            recordFailure("detail", e)
+            return VodDetail(vodId = vodId)
+        }
         if (isStale(gen, eng)) return VodDetail(vodId = vodId)
-        return outcome
-            .onFailure { recordFailure("detail", it) }
-            .onSuccess { managerLastError = null }
-            .getOrNull() ?: VodDetail(vodId = vodId)
+        managerLastError = null
+        return result ?: VodDetail(vodId = vodId)
     }
 
     suspend fun search(wd: String): List<Vod> {
         val eng = engine
         val gen = generation
-        val outcome = runCatching { eng?.search(wd) }
+        val result = try {
+            eng?.search(wd)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            if (isStale(gen, eng)) return emptyList()
+            recordFailure("search", e)
+            return emptyList()
+        }
         if (isStale(gen, eng)) return emptyList()
-        return outcome
-            .onFailure { recordFailure("search", it) }
-            .onSuccess { managerLastError = null }
-            .getOrNull().orEmpty()
+        managerLastError = null
+        return result.orEmpty()
     }
 
     /** v0.294.7（H2）：完整播放结果（parse/jx/header/playUrl）。 */
@@ -400,12 +441,18 @@ object DrpySourceManager {
     suspend fun playUrl(flag: String, id: String): String {
         val eng = engine
         val gen = generation
-        val outcome = runCatching { eng?.play(flag, id) }
+        val result = try {
+            eng?.play(flag, id)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            if (isStale(gen, eng)) return ""
+            recordFailure("play", e)
+            return ""
+        }
         if (isStale(gen, eng)) return ""
-        return outcome
-            .onFailure { recordFailure("play", it) }
-            .onSuccess { managerLastError = null }
-            .getOrNull().orEmpty()
+        managerLastError = null
+        return result.orEmpty()
     }
 
     /**

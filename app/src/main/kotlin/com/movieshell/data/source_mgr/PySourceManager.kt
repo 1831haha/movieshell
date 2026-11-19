@@ -187,6 +187,24 @@ object PySourceManager {
     /** v0.291.0：proxy:// 封面取图用——返回当前激活 PY 规则的可信副本路径（与调规则同一路径）。 */
     fun activeRulePathForProxy(): String? = activeRulePath()
 
+    /**
+     * v1.3.30：PY 代理按源开关——把当前 PY 源的代理状态推给 Python
+     * （ChaquopyEngine.setPyProxy）。判定按源名：当前源开了开关且 clash
+     * 在跑，才推混合端口地址；否则推 null（关代理）。调用点：setActiveRule、
+     * clash 启停（ServicePluginManager）、设置页拨开关。
+     */
+    fun refreshPyProxyState() {
+        val name = activeName
+        val url = if (name != null && ClashProxy.isRunning() &&
+            ClashProxy.isSourceProxied(ClashProxy.pyKey(name))
+        ) {
+            ClashProxy.mixedPort()?.let { "http://127.0.0.1:$it" }
+        } else {
+            null
+        }
+        ChaquopyEngine.setPyProxy(url)
+    }
+
     fun hasActiveRule(): Boolean = activeName != null
 
     /** 切换 active 规则。主线程调用；name=null 时清空。v0.22.0：切换时取消全部在途读请求。v0.187.0 H03：取消只取消等待，停不掉桥上正在执行的 Python，见类注释固有限制。 */
@@ -203,6 +221,8 @@ object PySourceManager {
             readScope.coroutineContext[Job]?.cancelChildren()
             activeName = name
             Log.i(TAG, "active PY 规则: $name")
+            // v1.3.30：切源后重推 PY 代理状态（开关可能开着）。
+            refreshPyProxyState()
             return true
         }
         if (name != null) {
@@ -220,7 +240,11 @@ object PySourceManager {
         }
         readScope.coroutineContext[Job]?.cancelChildren()
         activeName = null
-        if (name == null) return true
+        if (name == null) {
+            // v1.3.30：清空激活源即关 PY 代理。
+            refreshPyProxyState()
+            return true
+        }
         val file = File(rulesDirOrNull() ?: return false, name)
         if (!file.isFile) {
             Log.w(TAG, "规则文件不存在: $name")
@@ -233,6 +257,8 @@ object PySourceManager {
         }
         activeName = name
         Log.i(TAG, "active PY 规则: $name")
+        // v1.3.30：切源后重推 PY 代理状态（开关可能开着）。
+        refreshPyProxyState()
         return true
     }
 

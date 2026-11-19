@@ -37,11 +37,14 @@ object HttpClient {
      * client）；最坏单链路 3 次重试 × 15s + 退避 1.5s ≈ 46.5s < 60s，保守取值。
      */
     private const val CALL_TIMEOUT_S = 60L
-    /** v0.257.0：drpy 规则请求专用超时（见 drpyClient，单位秒）。 */
-    private const val DRPY_CONNECT_TIMEOUT_S = 3L
-    private const val DRPY_READ_TIMEOUT_S = 4L
-    private const val DRPY_WRITE_TIMEOUT_S = 4L
-    private const val DRPY_CALL_TIMEOUT_S = 5L
+    /** v0.257.0：drpy 规则请求专用超时（见 drpyClient，单位秒）。
+     * v1.3.30：按 GPT 第二轮建议档放宽——JavBuzz 这类慢站单次请求常超 5 秒，
+     * drpyClient（5 秒整 call、零重试）与 defaultClient（60 秒）分裂，
+     * 同一 URL 普通请求 200、V8 请求超时。仍比 60 秒保守，取消语义不变。 */
+    private const val DRPY_CONNECT_TIMEOUT_S = 8L
+    private const val DRPY_READ_TIMEOUT_S = 10L
+    private const val DRPY_WRITE_TIMEOUT_S = 8L
+    private const val DRPY_CALL_TIMEOUT_S = 12L
     /** v0.257.0：drpy 单请求整 call 上限（毫秒，供 V8DrpyEngine 算剩余预算时比较）。 */
     internal const val DRPY_CALL_TIMEOUT_MS = DRPY_CALL_TIMEOUT_S * 1000L
     /** 重试退避基数：500ms → 1s 指数退避（阻塞拦截器里小睡可接受）。 */

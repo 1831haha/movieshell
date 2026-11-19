@@ -281,12 +281,14 @@ fun PlayerScreen(
         }
     }
     // v1.3.26：本会话走代理用的源 key（与开关的 key 同口径）与是否走代理。
-    // 只认 JS 与 CMS 两类：PY/PHP/网页源 v1 不支持走代理（PY 走 Python 请求、
-    // PHP 走原生 php、网页源走 WebView，都不经过 OkHttp 选择器）。
+    // JS/CMS/PY 三类：PY v1.3.30 起支持（开关拨动后 Python 侧请求与播放直链
+    // 都走代理）；PHP/网页源仍不支持（PHP 走原生 php、网页源走 WebView，
+    // 都不经过 OkHttp 选择器）。
     // CMS 站点 key 要先经 SubSiteStore.findSite 还原出订阅 URL 再拼 key。
     val playProxyKey = remember {
         when (playSourceType) {
             "drpy" -> playSourceKey?.let { ClashProxy.jsKey(it) }
+            "py" -> playSourceKey?.let { ClashProxy.pyKey(it) }
             "sub" -> runCatching {
                 playSourceKey?.let { SubSiteStore.findSite(context, it)?.first }
                     ?.let { ClashProxy.cmsKey(it) }

@@ -153,6 +153,25 @@ object ChaquopyEngine : PyEngine {
     @Volatile
     private var libsPathAdded = false
 
+    /**
+     * v1.3.30：PY 代理按源开关——Kotlin 侧向 Python 推当前 PY 源的代理状态。
+     * proxyUrl 为 "http://127.0.0.1:<混合端口>"，null 即关代理（Python 侧
+     * set_clash_proxy("")）。只在解释器已启动时立刻推；未启动时只记下来，
+     * python() 首次启动后应用——绝不在主线程调 Python.start()（1–2 秒）。
+     * 推送本身不抛：Python 未启动/桥异常都只记日志，不影响调用方。
+     */
+    @Volatile
+    private var pendingPyProxyUrl: String? = null
+
+    fun setPyProxy(proxyUrl: String?) {
+        pendingPyProxyUrl = proxyUrl
+        if (!Python.isStarted()) return
+        runCatching {
+            python().getModule("pyspider_bridge")
+                ?.callAttr("set_clash_proxy", proxyUrl ?: "")
+        }.onFailure { Log.w(TAG, "推 PY 代理状态失败", it) }
+    }
+
     fun init(context: Context) {
         if (appContext == null) {
             appContext = context.applicationContext
@@ -167,12 +186,22 @@ object ChaquopyEngine : PyEngine {
     private fun python(): Python {
         val ctx = appContext
             ?: throw IllegalStateException("ChaquopyEngine.init() 尚未调用")
-        if (!Python.isStarted()) {
+        val justStarted = !Python.isStarted()
+        if (justStarted) {
             Log.i(TAG, "首次启动 Python 解释器（约 1-2 秒）…")
             Python.start(AndroidPlatform(ctx))
             Log.i(TAG, "Python 解释器已启动")
         }
         val py = Python.getInstance()
+        if (justStarted) {
+            // v1.3.30：解释器刚启动，Python 侧代理状态是初始空——把最近一次
+            // 推过来的值应用一次（启动前推的、或启动恢复时推的才不丢）。
+            pendingPyProxyUrl?.let { url ->
+                runCatching {
+                    py.getModule("pyspider_bridge")?.callAttr("set_clash_proxy", url)
+                }.onFailure { Log.w(TAG, "启动时应用 PY 代理状态失败", it) }
+            }
+        }
         ensureLibsPath(py, ctx)
         envSelfCheck(py, ctx)
         return py
