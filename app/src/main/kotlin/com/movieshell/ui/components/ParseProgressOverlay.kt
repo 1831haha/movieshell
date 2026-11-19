@@ -67,9 +67,9 @@ fun ParseProgressOverlay(onManualSniff: (String) -> Unit) {
         visibleId = s.id
     }
 
-    // v1.3.32：通知小小小——胶囊最宽屏宽 70%、字 12sp、边距收紧。
+    // v1.3.32：通知小小小——胶囊最宽屏宽 80% 且不超过 420dp、字 13sp、边距收紧。
     BoxWithConstraints(Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
-        val capsuleMax = maxWidth * 0.7f
+        val capsuleMax = minOf(maxWidth * 0.8f, 420.dp)
         AnimatedVisibility(
             visible = s != null && visibleId == s.id,
             enter = fadeIn(),
@@ -99,17 +99,17 @@ fun ParseProgressOverlay(onManualSniff: (String) -> Unit) {
                     Text(
                         text = if (cur.total > 1) "正在尝试 ${cur.current} (${cur.index.coerceAtLeast(1)}/${cur.total})…"
                         else "正在${cur.current}…",
-                        fontSize = 12.sp,
-                        lineHeight = 16.sp,
+                        fontSize = 13.sp,
+                        lineHeight = 17.sp,
                         color = MaterialTheme.colorScheme.onSurface,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.weight(1f, fill = false),
                     )
                     if (cur.lines.size > 1 && !cur.picked) {
-                        TextButton(onClick = { showPicker = true }) { Text("选线路", fontSize = 12.sp) }
+                        TextButton(onClick = { showPicker = true }) { Text("选线路", fontSize = 13.sp) }
                     }
-                    TextButton(onClick = { ParseProgressBus.cancel() }) { Text("取消", fontSize = 12.sp) }
+                    TextButton(onClick = { ParseProgressBus.cancel() }) { Text("取消", fontSize = 13.sp) }
                 }
             }
         }

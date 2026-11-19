@@ -3,6 +3,8 @@ package com.movieshell.ui.components
 import androidx.compose.material3.MaterialTheme
 
 import android.content.Context
+import android.os.Build
+import android.view.accessibility.AccessibilityManager
 import android.widget.Toast
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
@@ -17,10 +19,13 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
@@ -33,6 +38,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import java.util.concurrent.atomic.AtomicBoolean
@@ -94,11 +103,13 @@ object AppToast {
 
 /**
  * 挂在 MainActivity 根 Box 里，全 App 共用一层提示。
- * 新消息到 → 显示；2.2 秒（长提示 3.6 秒）后自动消失；点一下提前消失。
+ * 新消息到 → 显示；短 2.5 秒（长提示 4 秒）后自动消失，
+ * 无障碍“操作时间”开了的用户按系统推荐时长延长；点一下提前消失。
  */
 @Composable
 fun AppToastOverlay(bottomPadding: androidx.compose.ui.unit.Dp = 16.dp) {
     val msg by AppToast.current.collectAsState()
+    val context = LocalContext.current
     // 挂载标记：组合进树即 true，离树即 false（AppToast.show 靠它决定是否回退）。
     androidx.compose.runtime.DisposableEffect(Unit) {
         AppToast.mounted.set(true)
@@ -106,16 +117,24 @@ fun AppToastOverlay(bottomPadding: androidx.compose.ui.unit.Dp = 16.dp) {
     }
     LaunchedEffect(msg?.id) {
         val m = msg ?: return@LaunchedEffect
-        delay(if (m.long) 3000L else 1800L)
+        // v1.3.32（GPT 折中）：短 2.5 秒 / 长 4 秒；无障碍“操作时间”开了的
+        // 用户按系统推荐时长延长。getRecommendedTimeoutMillis 是 API 29+，
+        // 入参是 Int（minSdk 26，低版本直接用基准时长）。
+        val base = if (m.long) 4000 else 2500
+        val effective = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            val am = context.getSystemService(Context.ACCESSIBILITY_SERVICE) as? AccessibilityManager
+            am?.getRecommendedTimeoutMillis(base, AccessibilityManager.FLAG_CONTENT_TEXT) ?: base
+        } else base
+        delay(effective.toLong())
         AppToast.dismiss(m.id)
     }
-    // v1.3.32：小小小——满宽横条改按内容自适应（最宽屏宽 70%），字 12sp、
-    // 内边距收紧、圆角 6dp、显示时长缩短；347 处调用点一处生效。
+    // v1.3.32：小小小——满宽横条改按内容自适应（最宽屏宽 80% 且不超过 420dp），
+    // 字 13sp/行高 17sp、内边距收紧、圆角 6dp；347 处调用点一处生效。
     BoxWithConstraints(
         modifier = Modifier.fillMaxSize(),
         contentAlignment = Alignment.BottomCenter,
     ) {
-        val maxToastWidth = maxWidth * 0.7f
+        val maxToastWidth = minOf(maxWidth * 0.8f, 420.dp)
         AnimatedVisibility(
             visible = msg != null,
             enter = fadeIn() + slideInVertically { it / 2 },
@@ -144,14 +163,23 @@ fun AppToastOverlay(bottomPadding: androidx.compose.ui.unit.Dp = 16.dp) {
                         .background(MaterialTheme.colorScheme.primary),
                 )
                 Spacer(Modifier.width(8.dp))
-                Text(
-                    text = m.text,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    fontSize = 12.sp,
-                    lineHeight = 16.sp,
-                    // v0.272.0（T34）：原来 maxLines=3，稍长一点的提示就被截掉后半句；
-                    // 提示本来就能点一下关闭，不再截断，全文显示。
-                )
+                // 超长文案不截断：最高 200dp，超出可滚动；liveRegion 让 TalkBack 感知。
+                Box(
+                    modifier = Modifier
+                        .weight(1f, fill = false)
+                        .heightIn(max = 200.dp)
+                        .verticalScroll(rememberScrollState()),
+                ) {
+                    Text(
+                        text = m.text,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        fontSize = 13.sp,
+                        lineHeight = 17.sp,
+                        modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite },
+                        // v0.272.0（T34）：原来 maxLines=3，稍长一点的提示就被截掉后半句；
+                        // 提示本来就能点一下关闭，不再截断，全文显示。
+                    )
+                }
             }
         }
     }
