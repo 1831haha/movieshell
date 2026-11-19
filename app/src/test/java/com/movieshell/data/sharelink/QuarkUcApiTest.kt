@@ -4,6 +4,7 @@ import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -366,5 +367,229 @@ class QuarkUcApiTest {
         server.takeRequest(5, TimeUnit.SECONDS)!!
         val detailReq = server.takeRequest(5, TimeUnit.SECONDS)!!
         assertTrue(detailReq.path!!.contains("stoken=Ab%2BC%2FdEf%3D12"))
+    }
+    @Test
+    fun saveFlow_errorJsonWithoutDataStillKeepsPugs() {
+        // json 成功解析但没有 data（例如业务错误码）：不能把已下发的 __pugs 丢掉。
+        enqueueSaveFlowThroughPoll()
+        server.enqueue(
+            MockResponse()
+                .setBody("""{"code":23018,"message":"denied"}""")
+                .setHeader("Content-Type", "application/json; charset=utf-8")
+                .addHeader("Set-Cookie", "__pugs=kept-no-data; Path=/; Domain=.drive.quark.cn; HttpOnly"),
+        )
+
+        val outcome = QuarkUcApi.saveFlow(
+            ShareHttp.defaultClient(), cfg,
+            ShareSession.QuarkUc("pwd1", "st1", ""),
+            ShareFile(fid = "f1", name = "01.mp4", size = 123456L, fidToken = "tok1"),
+            "cookie123",
+        ) { /* 不睡，快进 */ }
+
+        assertEquals("", outcome.url)
+        assertEquals("kept-no-data", outcome.cookie)
+        assertEquals("saved1", outcome.savedFid)
+        assertEquals("download_failed", outcome.error)
+    }
+
+    @Test
+    fun saveFlow_nonJsonBodyStillKeepsPugs() {
+        enqueueSaveFlowThroughPoll()
+        server.enqueue(
+            MockResponse()
+                .setBody("not-json")
+                .setHeader("Content-Type", "text/plain")
+                .addHeader("Set-Cookie", "__pugs=kept-non-json; Path=/"),
+        )
+
+        val outcome = QuarkUcApi.saveFlow(
+            ShareHttp.defaultClient(), cfg,
+            ShareSession.QuarkUc("pwd1", "st1", ""),
+            ShareFile(fid = "f1", name = "01.mp4", size = 123456L, fidToken = "tok1"),
+            "cookie123",
+        ) { /* 不睡，快进 */ }
+
+        assertEquals("", outcome.url)
+        assertEquals("kept-non-json", outcome.cookie)
+        assertEquals("download_failed", outcome.error)
+    }
+
+    /** 排队到转存轮询出 fid，下一次请求才是 downloadSaved。 */
+    private fun enqueueSaveFlowThroughPoll() {
+        server.enqueue(json("""{"code":0,"data":{"list":[{"fid":"tvdir","file_name":"TV"}]}}"""))
+        server.enqueue(json("""{"code":0,"data":{"list":[]}}"""))
+        server.enqueue(json("""{"code":0,"data":{"list":[]}}"""))
+        server.enqueue(json("""{"code":0,"data":{"task_id":"task1"}}"""))
+        server.enqueue(json("""{"code":0,"data":{"save_as":{"save_as_top_fids":[]}}}"""))
+        server.enqueue(json("""{"code":0,"data":{"save_as":{"save_as_top_fids":["saved1"]}}}"""))
+    }
+
+    @Test
+    fun harvestPugs_prefersDownloadSavedWhenSavedFidPresent() {
+        server.enqueue(
+            MockResponse()
+                .setBody("""{"code":0,"data":[]}""")
+                .setHeader("Content-Type", "application/json; charset=utf-8")
+                .addHeader("Set-Cookie", "__pugs=from-saved; Path=/"),
+        )
+
+        val pugs = QuarkUcApi.harvestPugs(
+            ShareHttp.defaultClient(), cfg,
+            ShareSession.QuarkUc("pwd1", "st1", ""),
+            ShareFile(fid = "f1", name = "01.mp4", size = 123456L, fidToken = "tok1"),
+            "cookie123",
+            savedFid = "saved1",
+        )
+
+        assertEquals("from-saved", pugs)
+        val req = server.takeRequest(5, TimeUnit.SECONDS)!!
+        assertTrue(req.path!!.contains("/file/download"))
+        assertTrue(req.path!!.contains("uc_param_str"))
+        assertEquals(null, server.takeRequest(200, TimeUnit.MILLISECONDS))
+    }
+
+    @Test
+    fun harvestPugs_withoutSavedFidUsesShareDownload() {
+        server.enqueue(
+            MockResponse()
+                .setBody("""{"code":23018,"data":[]}""")
+                .setHeader("Content-Type", "application/json; charset=utf-8")
+                .addHeader("Set-Cookie", "__pugs=from-share; Path=/"),
+        )
+
+        val pugs = QuarkUcApi.harvestPugs(
+            ShareHttp.defaultClient(), cfg,
+            ShareSession.QuarkUc("pwd1", "st1", ""),
+            ShareFile(fid = "f1", name = "01.mp4", size = 123456L, fidToken = "tok1"),
+            "cookie123",
+        )
+
+        assertEquals("from-share", pugs)
+        val req = server.takeRequest(5, TimeUnit.SECONDS)!!
+        assertTrue(req.path!!.contains("/file/download"))
+        assertFalse(req.path!!.contains("uc_param_str"))
+    }
+
+    @Test
+    fun ensurePugs_skipsHarvestWhenSessionCookieAlreadyHasPugs() {
+        // 已有键就不再打网；返回的是 currentPugs（可能为空，由 playHeaders 再拼会话）。
+        val out = QuarkUcApi.ensurePugs(
+            ShareHttp.defaultClient(), cfg,
+            ShareSession.QuarkUc("pwd1", "st1", ""),
+            ShareFile(fid = "f1", name = "01.mp4", size = 1L, fidToken = "tok1"),
+            "__puus=aaa; __pugs=sess1",
+            currentPugs = "",
+        )
+        assertEquals("", out)
+        assertEquals(null, server.takeRequest(200, TimeUnit.MILLISECONDS))
+    }
+
+    @Test
+    fun requiresQuarkPlaybackPugs_onlyQuarkCdnHosts() {
+        assertTrue(
+            QuarkUcApi.requiresQuarkPlaybackPugs(
+                "https://video-play-h-zb.drive.quark.cn/share/video/x/media.m3u8",
+                SharePlatform.QUARK,
+            ),
+        )
+        assertTrue(
+            QuarkUcApi.requiresQuarkPlaybackPugs(
+                "https://dl-guest-zb-u.drive.quark.cn/file/obj",
+                SharePlatform.QUARK,
+            ),
+        )
+        assertFalse(
+            QuarkUcApi.requiresQuarkPlaybackPugs(
+                "https://video-play-h-zb.drive.quark.cn/share/video/x/media.m3u8",
+                SharePlatform.UC,
+            ),
+        )
+        assertFalse(
+            QuarkUcApi.requiresQuarkPlaybackPugs(
+                "https://video-play-h-share-preview-zb.drive.uc.cn/share/video/preview/qv/x/media.m3u8",
+                SharePlatform.UC,
+            ),
+        )
+        assertFalse(
+            QuarkUcApi.requiresQuarkPlaybackPugs(
+                "https://pan.quark.cn/s/abcdef",
+                SharePlatform.QUARK,
+            ),
+        )
+        assertFalse(
+            QuarkUcApi.requiresQuarkPlaybackPugs(
+                "https://example.com/media.m3u8",
+                SharePlatform.QUARK,
+            ),
+        )
+    }
+
+    @Test
+    fun quarkCdnBlockedMessage_blocksQuarkCdnWithoutPugsOnly() {
+        val url = "https://video-play-h-zb.drive.quark.cn/x/media.m3u8"
+        val msg = QuarkUcApi.quarkCdnBlockedMessage(SharePlatform.QUARK, url, "__puus=aaa")
+        assertTrue(msg != null && msg.contains("凭证"))
+        assertEquals(
+            null,
+            QuarkUcApi.quarkCdnBlockedMessage(SharePlatform.QUARK, url, "__pugs=x; __puus=aaa"),
+        )
+        assertEquals(
+            null,
+            QuarkUcApi.quarkCdnBlockedMessage(
+                SharePlatform.UC,
+                "https://video-play-h-zb.drive.uc.cn/x/media.m3u8",
+                "__puus=aaa",
+            ),
+        )
+    }
+
+    @Test
+    fun cookieHasPugs_boundary() {
+        assertTrue(QuarkUcApi.cookieHasPugs("__pugs=x"))
+        assertTrue(QuarkUcApi.cookieHasPugs("__PUGS=x; __puus=a"))
+        assertFalse(QuarkUcApi.cookieHasPugs(""))
+        assertFalse(QuarkUcApi.cookieHasPugs("__puus=aaa; _UP_A=bbb"))
+        assertFalse(QuarkUcApi.cookieHasPugs("notpugs=x"))
+    }
+
+    @Test fun downloadSaved_retries500AndKeepsEarlyCookie() {
+        server.enqueue(MockResponse().setResponseCode(500).setBody("temporary")
+            .addHeader("Set-Cookie", "__pugs=early; Path=/"))
+        server.enqueue(json("""{"code":0,"data":[{"download_url":"https://example.com/video"}]}"""))
+        val result = QuarkUcApi.downloadSaved(ShareHttp.defaultClient(), cfg, "session=test", "saved1")
+        assertEquals("https://example.com/video", result.first)
+        assertEquals("early", result.second)
+        assertEquals(2, server.requestCount)
+        repeat(2) {
+            val req = server.takeRequest()
+            assertTrue(req.path!!.contains("/file/download"))
+            assertTrue(req.body.readUtf8().contains("saved1"))
+        }
+    }
+
+    @Test fun downloadSaved_persistent500StopsAfterThreeAndKeepsCookie() {
+        server.enqueue(MockResponse().setResponseCode(500).addHeader("Set-Cookie", "__pugs=kept; Path=/"))
+        repeat(2) { server.enqueue(MockResponse().setResponseCode(500)) }
+        assertEquals("" to "kept", QuarkUcApi.downloadSaved(ShareHttp.defaultClient(), cfg, "session=test", "saved1"))
+        assertEquals(3, server.requestCount)
+    }
+
+    @Test fun harvestPugs_shareDownloadRetries500() {
+        server.enqueue(MockResponse().setResponseCode(500))
+        server.enqueue(json("""{"code":23018}""").addHeader("Set-Cookie", "__pugs=share; Path=/"))
+        val result = QuarkUcApi.harvestPugs(ShareHttp.defaultClient(), cfg,
+            ShareSession.QuarkUc("pwd", "st", ""),
+            ShareFile(fid = "f1", name = "01.mp4", size = 1L, fidToken = "ft"), "session=test")
+        assertEquals("share", result)
+        assertEquals(2, server.requestCount)
+    }
+
+    @Test fun downloadSaved_ucListShapeStillWorksWithRetry() {
+        server.enqueue(MockResponse().setResponseCode(500))
+        server.enqueue(json("""{"code":0,"data":["https://example.com/uc"]}"""))
+        val result = QuarkUcApi.downloadSaved(ShareHttp.defaultClient(), cfg.copy(fidsAsList = true), "session=test", "saved1")
+        assertEquals("https://example.com/uc", result.first)
+        assertEquals(2, server.requestCount)
+        repeat(2) { assertTrue(server.takeRequest().body.readUtf8().contains("\"fids\":[\"saved1\"]")) }
     }
 }

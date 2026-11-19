@@ -19,6 +19,16 @@ data class ChangelogEntry(
 
 val CHANGELOG: List<ChangelogEntry> = listOf(
     ChangelogEntry(
+        version = "v1.3.22",
+        date = "2026-11-19",
+        title = "修复夸克分享转码播放缺凭证导致的 412 黑屏。",
+        details = listOf(
+            "补取 __pugs 改为优先走转存后的直取，缺凭证时明确提示，不再静默起播后黑屏。",
+            "解析 Set-Cookie 更稳妥；接口失败时也保留已经拿到的播放凭证。",
+        ),
+    ),
+
+    ChangelogEntry(
         version = "v0.294.44",
         date = "2026-11-01",
         title = "修复 libmpv 小窗切横屏花屏。",

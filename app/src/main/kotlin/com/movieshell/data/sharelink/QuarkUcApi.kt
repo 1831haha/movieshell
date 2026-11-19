@@ -57,6 +57,13 @@ import org.json.JSONObject
  * transcode 那一步被新 SaveOutcome(bestUrl, resp.pugs, …) 整个丢掉。
  * 修法：转码结果保留直取那一步的 pugs（keepPugs）；日志再记 __pugs
  * 有无，下轮真机一眼定性。
+ *
+ * v1.3.22（2026-11-19 真机 412 复盘）：1.3.21 的 ensurePugs 补取失败仍静默起播，
+ * Media3/libmpv 拉主 m3u8 均回 412。补取主路径误用「大文件直取失败时不下发
+ * __pugs」的分享端 file/download；转存后 downloadSaved 在 json/data 为空时
+ * 还会丢掉已解析的 pugs。修法：补取优先走已有转存后直取；downloadSaved
+ * 始终保留 resp.pugs；Set-Cookie 改正规解析；夸克 CDN 地址仍缺 __pugs 时
+ * 拒绝起播并明确提示，不再黑屏。不新增夸克接口，UC 不强制拦截。
  */
 object QuarkUcApi {
 
@@ -249,8 +256,8 @@ object QuarkUcApi {
         body.put("stoken", session.stoken)
         body.put("speedup_session", "")
         body.put("token", "")
-        val resp = ShareHttp.postJson(client, "${cfg.apiBase}/file/download?${cfg.pr}", cookie, cfg.ua, cfg.referer, body)
-        val json = resp.json ?: return Triple("", "", -1)
+        val resp = ShareHttp.postDownloadJson(client, "${cfg.apiBase}/file/download?${cfg.pr}", cookie, cfg.ua, cfg.referer, body)
+        val json = resp.json ?: return Triple("", resp.pugs, -1)
         val code = json.optInt("code", -1)
         if (code != 0) return Triple("", resp.pugs, code)
         val data = json.opt("data")
@@ -277,9 +284,9 @@ object QuarkUcApi {
             client, url, "", cfg.ua, cfg.referer,
             extraHeaders = mapOf("x-clouddrive-st" to session.stoken),
         )
-        val json = resp.json ?: return "" to ""
-        if (json.optInt("code", -1) != 0) return "" to ""
-        val data = json.optJSONObject("data") ?: return "" to ""
+        val json = resp.json ?: return "" to resp.pugs
+        if (json.optInt("code", -1) != 0) return "" to resp.pugs
+        val data = json.optJSONObject("data") ?: return "" to resp.pugs
         val playInfo = data.optJSONObject("play_info")
         val m3u8 = playInfo?.optString("url").orEmpty()
         // v1.3.8：响应下发的 __pugs 别丢，播放时一并带上（直链裸 URL 回 403 的同款规矩）。
@@ -354,48 +361,107 @@ object QuarkUcApi {
     }
 
     /**
-     * v1.3.21：最终播放头里没有 __pugs 时，单独取一次新鲜的。
-     * 大文件直取失败（file/download 没给直链）时它不下发 __pugs，
-     * 转码接口（file/v2/play）本身也不下发，登录 Cookie 里的又早过期
-     * ——转码地址拿到了、Cookie 里没有，CDN 回 412/403，黑屏
-     * （2026-11-18 真机：__pugs=无，Media3 连报 BAD_HTTP_STATUS）。
-     * 1.3.14 只保住了“直取成功那步”的 pugs，直取失败就没了，
-     * 这道补取就是堵那个缺口。只在缺失时多调一到两次接口。
+     * v1.3.22：夸克转码/直链 CDN 必须带 __pugs，缺了会 412/403 黑屏。
+     * 只拦夸克自家 video-play / dl-* 主机；UC 与其它盘不强制。
      */
-    private fun ensurePugs(
+    internal fun requiresQuarkPlaybackPugs(url: String, platform: SharePlatform): Boolean {
+        if (platform != SharePlatform.QUARK) return false
+        val host = runCatching { java.net.URI(url).host }.getOrNull().orEmpty().lowercase()
+        if (host.isEmpty()) return false
+        val quarkCdn = host.endsWith(".drive.quark.cn") || host == "drive.quark.cn" ||
+            host.endsWith(".quark.cn")
+        if (!quarkCdn) return false
+        return "video-play" in host || host.startsWith("dl-") || host.startsWith("dl.")
+    }
+
+    /** 已有播放 Cookie 头里是否含 __pugs 键（只判键名，不读值）。 */
+    internal fun cookieHasPugs(cookieHeader: String): Boolean =
+        cookieHeader.split(';').any { it.trim().startsWith("__pugs=", ignoreCase = true) }
+
+    /**
+     * 夸克 CDN 且最终头里没有 __pugs 时返回给人看的失败原因；否则 null。
+     * UC / 非 CDN 地址返回 null，由调用方照常起播。
+     */
+    internal fun quarkCdnBlockedMessage(platform: SharePlatform, url: String, cookieHeader: String): String? {
+        if (!requiresQuarkPlaybackPugs(url, platform)) return null
+        if (cookieHasPugs(cookieHeader)) return null
+        return "夸克播放凭证没拿到，暂时无法播放。请稍后重试，或重新打开这个分享"
+    }
+
+    /**
+     * v1.3.21：最终播放头里没有 __pugs 时，单独取一次新鲜的。
+     * v1.3.22：补取优先走转存后的 downloadSaved（已知会下发新鲜 __pugs 的已有路径），
+     * 分享端直取和下发不稳定的预览接口只作后手；不再把「已知不下发」的路径当主路径。
+     * 只在缺失时多调已有接口，不新增夸克接口。
+     */
+    internal fun ensurePugs(
         client: OkHttpClient,
         cfg: Config,
         session: ShareSession.QuarkUc,
         file: ShareFile,
         cookie: String,
         currentPugs: String,
+        savedFid: String = "",
     ): String {
         // 最终拼出来的 Cookie 里已有 __pugs（响应给的或登录 Cookie 里带的）就不用取。
         val assembled = playbackCookie(currentPugs, cookie)
-        if (assembled.split(';').any { it.trim().startsWith("__pugs=", ignoreCase = true) }) {
+        if (cookieHasPugs(assembled)) {
             return currentPugs
         }
-        val harvested = harvestPugs(client, cfg, session, file, cookie)
+        val harvested = harvestPugs(client, cfg, session, file, cookie, savedFid)
         if (harvested.isNotBlank()) {
             LogBus.i(TAG, "补取 __pugs 成功")
             return harvested
         }
-        LogBus.w(TAG, "补取 __pugs 失败，播放可能被 CDN 拒（412/403）")
+        LogBus.w(TAG, "补取 __pugs 失败")
         return currentPugs
     }
 
-    /** 补取 __pugs 的两条路：先试分享端直取（只取它的 Set-Cookie，不用它的地址），再试 2 分钟预览接口。 */
-    private fun harvestPugs(
+    /**
+     * 补取 __pugs：有转存 fid 时先走 downloadSaved；再试分享端直取（只取 Set-Cookie，
+     * 不用它的地址），最后试 2 分钟预览接口。都失败返回空串。
+     */
+    internal fun harvestPugs(
         client: OkHttpClient,
         cfg: Config,
         session: ShareSession.QuarkUc,
         file: ShareFile,
         cookie: String,
+        savedFid: String = "",
     ): String {
+        if (savedFid.isNotBlank() && cookie.isNotBlank()) {
+            val (_, pugs) = downloadSaved(client, cfg, cookie, savedFid)
+            if (pugs.isNotBlank()) return pugs
+            LogBus.w(TAG, "转存后直取未拿到 __pugs 键")
+        }
         val (_, pugs, _) = download(client, cfg, session, file, cookie)
         if (pugs.isNotBlank()) return pugs
         val (_, previewPugs) = videoPreview(client, cfg, session, file)
         return previewPugs
+    }
+
+    /** 拼播放头；夸克 CDN 缺 __pugs 时返回明确错误，不把裸地址交给播放器。 */
+    private fun finishPlay(
+        platform: SharePlatform,
+        client: OkHttpClient,
+        cfg: Config,
+        session: ShareSession.QuarkUc,
+        file: ShareFile,
+        cookie: String,
+        url: String,
+        rawPugs: String,
+        savedFid: String = "",
+        isPreview: Boolean = false,
+        note: String = "",
+    ): ShareResult<PlayLink> {
+        val pugs = ensurePugs(client, cfg, session, file, cookie, rawPugs, savedFid)
+        val headers = playHeaders(cfg, pugs, url, cookie)
+        val blocked = quarkCdnBlockedMessage(platform, url, headers["Cookie"].orEmpty())
+        if (blocked != null) {
+            LogBus.w(TAG, "夸克 CDN 地址缺 __pugs，拒绝起播以免 412 黑屏")
+            return ShareResult.Err(blocked)
+        }
+        return ShareResult.Ok(PlayLink(url, headers, isPreview = isPreview, note = note))
     }
 
     /**
@@ -417,12 +483,12 @@ object QuarkUcApi {
         if (cookie.isNotBlank() && file.size > LARGE_SIZE) {
             saved = saveFlowWithTranscode(client, cfg, session, file, cookie)
             if (saved.url.isNotBlank()) {
-                return ShareResult.Ok(PlayLink(saved.url, playHeaders(cfg, ensurePugs(client, cfg, session, file, cookie, saved.cookie), saved.url, cookie)))
+                return finishPlay(platform, client, cfg, session, file, cookie, saved.url, saved.cookie, saved.savedFid)
             }
         }
         val (url, pugs, code) = download(client, cfg, session, file, "")
         if (url.isNotBlank()) {
-            return ShareResult.Ok(PlayLink(url, playHeaders(cfg, ensurePugs(client, cfg, session, file, cookie, pugs), url, cookie)))
+            return finishPlay(platform, client, cfg, session, file, cookie, url, pugs)
         }
         if (code == 31001) {
             ShareAuth.markExpired(platform)
@@ -432,7 +498,7 @@ object QuarkUcApi {
             if (cookie.isNotBlank()) {
                 val (url2, pugs2, code2) = download(client, cfg, session, file, cookie)
                 if (url2.isNotBlank()) {
-                    return ShareResult.Ok(PlayLink(url2, playHeaders(cfg, ensurePugs(client, cfg, session, file, cookie, pugs2), url2, cookie)))
+                    return finishPlay(platform, client, cfg, session, file, cookie, url2, pugs2)
                 }
                 if (code2 == 31001) {
                     ShareAuth.markExpired(platform)
@@ -449,13 +515,13 @@ object QuarkUcApi {
                 saveFlowWithTranscode(client, cfg, session, file, cookie)
             }
             if (saved2.url.isNotBlank()) {
-                return ShareResult.Ok(PlayLink(saved2.url, playHeaders(cfg, ensurePugs(client, cfg, session, file, cookie, saved2.cookie), saved2.url, cookie)))
+                return finishPlay(platform, client, cfg, session, file, cookie, saved2.url, saved2.cookie, saved2.savedFid)
             }
         }
         val (preview, previewPugs) = videoPreview(client, cfg, session, file)
         if (preview.isNotBlank()) {
             val note = if (cookie.isBlank()) "没登录，只能看前 2 分钟，登录后看全集" else "直链没拿到，先看 2 分钟预览"
-            return ShareResult.Ok(PlayLink(preview, playHeaders(cfg, previewPugs, preview), isPreview = true, note = note))
+            return finishPlay(platform, client, cfg, session, file, cookie, preview, previewPugs, isPreview = true, note = note)
         }
         return if (cookie.isBlank()) {
             ShareResult.Err("这个${name}分享要先登录才能播：大文件必须登录", needLogin = true)
@@ -709,7 +775,7 @@ object QuarkUcApi {
         return null
     }
 
-    private fun downloadSaved(
+    internal fun downloadSaved(
         client: OkHttpClient,
         cfg: Config,
         cookie: String,
@@ -717,9 +783,10 @@ object QuarkUcApi {
     ): Pair<String, String> {
         val body = JSONObject()
         if (cfg.fidsAsList) body.put("fids", JSONArray().put(savedFid)) else body.put("fids", savedFid)
-        val resp = ShareHttp.postJson(client, "${cfg.apiBase}/file/download?${cfg.pr}&uc_param_str=", cookie, cfg.ua, cfg.referer, body)
-        val json = resp.json ?: return "" to ""
-        val data = json.opt("data") ?: return "" to ""
+        val resp = ShareHttp.postDownloadJson(client, "${cfg.apiBase}/file/download?${cfg.pr}&uc_param_str=", cookie, cfg.ua, cfg.referer, body)
+        // v1.3.22：json/data 为空也要保住响应里已经解析到的 __pugs。
+        val json = resp.json ?: return "" to resp.pugs
+        val data = json.opt("data") ?: return "" to resp.pugs
         // v1.3.8：data 有两种形态——对象数组取 download_url（与分享端 download 同款），
         // 字符串数组取字符串本身；只按一种取会把另一种判成失败。
         val url = when (data) {
