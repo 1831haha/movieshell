@@ -124,6 +124,31 @@ object BackupManager {
      */
     private const val PRE_RESTORE_SNAPSHOT = "backup_pre_restore.json"
 
+    /**
+     * v1.3.25 合并 8：每日静默备份文件名（私有目录，单文件覆盖）。
+     * 恢复入口在设置页“备份与恢复”里；恢复前先写中断快照，与手动
+     * 导入同一条保护链（importJson 默认 writeSnapshot=true）。
+     */
+    private const val DAILY_BACKUP_FILE = "backup_daily.json"
+
+    fun dailyBackupFile(context: Context): File = File(context.filesDir, DAILY_BACKUP_FILE)
+
+    /** 是否有每日自动备份可恢复。 */
+    fun hasDailyBackup(context: Context): Boolean = dailyBackupFile(context).isFile
+
+    /** 每日自动备份的备份时间（文件 mtime，无备份时 0）。 */
+    fun dailyBackupTime(context: Context): Long =
+        dailyBackupFile(context).let { if (it.isFile) it.lastModified() else 0L }
+
+    /** 从每日自动备份恢复。 */
+    suspend fun restoreDailyBackup(context: Context): RestoreResult {
+        val f = dailyBackupFile(context)
+        if (!f.isFile) return RestoreResult.Failed("没有每日自动备份")
+        val text = runCatching { f.readText() }.getOrNull()
+            ?: return RestoreResult.Failed("自动备份读取失败")
+        return importJson(context, text)
+    }
+
     /** 是否有中断/失败后留下的恢复前快照，供设置页入口判断。 */
     fun hasPreRestoreSnapshot(context: Context): Boolean =
         File(context.filesDir, PRE_RESTORE_SNAPSHOT).isFile

@@ -15,6 +15,7 @@ import com.movieshell.core.log.LogBus
 import com.movieshell.data.source_mgr.PhpSourceManager
 import com.movieshell.data.source_mgr.ServicePluginManager
 import com.movieshell.data.source_mgr.SpiderEngine
+import com.movieshell.core.util.StartupWatchdog
 import com.movieshell.core.util.StoragePaths
 import com.movieshell.data.source_mgr.SubSiteEngines
 import com.movieshell.data.store.SourceHealthStore
@@ -34,6 +35,8 @@ class XiaYingApp : Application() {
     override fun onCreate() {
         super.onCreate()
         CrashHandler.install(this)
+        // v1.3.25 合并 8：启动看门狗——连续启动失败时自愈（只清缓存），见 StartupWatchdog。
+        StartupWatchdog.onAppStart(this)
         // v0.294.29：:magnet 子进程只跑磁力引擎，不做主进程那套初始化
         if (ProcessExitLog.isMagnetProcess(this)) return
         LogBus.readLastCrash(this)

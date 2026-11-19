@@ -3170,6 +3170,10 @@ fun PlayerScreen(
             val customHosts by ds.customHosts.collectAsState()
             var showCustomHostsDialog by remember { mutableStateOf(false) }
             var customHostsDraft by remember { mutableStateOf("") }
+            // v1.3.25 合并 8：内置弹幕接口编辑态
+            val builtinHost by ds.builtinHost.collectAsState()
+            var showBuiltinHostDialog by remember { mutableStateOf(false) }
+            var builtinHostDraft by remember { mutableStateOf("") }
             TechDialog(
                 onDismissRequest = { uiVm.showDanmakuSettings = false },
                 title = "弹幕设置",
@@ -3261,6 +3265,32 @@ fun PlayerScreen(
                                 variant = AppButtonVariant.Ghost,
                             )
                         }
+                        androidx.compose.foundation.layout.Spacer(Modifier.size(8.dp))
+                        // v1.3.25 合并 8：内置弹幕接口可配——默认弹弹play 官方站，
+                        // 官方站不可用时可填镜像站 host，留空恢复默认。
+                        androidx.compose.material3.Text("内置弹幕接口", style = androidx.compose.material3.MaterialTheme.typography.labelLarge)
+                        androidx.compose.material3.Text(
+                            "默认 api.dandanplay.net；官方站不可用时可填镜像站 host，留空恢复默认。",
+                            style = androidx.compose.material3.MaterialTheme.typography.bodySmall,
+                            color = androidx.compose.material3.MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        androidx.compose.foundation.layout.Row(
+                            verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+                        ) {
+                            androidx.compose.material3.Text(
+                                text = builtinHost,
+                                style = androidx.compose.material3.MaterialTheme.typography.bodyMedium,
+                                modifier = Modifier.weight(1f),
+                            )
+                            AppButton(
+                                text = "编辑",
+                                onClick = {
+                                    builtinHostDraft = builtinHost
+                                    showBuiltinHostDialog = true
+                                },
+                                variant = AppButtonVariant.Ghost,
+                            )
+                        }
                     }
                 }
             // v1.2.22：自定义弹幕接口编辑弹窗（嵌在弹幕设置里，同 AI 设置嵌服务商弹窗的做法）。
@@ -3284,6 +3314,30 @@ fun PlayerScreen(
                         modifier = Modifier.fillMaxWidth().height(160.dp),
                         singleLine = false,
                         shape = RoundedCornerShape(12.dp),
+                    )
+                }
+            }
+            // v1.3.25 合并 8：内置弹幕接口编辑弹窗。
+            if (showBuiltinHostDialog) {
+                TechDialog(
+                    onDismissRequest = { showBuiltinHostDialog = false },
+                    title = "内置弹幕接口",
+                    subtitle = "填弹弹play 镜像站 host，如 dandan.example.com；留空恢复默认",
+                    confirmText = "保存",
+                    onConfirm = {
+                        if (com.movieshell.player.danmaku.DanmakuSettings.setBuiltinHost(context, builtinHostDraft)) {
+                            showBuiltinHostDialog = false
+                        } else {
+                            AppToast.show(context, "地址无效，已保留原接口", long = false)
+                        }
+                    },
+                ) {
+                    TechTextField(
+                        value = builtinHostDraft,
+                        onValueChange = { builtinHostDraft = it },
+                        placeholder = "api.dandanplay.net",
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true,
                     )
                 }
             }

@@ -1,8 +1,10 @@
 package com.movieshell.player
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.aspectRatio
@@ -21,12 +23,17 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
@@ -93,6 +100,8 @@ fun PicsViewerScreen(
         }
     }
     var uiVisible by remember { mutableStateOf(true) }
+    // v1.3.25 合并 8：双击进全屏缩放查看（null = 不在缩放态）。
+    var zoomIndex by remember { mutableStateOf<Int?>(null) }
 
     if (images.isEmpty()) {
         Box(
@@ -134,7 +143,13 @@ fun PicsViewerScreen(
                     modifier = Modifier
                         .fillMaxWidth()
                         .aspectRatio(2f / 3f)
-                        .clickable { uiVisible = !uiVisible },
+                        // v1.3.25 合并 8：点按显隐顶栏（原 clickable），双击进全屏缩放查看。
+                        .pointerInput(Unit) {
+                            detectTapGestures(
+                                onTap = { uiVisible = !uiVisible },
+                                onDoubleTap = { zoomIndex = index },
+                            )
+                        },
                 )
             }
         }
@@ -157,7 +172,119 @@ fun PicsViewerScreen(
                     style = MaterialTheme.typography.titleMedium,
                     modifier = Modifier.weight(1f),
                 )
-                Text("共 ${images.size} 张", color = Color.White)
+                Text("共 ${images.size} 张 · 双击图片可放大", color = Color.White)
+            }
+        }
+        // v1.3.25 合并 8：全屏缩放查看（key 按图，换图即复位缩放状态）。
+        zoomIndex?.let { zi ->
+            key(zi) {
+                ZoomableImageViewer(
+                    imageUrl = images[zi],
+                    headers = headers,
+                    widthPx = widthPx,
+                    title = title,
+                    indexText = "第 ${zi + 1} / ${images.size} 张",
+                    onClose = { zoomIndex = null },
+                )
+            }
+        }
+    }
+}
+
+/**
+ * v1.3.25 合并 8：看图页双指缩放——全屏单图查看。
+ * 双指捏合 1–4 倍、放大后可拖动、双击在 1 倍/2 倍间切换、点按显隐顶栏。
+ * 全屏独占手势（没有父级滚动可冲突），detectTransformGestures 直接用；
+ * 拖动范围夹在图边不超出视口太多。缩放图按 2 倍屏宽取，放大 2 倍内不糊。
+ */
+@Composable
+private fun ZoomableImageViewer(
+    imageUrl: String,
+    headers: Map<String, String>,
+    widthPx: Int,
+    title: String,
+    indexText: String,
+    onClose: () -> Unit,
+) {
+    val context = LocalContext.current
+    val request = remember(imageUrl, headers, widthPx) {
+        ImageRequest.Builder(context)
+            .data(imageUrl)
+            .size(widthPx * 2, widthPx * 3)
+            .apply { headers.forEach { (k, v) -> addHeader(k, v) } }
+            .build()
+    }
+    var scale by remember { mutableFloatStateOf(1f) }
+    var offset by remember { mutableStateOf(Offset.Zero) }
+    var uiVisible by remember { mutableStateOf(true) }
+    BoxWithConstraints(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color.Black),
+    ) {
+        val vw = constraints.maxWidth.toFloat()
+        val vh = constraints.maxHeight.toFloat()
+        AsyncImage(
+            model = request,
+            contentDescription = indexText,
+            contentScale = ContentScale.Fit,
+            modifier = Modifier
+                .fillMaxSize()
+                .graphicsLayer(
+                    scaleX = scale,
+                    scaleY = scale,
+                    translationX = offset.x,
+                    translationY = offset.y,
+                )
+                .pointerInput(Unit) {
+                    detectTransformGestures { _, pan, zoom, _ ->
+                        val newScale = (scale * zoom).coerceIn(1f, 4f)
+                        scale = newScale
+                        offset = if (newScale > 1f) {
+                            val maxX = (vw * (newScale - 1f) / 2f).coerceAtLeast(0f)
+                            val maxY = (vh * (newScale - 1f) / 2f).coerceAtLeast(0f)
+                            Offset(
+                                (offset.x + pan.x).coerceIn(-maxX, maxX),
+                                (offset.y + pan.y).coerceIn(-maxY, maxY),
+                            )
+                        } else {
+                            Offset.Zero
+                        }
+                    }
+                }
+                .pointerInput(Unit) {
+                    detectTapGestures(
+                        onTap = { uiVisible = !uiVisible },
+                        onDoubleTap = {
+                            if (scale > 1f) {
+                                scale = 1f
+                                offset = Offset.Zero
+                            } else {
+                                scale = 2f
+                            }
+                        },
+                    )
+                },
+        )
+        if (uiVisible) {
+            Row(
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .fillMaxWidth()
+                    .background(Color.Black.copy(alpha = 0.45f))
+                    .padding(horizontal = 4.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                IconButton(onClick = onClose) {
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack, "返回", tint = Color.White)
+                }
+                Text(
+                    text = title.stripHtml(),
+                    color = Color.White,
+                    style = MaterialTheme.typography.titleMedium,
+                    modifier = Modifier.weight(1f),
+                )
+                Text(indexText, color = Color.White)
             }
         }
     }

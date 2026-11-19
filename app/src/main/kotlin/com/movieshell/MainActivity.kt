@@ -7,6 +7,7 @@ import androidx.compose.ui.graphics.toArgb
 import androidx.compose.runtime.SideEffect
 
 import com.movieshell.core.util.AppGuard
+import com.movieshell.core.util.StartupWatchdog
 import com.movieshell.data.store.MusicSettings
 import com.movieshell.ui.theme.V5
 
@@ -69,6 +70,7 @@ import com.movieshell.data.download.FollowCheckWorker
 import com.movieshell.data.download.SubRefreshWorker
 import com.movieshell.data.download.Notify
 import com.movieshell.data.store.DownloadStore
+import com.movieshell.data.sync.DailyBackupWorker
 import com.movieshell.data.source.ParseProgressBus
 import com.movieshell.data.source_mgr.DrpySourceManager
 import com.movieshell.data.store.FollowStore
@@ -261,6 +263,8 @@ class MainActivity : ComponentActivity() {
         // 内存空时回退读盘，init 没跑完也不丢任务。
         lifecycleScope.launch(Dispatchers.IO) { DownloadStore.init(this@MainActivity) }
         FollowCheckWorker.reschedule(this)
+        // v1.3.25 合并 8：每日静默备份（私有目录单文件覆盖，不打扰用户）
+        DailyBackupWorker.reschedule(this)
         // v0.46.0：订阅自动刷新（每天 1 次）
         SubRefreshWorker.reschedule(this)
         WebSourceManager.init(this)
@@ -682,6 +686,12 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
+        // v1.3.25 合并 8：启动看门狗——走到前台即算本次启动健康；上次启动
+        // 时自愈过则弹一次 Toast 告诉用户，不静默。
+        StartupWatchdog.markHealthy(this)
+        if (StartupWatchdog.consumeHealedNotice(this)) {
+            AppToast.show(this, "检测到连续启动异常，已自动清理缓存", long = true)
+        }
         if (!storageAccessAtStart && StoragePaths.hasAccess(this)) {
             storageAccessAtStart = true
             val appCtx = applicationContext

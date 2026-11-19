@@ -1,6 +1,7 @@
 package com.movieshell.player
 
 import com.movieshell.player.danmaku.DanmakuSource
+import com.movieshell.player.danmaku.normalizeDanmakuHost
 import com.movieshell.player.danmaku.parseCustomDanmakuHosts
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
@@ -82,5 +83,19 @@ class DanmakuCustomHostsTest {
     @Test fun `pickEpisodeId empty or malformed returns null`() {
         assertNull(DanmakuSource.pickEpisodeId("""{"episodes":[]}""", 1))
         assertNull(DanmakuSource.pickEpisodeId("not json", 1))
+    }
+
+    @Test fun `normalizeDanmakuHost keeps host only`() {
+        assertEquals("dandan.example.com", normalizeDanmakuHost("https://dandan.example.com/api/v2/"))
+        assertEquals("dandan.example.com", normalizeDanmakuHost("DANDAN.EXAMPLE.COM:8080"))
+        assertEquals("dandan.example.com", normalizeDanmakuHost("dandan.example.com."))
+    }
+
+    @Test fun `normalizeDanmakuHost rejects invalid`() {
+        assertNull(normalizeDanmakuHost(""))
+        assertNull(normalizeDanmakuHost("notahost"))
+        assertNull(normalizeDanmakuHost("http://"))
+        assertNull(normalizeDanmakuHost("a..b.com"))
+        assertNull(normalizeDanmakuHost("foo bar"))
     }
 }

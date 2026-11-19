@@ -1475,8 +1475,30 @@ internal fun BackupExpandBlock(style: SettingRowStyle, isLastRow: Boolean) {
     val scope = rememberCoroutineScope()
     // v0.216.0（C15）：中断恢复快照入口——展开时查一次，恢复动作后刷新。
     var hasPreSnapshot by remember { mutableStateOf(false) }
+    // v1.3.25 合并 8：每日自动备份恢复入口——展开时查一次。
+    var hasDailyBackup by remember { mutableStateOf(false) }
+    var dailyBackupTime by remember { mutableStateOf(0L) }
     LaunchedEffect(Unit) {
         hasPreSnapshot = BackupManager.hasPreRestoreSnapshot(context)
+        hasDailyBackup = BackupManager.hasDailyBackup(context)
+        dailyBackupTime = BackupManager.dailyBackupTime(context)
+    }
+    val dailyBackupTimeText = remember(dailyBackupTime) {
+        if (dailyBackupTime > 0) {
+            SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.US).format(Date(dailyBackupTime))
+        } else {
+            ""
+        }
+    }
+    fun restoreDailyBackup() {
+        scope.launch {
+            when (val r = BackupManager.restoreDailyBackup(context)) {
+                is BackupManager.RestoreResult.Ok ->
+                    AppToast.show(context, "已从每日自动备份恢复", long = false)
+                is BackupManager.RestoreResult.Failed ->
+                    AppToast.show(context, "恢复失败：${r.reason}", long = true)
+            }
+        }
     }
     val importLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.GetContent(),
@@ -1553,12 +1575,22 @@ internal fun BackupExpandBlock(style: SettingRowStyle, isLastRow: Boolean) {
                     onClick = { exportBackup() },
                 )
                 SegItem(
-                    position = if (isLastRow && !hasPreSnapshot) SegPos.Last else SegPos.Middle,
+                    position = if (isLastRow && !hasPreSnapshot && !hasDailyBackup) SegPos.Last else SegPos.Middle,
                     icon = Icons.Outlined.Restore,
                     title = "从文件恢复",
                     subtitle = "从 JSON 备份文件恢复订阅、当前规则、追剧、书架、音乐、直播",
                     onClick = { importLauncher.launch("application/json") },
                 )
+                // v1.3.25 合并 8：每日自动备份恢复入口（每天静默备一份，单文件覆盖）
+                if (hasDailyBackup) {
+                    SegItem(
+                        position = if (isLastRow && !hasPreSnapshot) SegPos.Last else SegPos.Middle,
+                        icon = Icons.Outlined.Schedule,
+                        title = "恢复每日自动备份",
+                        subtitle = "每天自动备份一次，最新：$dailyBackupTimeText",
+                        onClick = { restoreDailyBackup() },
+                    )
+                }
                 // v0.216.0（C15）：上次恢复中断/失败后留下的恢复前快照
                 if (hasPreSnapshot) {
                         SegItem(
@@ -1602,8 +1634,17 @@ internal fun BackupExpandBlock(style: SettingRowStyle, isLastRow: Boolean) {
                     title = "从文件恢复",
                     subtitle = "从 JSON 备份文件恢复订阅、当前规则、追剧、书架、音乐、直播",
                     onClick = { importLauncher.launch("application/json") },
-                    divider = hasPreSnapshot,
+                    divider = hasDailyBackup || hasPreSnapshot,
                 )
+                if (hasDailyBackup) {
+                    SettingsRow(
+                        icon = Icons.Outlined.Schedule,
+                        title = "恢复每日自动备份",
+                        subtitle = "每天自动备份一次，最新：$dailyBackupTimeText",
+                        onClick = { restoreDailyBackup() },
+                        divider = hasPreSnapshot,
+                    )
+                }
                 if (hasPreSnapshot) {
                     SettingsRow(
                         icon = Icons.Outlined.History,

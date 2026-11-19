@@ -293,7 +293,7 @@ object DanmakuSource {
         val q = title.take(20).trim()
         if (q.isEmpty()) return null
         val req = Request.Builder()
-            .url("https://api.dandanplay.net/api/v2/search/anime?keyword=${java.net.URLEncoder.encode(q, "UTF-8")}")
+            .url("https://${DanmakuSettings.builtinHost.value}/api/v2/search/anime?keyword=${java.net.URLEncoder.encode(q, "UTF-8")}")
             .header("User-Agent", "movieshell/1.0")
             .build()
         client.newCall(req).execute().use { resp ->
@@ -307,7 +307,7 @@ object DanmakuSource {
 
     private fun fetchComments(animeId: Long, episode: Int): List<Comment> {
         val req = Request.Builder()
-            .url("https://api.dandanplay.net/api/v2/comment/$animeId/$episode")
+            .url("https://${DanmakuSettings.builtinHost.value}/api/v2/comment/$animeId/$episode")
             .header("User-Agent", "movieshell/1.0")
             .build()
         client.newCall(req).execute().use { resp ->
@@ -319,21 +319,31 @@ object DanmakuSource {
 }
 
 /**
+ * v1.3.25 合并 8：弹幕接口 host 归一化（纯函数）——去 scheme/路径/端口/
+ * 尾点，只取 host 部分；非法返回 null。parseCustomDanmakuHosts 与
+ * 内置接口设置共用同一套规则。
+ */
+fun normalizeDanmakuHost(raw: String): String? {
+    var h = raw.trim().lowercase()
+    if (h.isEmpty()) return null
+    h = h.removePrefix("https://").removePrefix("http://")
+    h = h.substringBefore('/').substringBefore('?').substringBefore('#')
+    h = h.substringBefore(':').removeSuffix(".")
+    if (!h.contains('.') || h.length > 253) return null
+    if (!h.all { it.code < 128 && (it.isLetterOrDigit() || it == '.' || it == '-') }) return null
+    if (h.startsWith('.') || h.startsWith('-') || h.endsWith('-')) return null
+    if (h.split('.').any { it.isEmpty() }) return null
+    return h
+}
+
+/**
  * v1.2.22：自定义弹幕接口——每行一个 LogVar 站地址，只取 host 部分（API 走 host 根，
  * 页面路由后缀如 /87654321、/cynnsq 不用）。纯函数：去 scheme/路径/端口、去重、上限 10 个。
  */
 fun parseCustomDanmakuHosts(raw: String): List<String> {
     val seen = LinkedHashSet<String>()
     for (token in raw.split('\n', ',', '，', ' ', '\t')) {
-        var h = token.trim().lowercase()
-        if (h.isEmpty()) continue
-        h = h.removePrefix("https://").removePrefix("http://")
-        h = h.substringBefore('/').substringBefore('?').substringBefore('#')
-        h = h.substringBefore(':').removeSuffix(".")
-        if (!h.contains('.') || h.length > 253) continue
-        if (!h.all { it.code < 128 && (it.isLetterOrDigit() || it == '.' || it == '-') }) continue
-        if (h.startsWith('.') || h.startsWith('-') || h.endsWith('-')) continue
-        if (h.split('.').any { it.isEmpty() }) continue
+        val h = normalizeDanmakuHost(token) ?: continue
         seen.add(h)
         if (seen.size >= 10) break
     }
@@ -356,6 +366,9 @@ object DanmakuSettings {
     private const val KEY_LINE_HEIGHT = "danmaku_line_height"
     // v1.2.22：自定义弹幕接口（原始文本，每行一个 LogVar 站地址）
     private const val KEY_CUSTOM_HOSTS = "danmaku_custom_hosts"
+    // v1.3.25 合并 8：内置弹幕接口 host（默认弹弹play 官方站；用户可填镜像站）
+    private const val KEY_BUILTIN_HOST = "danmaku_builtin_host"
+    const val DEFAULT_BUILTIN_HOST = "api.dandanplay.net"
 
     private val _enabled = MutableStateFlow(false)
     val enabled: StateFlow<Boolean> = _enabled
@@ -376,6 +389,9 @@ object DanmakuSettings {
     val customHostsRaw: StateFlow<String> = _customHostsRaw
     private val _customHosts = MutableStateFlow<List<String>>(emptyList())
     val customHosts: StateFlow<List<String>> = _customHosts
+    // v1.3.25 合并 8：内置弹幕接口 host（默认官方站，init 前也按默认走，不静默丢弹幕）
+    private val _builtinHost = MutableStateFlow(DEFAULT_BUILTIN_HOST)
+    val builtinHost: StateFlow<String> = _builtinHost
 
     fun init(context: Context) {
         val p = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
@@ -387,6 +403,8 @@ object DanmakuSettings {
         _lineHeight.value = p.getInt(KEY_LINE_HEIGHT, 1)
         _customHostsRaw.value = p.getString(KEY_CUSTOM_HOSTS, "") ?: ""
         _customHosts.value = parseCustomDanmakuHosts(_customHostsRaw.value)
+        _builtinHost.value = p.getString(KEY_BUILTIN_HOST, null)?.takeIf { it.isNotBlank() }
+            ?: DEFAULT_BUILTIN_HOST
     }
 
     fun setEnabled(context: Context, on: Boolean) {
@@ -430,6 +448,27 @@ object DanmakuSettings {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             .edit().putString(KEY_CUSTOM_HOSTS, raw).apply()
         LogBus.i("Danmaku", "自定义弹幕接口：${_customHosts.value.size} 个")
+    }
+
+    /**
+     * v1.3.25 合并 8：内置弹幕接口——填镜像站 host 用，留空恢复默认。
+     * 非法地址返回 false（调用方保留原值并提示）；合法返回 true。
+     */
+    fun setBuiltinHost(context: Context, raw: String): Boolean {
+        val trimmed = raw.trim()
+        if (trimmed.isEmpty()) {
+            _builtinHost.value = DEFAULT_BUILTIN_HOST
+            context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                .edit().remove(KEY_BUILTIN_HOST).apply()
+            LogBus.i("Danmaku", "内置弹幕接口：恢复默认 $DEFAULT_BUILTIN_HOST")
+            return true
+        }
+        val host = normalizeDanmakuHost(trimmed) ?: return false
+        _builtinHost.value = host
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .edit().putString(KEY_BUILTIN_HOST, host).apply()
+        LogBus.i("Danmaku", "内置弹幕接口：$host")
+        return true
     }
 
 
