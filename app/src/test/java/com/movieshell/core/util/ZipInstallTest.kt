@@ -73,11 +73,13 @@ class ZipInstallTest {
     }
 
     @Test
-    fun safeDst_absolutePathRejected() {
+    fun safeDst_absolutePathStaysInside() {
+        // v1.3.28：Unix 上 new File(parent, "/etc/passwd") 是拼接到 parent
+        // 后面（不是丢弃 parent），所以绝对路径的条目名本来就逃不出目录；
+        // 以前这里写 assertThrows 是错的——实现没错，是用例错了。
         withTempDir { dir ->
-            assertThrows(IllegalStateException::class.java) {
-                ZipInstall.safeDst(dir, "/etc/passwd")
-            }
+            val dst = ZipInstall.safeDst(dir, "/etc/passwd")
+            assertEquals(File(dir, "etc/passwd").canonicalPath, dst.canonicalPath)
         }
     }
 }
