@@ -35,10 +35,12 @@ class XiaYingApp : Application() {
     override fun onCreate() {
         super.onCreate()
         CrashHandler.install(this)
-        // v1.3.25 合并 8：启动看门狗——连续启动失败时自愈（只清缓存），见 StartupWatchdog。
-        StartupWatchdog.onAppStart(this)
         // v0.294.29：:magnet 子进程只跑磁力引擎，不做主进程那套初始化
         if (ProcessExitLog.isMagnetProcess(this)) return
+        // v1.3.25 合并 8：启动看门狗——连续启动失败时自愈（只清缓存），见 StartupWatchdog。
+        // v1.3.25 审查修（GPT L-01）：原来在磁力进程判断之前，:magnet 子进程每次拉起
+        // 都算一次“启动未完成”，10 分钟内播 3 次磁力就误触发自愈清缓存；只计主进程。
+        StartupWatchdog.onAppStart(this)
         LogBus.readLastCrash(this)
         // v0.294.29：上次进程（含 :magnet）非正常退出原因写进运行日志（原生崩溃 Java 抓不到）
         ProcessExitLog.logAsync(this)

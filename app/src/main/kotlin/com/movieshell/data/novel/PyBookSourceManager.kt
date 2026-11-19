@@ -153,9 +153,15 @@ object PyBookSourceManager {
                 staging.delete()
                 return@withContext ImportResult.Failed("文件打不开，重新选一次")
             }
-            input.use { ins ->
-                staging.outputStream().use { ins.copyTo(it) }
+            // v1.3.25 审查修（GPT M-01）：先限流读——原来 copyTo 整文件落盘后才查 4MB，
+            // 大文件会先占满私有目录、再 readBytes 撑内存。超限直接拒，不落盘。
+            val fileBytes = input.use { ins -> SourceRiskScanner.readCappedBytes(ins) }
+            if (fileBytes == null) {
+                staging.delete()
+                tmp = null
+                return@withContext ImportResult.Failed("文件超过 4MB")
             }
+            staging.outputStream().use { it.write(fileBytes) }
             // 校验：书源类必须有 bookSearch 方法（与桥的 _load_book_spider 判定一致）
             val head = runCatching {
                 staging.inputStream().use { ins ->
@@ -175,14 +181,9 @@ object PyBookSourceManager {
                 }
             }
             // v1.3.25 合并 2：高危风险先拦，等用户确认后再导（中危只记日志，不拦路）。
+            // fileBytes 上一步已限流读过，直接复用，不再整文件 readBytes。
             if (!skipRiskScan) {
-                val bytes = runCatching { staging.readBytes() }.getOrNull()
-                if (bytes == null || bytes.size > SourceRiskScanner.MAX_SCAN_BYTES) {
-                    staging.delete()
-                    tmp = null
-                    return@withContext ImportResult.Failed("文件读不到或超过 4MB")
-                }
-                val report = SourceRiskScanner.scanText(bytes.toString(Charsets.UTF_8))
+                val report = SourceRiskScanner.scanText(fileBytes.toString(Charsets.UTF_8))
                 if (report.hasHighRisk) {
                     staging.delete()
                     tmp = null

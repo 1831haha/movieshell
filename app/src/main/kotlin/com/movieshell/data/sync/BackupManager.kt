@@ -28,6 +28,8 @@ import com.movieshell.domain.model.ReadingProgress
 import com.movieshell.player.HistoryEntry
 import com.movieshell.player.HistoryStore
 import java.io.File
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.builtins.SetSerializer
@@ -141,12 +143,14 @@ object BackupManager {
         dailyBackupFile(context).let { if (it.isFile) it.lastModified() else 0L }
 
     /** 从每日自动备份恢复。 */
-    suspend fun restoreDailyBackup(context: Context): RestoreResult {
+    // v1.3.25 审查修（GPT M-08）：读文件＋JSON 解析都在 IO 线程——原来
+    // 设置页 scope.launch（主线程）直接调，备份一大就卡顿/ANR。
+    suspend fun restoreDailyBackup(context: Context): RestoreResult = withContext(Dispatchers.IO) {
         val f = dailyBackupFile(context)
-        if (!f.isFile) return RestoreResult.Failed("没有每日自动备份")
+        if (!f.isFile) return@withContext RestoreResult.Failed("没有每日自动备份")
         val text = runCatching { f.readText() }.getOrNull()
-            ?: return RestoreResult.Failed("自动备份读取失败")
-        return importJson(context, text)
+            ?: return@withContext RestoreResult.Failed("自动备份读取失败")
+        importJson(context, text)
     }
 
     /** 是否有中断/失败后留下的恢复前快照，供设置页入口判断。 */
@@ -157,12 +161,13 @@ object BackupManager {
      * 从恢复前快照导回（中断恢复的补救入口）。快照本身不再套一层新快照
      * （否则导回前先把好快照覆盖掉）；成功后删掉快照，失败则留着可重试。
      */
-    suspend fun restorePreRestoreSnapshot(context: Context): RestoreResult {
+    // 同 M-08：快照导回也是读文件＋JSON 解析，走 IO 线程。
+    suspend fun restorePreRestoreSnapshot(context: Context): RestoreResult = withContext(Dispatchers.IO) {
         val f = File(context.filesDir, PRE_RESTORE_SNAPSHOT)
-        if (!f.isFile) return RestoreResult.Failed("没有中断前的备份快照")
+        if (!f.isFile) return@withContext RestoreResult.Failed("没有中断前的备份快照")
         val text = runCatching { f.readText() }.getOrNull()
-            ?: return RestoreResult.Failed("快照读取失败")
-        return when (val r = importJson(context, text, writeSnapshot = false)) {
+            ?: return@withContext RestoreResult.Failed("快照读取失败")
+        when (val r = importJson(context, text, writeSnapshot = false)) {
             is RestoreResult.Ok -> {
                 runCatching { f.delete() }
                 RestoreResult.Ok

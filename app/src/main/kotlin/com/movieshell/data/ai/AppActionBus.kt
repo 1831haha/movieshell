@@ -116,6 +116,9 @@ val seconds = args["seconds"]?.toLongOrNull()
 when {
 seconds == null -> ActionResult.Fail("没给秒数，请说跳到第几秒")
 seconds < 0 -> ActionResult.Fail("秒数不能是负数")
+// v1.3.25 审查修（GPT M-02）：seconds * 1000 是 Long 乘法，秒数极大时
+// 溢出成负数会跳到错误位置；24 小时已远超单片时长，直接拒掉。
+seconds > 86_400 -> ActionResult.Fail("秒数太大了，最多支持 24 小时")
 else -> postOrFail(PlayerCommands.Command.SeekTo(seconds * 1000), "已跳到 ${seconds} 秒处")
 }
 }
@@ -205,6 +208,9 @@ val prevDrpy = DrpySourceManager.activeRuleName()
 val prevPy = PySourceManager.activeRuleName()
 val prevPhp = PhpSourceManager.activeRuleName()
 val prevWebParse = WebParseSourceManager.activeSite()?.fileName
+// v1.3.25 审查修（GPT M-03）：子站状态也要快照——原来只清不恢复，
+// 换源失败会丢掉用户正在用的子站；各系旧源也要逐个恢复，不能 else-if 只恢复一个。
+val prevSub = SubSiteStore.getCurrent(context)
 SubSiteStore.clearCurrent(context)
 DrpySourceManager.setActiveRule(null)
 PySourceManager.setActiveRule(null)
@@ -217,9 +223,10 @@ PySourceManager.setActiveRule(target.fileName)
 }
 if (!ok) {
 if (prevDrpy!= null) DrpySourceManager.setActiveRuleAsync(prevDrpy)
-else if (prevPy!= null) PySourceManager.setActiveRule(prevPy)
-else if (prevPhp!= null) PhpSourceManager.setActiveRule(prevPhp)
-else if (prevWebParse!= null) WebParseSourceManager.setActiveByFileName(prevWebParse)
+if (prevPy!= null) PySourceManager.setActiveRule(prevPy)
+if (prevPhp!= null) PhpSourceManager.setActiveRule(prevPhp)
+if (prevWebParse!= null) WebParseSourceManager.setActiveByFileName(prevWebParse)
+if (prevSub != null) SubSiteStore.setCurrent(context, prevSub.subUrl, prevSub.siteKey)
 return ActionResult.Fail("切换失败：规则文件不存在或加载失败")
 }
 SourceStateStore.setRuleEnabled(context, target.family, target.fileName, true)

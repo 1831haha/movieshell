@@ -49,6 +49,9 @@ object SourceRiskScanner {
     /** 扫描上限：源文件超大时拒绝导入（规则文件正常只有几十 KB）。 */
     const val MAX_SCAN_BYTES = 4 * 1024 * 1024
 
+    /** 单个 dex 解压后上限（防 zip 炸弹：小 zip 撑出超大 dex 直接 OOM）。 */
+    const val MAX_DEX_BYTES = 16 * 1024 * 1024
+
     /** 带上限读流：超限返回 null（调用方按"文件过大"拒绝）。 */
     fun readCappedBytes(input: InputStream, maxBytes: Int = MAX_SCAN_BYTES): ByteArray? {
         val out = java.io.ByteArrayOutputStream()
@@ -93,7 +96,7 @@ object SourceRiskScanner {
     private val READ_DEVICE_ID_RE =
         Regex("""Secure\.ANDROID_ID|getDeviceId|getImei|getMeid|Build\.SERIAL|TelephonyManager""")
     private val READ_FILES_RE =
-        Regex("""Environment\.getExternalStorageDirectory|/sdcard/|MediaStore\.Images|READ_EXTERNAL_STORAGE|READ_MEDIA_IMAGES""")
+        Regex("""Environment\.getExternalStorageDirectory|/sdcard/|/storage/emulated/|content://media|MediaStore\.Images|READ_EXTERNAL_STORAGE|READ_MEDIA_IMAGES|FileInputStream|Files\.readAllBytes|Files\.readString|\.readBytes\(\)|\.readText\(\)|os\.open\s*\(|open\s*\([^)]*,\s*['"][rb]|open\s*\(\s*['"](?!https?://)[^'"]+['"]\s*\)""")
     private val EXEC_CODE_RE =
         Regex("""\beval\s*\(|\bexec\s*\(|Function\s*\(|os\.system|subprocess\.|Runtime\.getRuntime\(\)\.exec|shell_exec|passthru\s*\(|\bsystem\s*\(|popen\s*\(|loadClass\s*\(""")
     private val DYNAMIC_CODE_RE = Regex("""DexClassLoader|System\.loadLibrary|System\.load\s*\(""")
@@ -248,8 +251,20 @@ object SourceRiskScanner {
                             )
                             entry.name.matches(Regex("""classes\d*\.dex""")) -> {
                                 sawDex = true
-                                val dexText = zin.readBytes().toString(Charsets.ISO_8859_1)
-                                findings.addAll(findingsFromSignals(collectSignals(dexText), jarMode = true))
+                                val dexBytes = readCappedBytes(zin, MAX_DEX_BYTES)
+                                if (dexBytes == null) {
+                                    findings.add(
+                                        Finding(
+                                            severity = Severity.MEDIUM,
+                                            ruleId = "dex_over_cap",
+                                            title = "单个 dex 太大没扫全",
+                                            detail = "dex 解压后超过 16MB，没扫——不等于安全",
+                                        ),
+                                    )
+                                } else {
+                                    val dexText = dexBytes.toString(Charsets.ISO_8859_1)
+                                    findings.addAll(findingsFromSignals(collectSignals(dexText), jarMode = true))
+                                }
                             }
                         }
                     }

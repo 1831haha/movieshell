@@ -176,7 +176,9 @@ fun PicsViewerScreen(
             }
         }
         // v1.3.25 合并 8：全屏缩放查看（key 按图，换图即复位缩放状态）。
-        zoomIndex?.let { zi ->
+        // v1.3.25 审查修（GPT M-04）：zoomIndex 不跟 url 走，图集换了短的
+        // 还拿旧下标会越界；先夹在合法下标内再开查看器。
+        zoomIndex?.takeIf { it in images.indices }?.let { zi ->
             key(zi) {
                 ZoomableImageViewer(
                     imageUrl = images[zi],

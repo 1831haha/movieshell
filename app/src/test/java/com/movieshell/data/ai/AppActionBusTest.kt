@@ -61,6 +61,15 @@ class AppActionBusTest {
         assertEquals("已跳到 90 秒处", ok.summary)
     }
 
+    // v1.3.25 审查修（GPT M-02）：秒数 *1000 溢出成负数前先拦；24 小时内放行。
+    @Test
+    fun `dispatch seek rejects absurd seconds`() = runTestBlocking {
+        assertTrue(AppActionBus.dispatch(null, "seek", mapOf("seconds" to "100000")) is AppActionBus.ActionResult.Fail)
+        val ok = AppActionBus.dispatch(null, "seek", mapOf("seconds" to "86400"))
+        assertTrue(ok is AppActionBus.ActionResult.Ok)
+        assertEquals("已跳到 86400 秒处", ok.summary)
+    }
+
     @Test
     fun `dispatch set_speed validates range`() = runTestBlocking {
         assertTrue(AppActionBus.dispatch(null, "set_speed", mapOf("speed" to "0.1")) is AppActionBus.ActionResult.Fail)

@@ -721,15 +721,29 @@ object MpvPlayerManager {
      * v1.3.25 合并 5：把 assets/anime4k 的着色器拷到 filesDir/anime4k
      *（缺失的才拷）。全拷成就算装好；拷失败返回 false，下次再试，
      * 不阻塞播放（着色器是画质增强，不是起播必需）。
+     * v1.3.25 审查修（GPT L-02）：原来直接往目标文件写，拷一半失败会留
+     * 残缺文件，下次因 exists() 跳过复制却返回成功。改成先写 .tmp、
+     * 再原子改名，失败删 tmp；0 字节的目标文件视为残缺，重拷。
      */
     private fun installAnime4KShaders(ctx: Context, dir: File): Boolean {
         return runCatching {
             if (!dir.exists()) dir.mkdirs()
             for (name in Anime4K.ALL_SHADER_FILES) {
                 val target = File(dir, name)
-                if (!target.exists()) {
-                    ctx.assets.open("anime4k/" + name).use { input ->
-                        target.outputStream().use { output -> input.copyTo(output) }
+                if (!target.exists() || target.length() == 0L) {
+                    target.delete()
+                    val tmp = File(dir, name + ".tmp")
+                    try {
+                        ctx.assets.open("anime4k/" + name).use { input ->
+                            tmp.outputStream().use { output -> input.copyTo(output) }
+                        }
+                        if (!tmp.renameTo(target)) {
+                            tmp.delete()
+                            return@runCatching false
+                        }
+                    } catch (e: Exception) {
+                        tmp.delete()
+                        throw e
                     }
                 }
             }
