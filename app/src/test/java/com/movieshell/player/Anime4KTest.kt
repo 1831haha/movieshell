@@ -58,9 +58,9 @@ class Anime4KTest {
     }
 
     @Test
-    fun allShaderFiles_coversEightFiles() {
-        assertEquals(8, Anime4K.ALL_SHADER_FILES.size)
-        assertEquals(8, Anime4K.ALL_SHADER_FILES.distinct().size)
+    fun allShaderFiles_coversNineFiles() {
+        assertEquals(9, Anime4K.ALL_SHADER_FILES.size)
+        assertEquals(9, Anime4K.ALL_SHADER_FILES.distinct().size)
     }
 
     @Test

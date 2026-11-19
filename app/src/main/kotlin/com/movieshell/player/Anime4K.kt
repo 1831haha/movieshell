@@ -53,7 +53,7 @@ object Anime4K {
         )
     }
 
-    /** 全部 8 个着色器文件名（首次安装时从 assets 拷到 filesDir 用）。 */
+    /** 全部 9 个着色器文件名（首次安装时从 assets 拷到 filesDir 用）。 */
     val ALL_SHADER_FILES: List<String> =
         (shaderFiles(S) + shaderFiles(M) + shaderFiles(VL)).distinct()
 
