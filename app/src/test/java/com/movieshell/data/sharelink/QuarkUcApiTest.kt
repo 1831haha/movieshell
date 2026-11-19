@@ -2,6 +2,7 @@ package com.movieshell.data.sharelink
 
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
+import org.json.JSONObject
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -366,5 +367,136 @@ class QuarkUcApiTest {
         server.takeRequest(5, TimeUnit.SECONDS)!!
         val detailReq = server.takeRequest(5, TimeUnit.SECONDS)!!
         assertTrue(detailReq.path!!.contains("stoken=Ab%2BC%2FdEf%3D12"))
+    }
+
+    @Test
+    fun shareHttp_extractPugs_caseInsensitiveAndSkipsEmpty() {
+        // v1.3.24：键名大小写不敏感；空值不算有，后面的同名头还能补。
+        assertEquals(
+            "UPPER123",
+            ShareHttp.extractPugs(listOf("session=x; Path=/", "__PUGS=UPPER123; Path=/")),
+        )
+        assertEquals(
+            "REAL",
+            ShareHttp.extractPugs(listOf("__pugs=; Path=/", "__pugs=REAL; Path=/")),
+        )
+        assertEquals("", ShareHttp.extractPugs(listOf("__pugs=; Path=/")))
+        assertEquals("", ShareHttp.extractPugs(emptyList()))
+    }
+
+    @Test
+    fun shareHttp_postJson_keepsPugsOnHttp500NonJsonBody() {
+        // v1.3.24：HTTP 500 + 非 JSON 体也不能丢响应头里的 __pugs。
+        server.enqueue(
+            MockResponse().setResponseCode(500).setBody("not json")
+                .addHeader("Set-Cookie", "__pugs=ERR500; Path=/"),
+        )
+        val resp = ShareHttp.postJson(
+            ShareHttp.defaultClient(),
+            server.url("/1/clouddrive/file/download?pr=ucpro").toString(),
+            "", "test-ua", "https://pan.quark.cn/", JSONObject(),
+        )
+        assertTrue(resp.json == null)
+        assertEquals("ERR500", resp.pugs)
+    }
+
+    @Test
+    fun videoPreview_keepsPugsOnErrorCode() {
+        // v1.3.24：业务码非 0 的三处提前返回都要把 resp.pugs 带回来。
+        server.enqueue(
+            MockResponse().setBody("""{"code":15000,"message":"err"}""")
+                .setHeader("Content-Type", "application/json; charset=utf-8")
+                .addHeader("Set-Cookie", "__pugs=VP999; Path=/"),
+        )
+        val (url, pugs) = QuarkUcApi.videoPreview(
+            ShareHttp.defaultClient(), cfg,
+            ShareSession.QuarkUc("pwd1", "st1", ""),
+            ShareFile(fid = "f1", name = "01.mp4", size = 1L, fidToken = "tok1"),
+        )
+        assertEquals("", url)
+        assertEquals("VP999", pugs)
+    }
+
+    @Test
+    fun saveFlow_downloadSavedKeepsPugsOnHttp500() {
+        // v1.3.24 回归：HTTP 500 code=15000 的响应无 data，正走 downloadSaved
+        // 第二处提前返回——之前三次偶发凭证就是在这里白丢的。走 existingFid
+        // 复用路径（TV 目录里已有同名同大小文件），跳过 save 与轮询。
+        server.enqueue(json("""{"code":0,"data":{"list":[{"fid":"tvdir","file_name":"TV"}]}}"""))
+        server.enqueue(json("""{"code":0,"data":{"list":[{"fid":"saved9","file_name":"01.mp4","size":123456}]}}"""))
+        server.enqueue(
+            MockResponse().setResponseCode(500).setBody("not json")
+                .addHeader("Set-Cookie", "__pugs=SAVED777; Path=/"),
+        )
+        val outcome = QuarkUcApi.saveFlow(
+            ShareHttp.defaultClient(), cfg,
+            ShareSession.QuarkUc("pwd1", "st1", ""),
+            ShareFile(fid = "f1", name = "01.mp4", size = 123456L, fidToken = "tok1"),
+            "cookie123",
+        ) { /* 不睡，快进 */ }
+        assertEquals("", outcome.url)
+        assertEquals("SAVED777", outcome.cookie)
+        assertEquals("saved9", outcome.savedFid)
+        assertEquals("download_failed", outcome.error)
+    }
+
+    @Test
+    fun pollTask_stopsOnRepeatedBusinessCode() {
+        // v1.3.24：同一非 0 业务码连续出现两次就提前停，不再当成“处理中”空轮询。
+        server.enqueue(json("""{"code":32003,"data":{}}"""))
+        server.enqueue(json("""{"code":32003,"data":{}}"""))
+        var sleeps = 0
+        val result = QuarkUcApi.pollTask(
+            ShareHttp.defaultClient(), cfg, "", "task1",
+            sleep = { sleeps++ },
+        )
+        assertEquals("task_error", result)
+        assertEquals(1, sleeps)
+    }
+
+    @Test
+    fun pollTask_transientCodeThenSuccess() {
+        // v1.3.24：单次非 0 码先记下来不立刻停（可能是瞬时抖动），随后成功照常返回 fid。
+        server.enqueue(json("""{"code":32003,"data":{}}"""))
+        server.enqueue(json("""{"code":0,"data":{"save_as":{"save_as_top_fids":["fid1"]}}}"""))
+        var sleeps = 0
+        val result = QuarkUcApi.pollTask(
+            ShareHttp.defaultClient(), cfg, "", "task1",
+            sleep = { sleeps++ },
+        )
+        assertEquals("fid1", result)
+        assertEquals(1, sleeps)
+    }
+
+    @Test
+    fun saveFlow_taskErrorStopsEarly() {
+        // v1.3.24：轮询两次同码 32003 → save_task_error（不再报 save_timeout），
+        // taskId 留给上层复轮询用。排队：根目录 TV → TV 为空 → 清目录空 → 保存 → 两次 32003。
+        server.enqueue(json("""{"code":0,"data":{"list":[{"fid":"tvdir","file_name":"TV"}]}}"""))
+        server.enqueue(json("""{"code":0,"data":{"list":[]}}"""))
+        server.enqueue(json("""{"code":0,"data":{"list":[]}}"""))
+        server.enqueue(json("""{"code":0,"data":{"task_id":"task1"}}"""))
+        server.enqueue(json("""{"code":32003,"data":{}}"""))
+        server.enqueue(json("""{"code":32003,"data":{}}"""))
+        val outcome = QuarkUcApi.saveFlow(
+            ShareHttp.defaultClient(), cfg,
+            ShareSession.QuarkUc("pwd1", "st1", ""),
+            ShareFile(fid = "f1", name = "01.mp4", size = 123456L, fidToken = "tok1"),
+            "cookie123",
+        ) { /* 不睡，快进 */ }
+        assertEquals("", outcome.url)
+        assertEquals("", outcome.savedFid)
+        assertEquals("save_task_error", outcome.error)
+        assertEquals("task1", outcome.taskId)
+    }
+
+    @Test
+    fun hasNonEmptyPugs_emptyValueDoesNotCount() {
+        // v1.3.24：光有键不算，空值会跳过补取。
+        assertTrue(QuarkUcApi.hasNonEmptyPugs("__pugs=abc; other=1"))
+        assertTrue(QuarkUcApi.hasNonEmptyPugs("__PUGS=abc"))
+        assertTrue(!QuarkUcApi.hasNonEmptyPugs("__pugs=; other=1"))
+        assertTrue(!QuarkUcApi.hasNonEmptyPugs("session=xyz"))
+        assertTrue(!QuarkUcApi.hasNonEmptyPugs(""))
     }
 }

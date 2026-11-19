@@ -249,8 +249,9 @@ object QuarkUcApi {
         body.put("stoken", session.stoken)
         body.put("speedup_session", "")
         body.put("token", "")
-        val resp = ShareHttp.postJson(client, "${cfg.apiBase}/file/download?${cfg.pr}", cookie, cfg.ua, cfg.referer, body)
-        val json = resp.json ?: return Triple("", "", -1)
+        val resp = ShareHttp.postJson(client, "${cfg.apiBase}/file/download?${cfg.pr}", cookie, cfg.ua, cfg.referer, body, caller = "download")
+        // v1.3.24：JSON 解析失败也不能把响应头里已下发的 __pugs 丢了（GPT 精确审查）。
+        val json = resp.json ?: return Triple("", resp.pugs, -1)
         val code = json.optInt("code", -1)
         if (code != 0) return Triple("", resp.pugs, code)
         val data = json.opt("data")
@@ -276,10 +277,13 @@ object QuarkUcApi {
         val resp = ShareHttp.getJson(
             client, url, "", cfg.ua, cfg.referer,
             extraHeaders = mapOf("x-clouddrive-st" to session.stoken),
+            caller = "videoPreview",
         )
-        val json = resp.json ?: return "" to ""
-        if (json.optInt("code", -1) != 0) return "" to ""
-        val data = json.optJSONObject("data") ?: return "" to ""
+        // v1.3.24：三处提前返回都把 resp.pugs 带回来（GPT 精确审查）——
+        // 预览拿不到地址时，响应头里的 __pugs 照样是补取的料。
+        val json = resp.json ?: return "" to resp.pugs
+        if (json.optInt("code", -1) != 0) return "" to resp.pugs
+        val data = json.optJSONObject("data") ?: return "" to resp.pugs
         val playInfo = data.optJSONObject("play_info")
         val m3u8 = playInfo?.optString("url").orEmpty()
         // v1.3.8：响应下发的 __pugs 别丢，播放时一并带上（直链裸 URL 回 403 的同款规矩）。
@@ -362,6 +366,17 @@ object QuarkUcApi {
      * 1.3.14 只保住了“直取成功那步”的 pugs，直取失败就没了，
      * 这道补取就是堵那个缺口。只在缺失时多调一到两次接口。
      */
+    /**
+     * v1.3.24：Cookie 串里 __pugs 是否有非空值——光有键不算，空值会跳过补取
+     * （GPT 精确审查：ensurePugs 之前只判键存在）。纯函数，单测覆盖。
+     */
+    internal fun hasNonEmptyPugs(cookie: String): Boolean =
+        cookie.split(';').any {
+            val pair = it.trim()
+            pair.substringBefore('=').trim().equals("__pugs", ignoreCase = true) &&
+                pair.substringAfter('=', "").trim().isNotBlank()
+        }
+
     private fun ensurePugs(
         client: OkHttpClient,
         cfg: Config,
@@ -370,9 +385,9 @@ object QuarkUcApi {
         cookie: String,
         currentPugs: String,
     ): String {
-        // 最终拼出来的 Cookie 里已有 __pugs（响应给的或登录 Cookie 里带的）就不用取。
+        // 最终拼出来的 Cookie 里已有非空 __pugs（响应给的或登录 Cookie 里带的）就不用取。
         val assembled = playbackCookie(currentPugs, cookie)
-        if (assembled.split(';').any { it.trim().startsWith("__pugs=", ignoreCase = true) }) {
+        if (hasNonEmptyPugs(assembled)) {
             return currentPugs
         }
         val harvested = harvestPugs(client, cfg, session, file, cookie)
@@ -399,6 +414,17 @@ object QuarkUcApi {
     }
 
     /**
+     * v1.3.24：起播前对转码 m3u8 做一次预检，只记 HTTP 状态与 __pugs 有无
+     * （TeleAgent P0-2 第 3 条：412 响应本身可能是下发点）。只探 .m3u8，
+     * 直链文件地址不探；只记日志，不改播放行为。
+     */
+    private fun probeM3u8(client: OkHttpClient, cfg: Config, url: String, cookie: String, pugs: String) {
+        if (".m3u8" !in url) return
+        val (code, hasPugs) = ShareHttp.probe(client, url, playbackCookie(pugs, cookie), cfg.ua, playRefererFor(url, cfg))
+        LogBus.d(TAG, "m3u8预检 HTTP " + code + " __pugs键=" + (if (hasPugs) "有" else "无"))
+    }
+
+    /**
      * 取一集的播放地址。三档 + 游客预览兜底，按顺序走，拿到就停。
      * session 必须用列目录那一份（stoken 与 fidToken 配对，见 ShareSession 注释）。
      */
@@ -413,16 +439,35 @@ object QuarkUcApi {
             ?: return ShareResult.Err("会话丢了，重新打开这个分享再试")
         val cookie = ShareAuth.getCookie(platform)
         val name = platform.displayName
+        // v1.3.24：本轮各步接住的 __pugs 独立保存在这里，不依附于 URL——
+        // 转存失败、直取失败时之前拿到的凭证也要留给后面的播放头（GPT 第二批）。
+        var caughtPugs = ""
+        fun keepCaught(pugs: String) {
+            if (pugs.isNotBlank()) caughtPugs = pugs
+        }
         var saved = SaveOutcome("", "", "", "")
         if (cookie.isNotBlank() && file.size > LARGE_SIZE) {
             saved = saveFlowWithTranscode(client, cfg, session, file, cookie)
+            keepCaught(saved.cookie)
             if (saved.url.isNotBlank()) {
-                return ShareResult.Ok(PlayLink(saved.url, playHeaders(cfg, ensurePugs(client, cfg, session, file, cookie, saved.cookie), saved.url, cookie)))
+                val pugs = ensurePugs(client, cfg, session, file, cookie, caughtPugs)
+                probeM3u8(client, cfg, saved.url, cookie, pugs)
+                return ShareResult.Ok(PlayLink(saved.url, playHeaders(cfg, pugs, saved.url, cookie)))
             }
         }
         val (url, pugs, code) = download(client, cfg, session, file, "")
-        if (url.isNotBlank()) {
-            return ShareResult.Ok(PlayLink(url, playHeaders(cfg, ensurePugs(client, cfg, session, file, cookie, pugs), url, cookie)))
+        keepCaught(pugs)
+        var directUrl = url
+        if (directUrl.isBlank() && caughtPugs.isNotBlank() && code != 31001 && code != 23018) {
+            // v1.3.24 挑战握手（TeleAgent P0-1）：错误响应里接住 __pugs 后，
+            // 带它重试一次同一直取——服务端只发一次凭证、等客户端带它重试。
+            LogBus.i(TAG, "直取接住 __pugs，带 Cookie 重试一次")
+            val retry = download(client, cfg, session, file, "__pugs=" + caughtPugs)
+            keepCaught(retry.second)
+            if (retry.first.isNotBlank()) directUrl = retry.first
+        }
+        if (directUrl.isNotBlank()) {
+            return ShareResult.Ok(PlayLink(directUrl, playHeaders(cfg, ensurePugs(client, cfg, session, file, cookie, caughtPugs), directUrl, cookie)))
         }
         if (code == 31001) {
             ShareAuth.markExpired(platform)
@@ -431,8 +476,9 @@ object QuarkUcApi {
         if (code == 23018 || code == 31001) {
             if (cookie.isNotBlank()) {
                 val (url2, pugs2, code2) = download(client, cfg, session, file, cookie)
+                keepCaught(pugs2)
                 if (url2.isNotBlank()) {
-                    return ShareResult.Ok(PlayLink(url2, playHeaders(cfg, ensurePugs(client, cfg, session, file, cookie, pugs2), url2, cookie)))
+                    return ShareResult.Ok(PlayLink(url2, playHeaders(cfg, ensurePugs(client, cfg, session, file, cookie, caughtPugs), url2, cookie)))
                 }
                 if (code2 == 31001) {
                     ShareAuth.markExpired(platform)
@@ -448,11 +494,15 @@ object QuarkUcApi {
             } else {
                 saveFlowWithTranscode(client, cfg, session, file, cookie)
             }
+            keepCaught(saved2.cookie)
             if (saved2.url.isNotBlank()) {
-                return ShareResult.Ok(PlayLink(saved2.url, playHeaders(cfg, ensurePugs(client, cfg, session, file, cookie, saved2.cookie), saved2.url, cookie)))
+                val pugs = ensurePugs(client, cfg, session, file, cookie, caughtPugs)
+                probeM3u8(client, cfg, saved2.url, cookie, pugs)
+                return ShareResult.Ok(PlayLink(saved2.url, playHeaders(cfg, pugs, saved2.url, cookie)))
             }
         }
         val (preview, previewPugs) = videoPreview(client, cfg, session, file)
+        keepCaught(previewPugs)
         if (preview.isNotBlank()) {
             val note = if (cookie.isBlank()) "没登录，只能看前 2 分钟，登录后看全集" else "直链没拿到，先看 2 分钟预览"
             return ShareResult.Ok(PlayLink(preview, playHeaders(cfg, previewPugs, preview), isPreview = true, note = note))
@@ -477,10 +527,14 @@ object QuarkUcApi {
 
     private const val SAVE_DIR_NAME = "TV"
     // v1.3.8：3 次×1 秒根本不够大文件服务端复制（真机 4 次超时）。首轮 30 次×2 秒。
-    private const val POLL_MAX = 30
-    private const val POLL_INTERVAL_MS = 2000L
-    // 同一 task_id 的第二轮轮询预算（再 30 秒）。
-    private const val REPOLL_MAX = 15
+    // v1.3.24：5.4GB 服务端复制可能超 90 秒，且 2 秒×45 的高频轮询可能触发
+    // 服务端风控（TeleAgent P1-4）——间隔放宽到 5 秒，首轮 60 次（5 分钟）。
+    private const val POLL_MAX = 60
+    private const val POLL_INTERVAL_MS = 5000L
+    // 同一 task_id 的第二轮轮询预算（再 2.5 分钟）。
+    private const val REPOLL_MAX = 30
+    /** v1.3.24：pollTask 的哨兵返回值——任务返回了确定性的业务错误码，不再是超时。 */
+    private const val TASK_ERROR = "task_error"
     private val RESOLUTION_RANK = listOf("4k", "2k", "super", "high", "normal", "low")
 
     /** internal：单测覆盖转存整链（建目录→复用→保存→轮询→直链解析）。 */
@@ -495,6 +549,9 @@ object QuarkUcApi {
         if (cookie.isBlank()) return SaveOutcome("", "", "", "need_login")
         val (dirId, existingFid) = ensureSaveDir(client, cfg, cookie, file)
             ?: return SaveOutcome("", "", "", "save_dir_failed")
+        // v1.3.24：记复用命中情况（GPT 第三批取证日志）——转存从未成功时
+        // existingFid 永远没机会命中，靠这行区分“没复用”与“复用链路坏了”。
+        LogBus.d(TAG, "转存 existingFid=" + (if (existingFid != null) "命中" else "无"))
         val savedFid = if (existingFid != null) {
             // v1.3.8：TV 目录里已有同名同大小的文件（上一轮转存超时后服务端
             // 其实已完成），直接复用，不重建任务、不清空重转。
@@ -503,8 +560,9 @@ object QuarkUcApi {
             val taskId = save(client, cfg, cookie, session, file, dirId)
                 ?: return SaveOutcome("", "", "", "save_failed")
             if (taskId == "need_login") return SaveOutcome("", "", "", "need_login")
-            pollTask(client, cfg, cookie, taskId, sleep)
-                ?: return SaveOutcome("", "", "", "save_timeout", taskId)
+            val polled = pollTask(client, cfg, cookie, taskId, sleep)
+            if (polled == TASK_ERROR) return SaveOutcome("", "", "", "save_task_error", taskId)
+            polled ?: return SaveOutcome("", "", "", "save_timeout", taskId)
         }
         val down = downloadSaved(client, cfg, cookie, savedFid)
         if (down.first.isBlank()) return SaveOutcome("", down.second, savedFid, "download_failed")
@@ -518,8 +576,9 @@ object QuarkUcApi {
         cookie: String,
         taskId: String,
     ): SaveOutcome {
-        val savedFid = pollTask(client, cfg, cookie, taskId, Thread::sleep, REPOLL_MAX)
-            ?: return SaveOutcome("", "", "", "save_timeout", taskId)
+        val polled = pollTask(client, cfg, cookie, taskId, Thread::sleep, REPOLL_MAX)
+        if (polled == TASK_ERROR) return SaveOutcome("", "", "", "save_task_error", taskId)
+        val savedFid = polled ?: return SaveOutcome("", "", "", "save_timeout", taskId)
         val down = downloadSaved(client, cfg, cookie, savedFid)
         if (down.first.isBlank()) {
             val transcoded = transcode(client, cfg, cookie, savedFid)
@@ -540,8 +599,9 @@ object QuarkUcApi {
             .put("fid", savedFid)
             .put("resolutions", "normal,low,high,super,2k,4k")
             .put("supports", "fmp4")
-        val resp = ShareHttp.postJson(client, "${cfg.apiBase}/file/v2/play?${cfg.pr}", cookie, cfg.ua, cfg.referer, body)
-        val json = resp.json ?: return SaveOutcome("", "", savedFid, "network")
+        val resp = ShareHttp.postJson(client, "${cfg.apiBase}/file/v2/play?${cfg.pr}", cookie, cfg.ua, cfg.referer, body, caller = "transcode")
+        // v1.3.24：转码失败也别丢响应里的 __pugs——后面直取还要用它补播放头。
+        val json = resp.json ?: return SaveOutcome("", resp.pugs, savedFid, "network")
         if (json.optInt("code", -1) == 31001) return SaveOutcome("", "", savedFid, "need_login")
         val list = json.optJSONObject("data")?.optJSONArray("video_list") ?: JSONArray()
         var bestUrl = ""
@@ -559,7 +619,7 @@ object QuarkUcApi {
         }
         if (bestUrl.isBlank()) {
             LogBus.w(TAG, "转码无可用档位")
-            return SaveOutcome("", "", savedFid, "transcode_failed")
+            return SaveOutcome("", resp.pugs, savedFid, "transcode_failed")
         }
         // v1.3.8：file/v2/play 响应下发的 __pugs 别丢，转码 m3u8 回源也要带它。
         return SaveOutcome(bestUrl, resp.pugs, savedFid, "")
@@ -592,7 +652,7 @@ object QuarkUcApi {
         val sort = ShareHttp.getJson(
             client,
             "${cfg.apiBase}/file/sort?${cfg.pr}&pdir_fid=0&_page=1&_size=200&_sort=file_type:asc,updated_at:desc",
-            cookie, cfg.ua, cfg.referer,
+            cookie, cfg.ua, cfg.referer, caller = "ensureSaveDir",
         ).json ?: return null
         val list = sort.optJSONObject("data")?.optJSONArray("list") ?: JSONArray()
         for (i in 0 until list.length()) {
@@ -612,7 +672,7 @@ object QuarkUcApi {
             .put("file_name", SAVE_DIR_NAME)
             .put("dir_path", "")
             .put("dir_init_lock", "false")
-        val created = ShareHttp.postJson(client, "${cfg.apiBase}/file?${cfg.pr}", cookie, cfg.ua, cfg.referer, body).json
+        val created = ShareHttp.postJson(client, "${cfg.apiBase}/file?${cfg.pr}", cookie, cfg.ua, cfg.referer, body, caller = "ensureSaveDir").json
             ?: return null
         val dirId = created.optJSONObject("data")?.optString("fid")?.takeIf { it.isNotBlank() } ?: return null
         return dirId to null
@@ -629,7 +689,7 @@ object QuarkUcApi {
         val sort = ShareHttp.getJson(
             client,
             "${cfg.apiBase}/file/sort?${cfg.pr}&pdir_fid=${ShareHttp.enc(dirId)}&_page=1&_size=200&_sort=file_type:asc,updated_at:desc",
-            cookie, cfg.ua, cfg.referer,
+            cookie, cfg.ua, cfg.referer, caller = "findSameFile",
         ).json ?: return null
         val list = sort.optJSONObject("data")?.optJSONArray("list") ?: JSONArray()
         for (i in 0 until list.length()) {
@@ -645,7 +705,7 @@ object QuarkUcApi {
         val sort = ShareHttp.getJson(
             client,
             "${cfg.apiBase}/file/sort?${cfg.pr}&pdir_fid=${ShareHttp.enc(dirId)}&_page=1&_size=200&_sort=file_type:asc,updated_at:desc",
-            cookie, cfg.ua, cfg.referer,
+            cookie, cfg.ua, cfg.referer, caller = "clearSaveDir",
         ).json ?: return
         val list = sort.optJSONObject("data")?.optJSONArray("list") ?: JSONArray()
         if (list.length() == 0) return
@@ -658,7 +718,7 @@ object QuarkUcApi {
             .put("action_type", "2")
             .put("filelist", fids.toString())
             .put("exclude_fids", "")
-        ShareHttp.postJson(client, "${cfg.apiBase}/file/delete?${cfg.pr}", cookie, cfg.ua, cfg.referer, body)
+        ShareHttp.postJson(client, "${cfg.apiBase}/file/delete?${cfg.pr}", cookie, cfg.ua, cfg.referer, body, caller = "clearSaveDir")
     }
 
     private fun save(
@@ -677,7 +737,7 @@ object QuarkUcApi {
             .put("stoken", session.stoken)
             .put("pdir_fid", "0")
             .put("scene", "link")
-        val json = ShareHttp.postJson(client, "${cfg.apiBase}/share/sharepage/save?${cfg.pr}", cookie, cfg.ua, cfg.referer, body).json
+        val json = ShareHttp.postJson(client, "${cfg.apiBase}/share/sharepage/save?${cfg.pr}", cookie, cfg.ua, cfg.referer, body, caller = "save").json
             ?: return null
         if (json.optInt("code", -1) == 31001) return "need_login"
         return json.optJSONObject("data")?.optString("task_id")?.takeIf { it.isNotBlank() }
@@ -692,16 +752,31 @@ object QuarkUcApi {
         sleep: (Long) -> Unit,
         maxPolls: Int = POLL_MAX,
     ): String? {
+        var lastCode = -1
         for (retry in 0 until maxPolls) {
             val json = ShareHttp.getJson(
                 client,
                 "${cfg.apiBase}/task?${cfg.pr}&task_id=${ShareHttp.enc(taskId)}&retry_index=$retry",
-                cookie, cfg.ua, cfg.referer,
+                cookie, cfg.ua, cfg.referer, caller = "pollTask",
             ).json
+            val code = json?.optInt("code", -1) ?: -1
             val fids = json?.optJSONObject("data")?.optJSONObject("save_as")
                 ?.optJSONArray("save_as_top_fids")
             if (fids != null && fids.length() > 0) {
                 return fids.optString(0).takeIf { it.isNotBlank() }
+            }
+            if (code == 31001) return "need_login"
+            // v1.3.24：业务码分类（GPT 精确审查）——之前所有非 0 码都被当成
+            // “处理中”空轮询 90 秒。同一非 0 码连续出现两次就提前停，不再
+            // 拿它当等待；单次出现先记下来（可能是瞬时抖动），不立刻停。
+            // 注意：这里不把 32003 写死成“容量不足”，语义未证实（TeleAgent）。
+            if (code != 0 && code != -1) {
+                if (code == lastCode) {
+                    LogBus.w(TAG, "转存任务业务码=" + code + " 连续两次，停止轮询")
+                    return TASK_ERROR
+                }
+                lastCode = code
+                LogBus.w(TAG, "转存任务业务码=" + code)
             }
             if (retry < maxPolls - 1) sleep(POLL_INTERVAL_MS)
         }
@@ -717,9 +792,11 @@ object QuarkUcApi {
     ): Pair<String, String> {
         val body = JSONObject()
         if (cfg.fidsAsList) body.put("fids", JSONArray().put(savedFid)) else body.put("fids", savedFid)
-        val resp = ShareHttp.postJson(client, "${cfg.apiBase}/file/download?${cfg.pr}&uc_param_str=", cookie, cfg.ua, cfg.referer, body)
-        val json = resp.json ?: return "" to ""
-        val data = json.opt("data") ?: return "" to ""
+        val resp = ShareHttp.postJson(client, "${cfg.apiBase}/file/download?${cfg.pr}&uc_param_str=", cookie, cfg.ua, cfg.referer, body, caller = "downloadSaved")
+        // v1.3.24：两处提前返回都把 resp.pugs 带回来（GPT 精确审查）——
+        // HTTP 500 code=15000 的响应无 data，正走第二处，之前白丢了三次偶发凭证。
+        val json = resp.json ?: return "" to resp.pugs
+        val data = json.opt("data") ?: return "" to resp.pugs
         // v1.3.8：data 有两种形态——对象数组取 download_url（与分享端 download 同款），
         // 字符串数组取字符串本身；只按一种取会把另一种判成失败。
         val url = when (data) {
