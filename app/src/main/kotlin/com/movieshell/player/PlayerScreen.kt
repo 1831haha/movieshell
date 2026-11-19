@@ -368,6 +368,8 @@ fun PlayerScreen(
     // 手动选过音轨的地址 / 已自动按偏好选过的地址（切集后比对失效，旧选择不串到新集）。
     val audioTracks by EngineHost.audioTracks.collectAsState()
     val preferredAudioLang by PlayerSettings.audioLanguage.collectAsState()
+    // v1.3.25 合并 5：Anime4K 档位（齿轮页屏显组快速切换用）。
+    val anime4kKey by PlayerSettings.anime4kMode.collectAsState()
     var manualAudioTrackUrl by remember { mutableStateOf<String?>(null) }
     var audioAutoPickUrl by remember { mutableStateOf<String?>(null) }
     // v0.21.0：定时关闭状态
@@ -3015,6 +3017,29 @@ fun PlayerScreen(
                             text = "进入画中画",
                             onClick = { enterPip(context) },
                             variant = AppButtonVariant.Ghost,
+                        )
+                        // v1.3.25 合并 5：Anime4K 画质增强快速切换（仅 libmpv 引擎生效）。
+                        Spacer(Modifier.height(8.dp))
+                        FlowRow(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Anime4K.Mode.values().forEach { mode ->
+                                V5Chip(
+                                    text = mode.label,
+                                    selected = Anime4K.fromKey(anime4kKey) == mode,
+                                    onClick = {
+                                        PlayerSettings.setAnime4KMode(context, mode.key)
+                                        EngineHost.setAnime4K(mode)
+                                    },
+                                )
+                            }
+                        }
+                        Text(
+                            text = "画质增强仅 libmpv 引擎生效",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                         Spacer(Modifier.height(12.dp))
                         Text("其它", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface)

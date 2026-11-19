@@ -43,6 +43,8 @@ object PlayerSettings {
     private const val KEY_AUDIO_LANG = "pref_audio_lang"
     /** v1.2.14 B片（3）：首选字幕语言（空=不指定；zh-Hans/zh-Hant/zh/en/ja/ko） */
     private const val KEY_SUBTITLE_LANG = "pref_subtitle_lang"
+    /** v1.3.25 合并 5：Anime4K 画质增强档位（off/s/m/vl，默认 off） */
+    private const val KEY_ANIME4K = "anime4k_mode"
     /** v0.74.0：倍速记忆 */
     private const val KEY_SPEED = "player_speed"
     /** v0.125.0：全屏画面比例档位（0=适应 1=裁剪 2=拉伸） */
@@ -93,6 +95,13 @@ object PlayerSettings {
      */
     private val _audioLanguage = MutableStateFlow("")
     val audioLanguage: StateFlow<String> = _audioLanguage
+
+    /**
+     * v1.3.25 合并 5：Anime4K 画质增强档位（存 key 字符串，off/s/m/vl；
+     * 档位含义见 player/Anime4K）。仅 libmpv 引擎生效。
+     */
+    private val _anime4kMode = MutableStateFlow("off")
+    val anime4kMode: StateFlow<String> = _anime4kMode
 
     /**
      * v1.2.14 B片（3）：首选字幕语言（空=不指定）。
@@ -153,6 +162,8 @@ object PlayerSettings {
         _transitionMode.value = prefs.getInt(KEY_PLAYER_TRANSITION, TRANSITION_SYSTEM).coerceIn(0, 3)
         _audioLanguage.value = prefs.getString(KEY_AUDIO_LANG, "").orEmpty()
         _subtitleLanguage.value = prefs.getString(KEY_SUBTITLE_LANG, "").orEmpty()
+        _anime4kMode.value = prefs.getString(KEY_ANIME4K, "off").orEmpty()
+            .takeIf { it in setOf("off", "s", "m", "vl") } ?: "off"
         _liveAutoplay.value = prefs.getInt(KEY_LIVE_AUTOPLAY, LIVE_AUTOPLAY_ALWAYS).coerceIn(0, 2)
     }
 
@@ -360,6 +371,14 @@ object PlayerSettings {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             .edit().putString(KEY_AUDIO_LANG, v).apply()
         _audioLanguage.value = v
+    }
+
+    /** v1.3.25 合并 5：设置 Anime4K 档位（非法 key 回落到 off）。 */
+    fun setAnime4KMode(context: Context, key: String) {
+        val v = if (key in setOf("off", "s", "m", "vl")) key else "off"
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .edit().putString(KEY_ANIME4K, v).apply()
+        _anime4kMode.value = v
     }
 
     /** v1.2.14 B片（3）：首选字幕语言（空=不指定）。 */

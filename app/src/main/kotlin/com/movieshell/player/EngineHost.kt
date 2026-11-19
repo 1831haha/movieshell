@@ -441,6 +441,11 @@ object EngineHost {
         }
     }
 
+    /** v1.3.25 合并 5：Anime4K 画质增强（仅 libmpv 引擎生效；Media3 不支持自定义 GLSL）。 */
+    fun setAnime4K(mode: Anime4K.Mode) {
+        MpvPlayerManager.applyAnime4K(mode)
+    }
+
     fun currentPosition(): Long = route(
         { PlayerManager.player?.currentPosition ?: 0L },
         { MpvPlayerManager.currentPosition },

@@ -8,6 +8,7 @@ import android.os.SystemClock
 import android.view.Surface
 import com.movieshell.core.log.LogBus
 import com.movieshell.core.util.StoragePaths
+import com.movieshell.data.store.PlayerSettings
 import com.movieshell.domain.model.SubtitleStyle
 import dev.jdtech.mpv.MPVLib
 import java.io.File
@@ -99,6 +100,8 @@ object MpvPlayerManager {
     @Volatile private var sawExpandedPlaylist = false
     /** M32：最近一次字幕样式——init 完成时重放一次（见 init()）。 */
     @Volatile private var lastSubtitleStyle: SubtitleStyle? = null
+    /** v1.3.25 合并 5：Anime4K 着色器是否已从 assets 拷到 filesDir（只拷一次）。 */
+    @Volatile private var anime4kInstalled = false
     /** 是否有已加载的文件（首播前不计忽略，避免把真正的失败吞掉） */
     @Volatile var hasFile = false
         private set
@@ -219,6 +222,9 @@ object MpvPlayerManager {
                 // 样式重放一次（仍排 executor，不与 init 任务抢顺序）。
                 if (currentAspectMode >= 0) setAspectMode(currentAspectMode)
                 lastSubtitleStyle?.let { applySubtitleStyle(it) }
+                // v1.3.25 合并 5：init 完成即按当前档位挂 Anime4K（M32 同款重放；
+                // applyAnime4K 内部排 executor，不与 init 任务抢顺序）。
+                applyAnime4K(Anime4K.fromKey(PlayerSettings.anime4kMode.value))
                 LogBus.i("MpvPlayer", "libmpv 初始化完成")
             } catch (t: Throwable) {
                 initialized.set(false)
@@ -692,6 +698,44 @@ object MpvPlayerManager {
     /** 设置播放错误回调，传 null 取消 */
     fun setOnErrorListener(listener: ((String) -> Unit)?) {
         errorListener = listener
+    }
+
+    /**
+     * v1.3.25 合并 5：Anime4K 画质增强。首次用时把 assets/anime4k 里的 8 个
+     * 着色器拷到 filesDir/anime4k（mpv 只能读文件路径，读不了 assets），
+     * 再设 glsl-shaders 属性；OFF 设空串卸载。只在 executor 上调。
+     */
+    fun applyAnime4K(mode: Anime4K.Mode) {
+        execIfReady {
+            val ctx = appContext ?: return@execIfReady
+            runCatching {
+                val dir = File(ctx.filesDir, "anime4k")
+                if (!anime4kInstalled) anime4kInstalled = installAnime4KShaders(ctx, dir)
+                MPVLib.setPropertyString("glsl-shaders", Anime4K.shaderChain(dir, mode))
+                LogBus.i("MpvPlayer", "Anime4K：" + mode.label)
+            }.onFailure { LogBus.w("MpvPlayer", "Anime4K 设置失败：" + (it.message ?: "")) }
+        }
+    }
+
+    /**
+     * v1.3.25 合并 5：把 assets/anime4k 的着色器拷到 filesDir/anime4k
+     *（缺失的才拷）。全拷成就算装好；拷失败返回 false，下次再试，
+     * 不阻塞播放（着色器是画质增强，不是起播必需）。
+     */
+    private fun installAnime4KShaders(ctx: Context, dir: File): Boolean {
+        return runCatching {
+            if (!dir.exists()) dir.mkdirs()
+            for (name in Anime4K.ALL_SHADER_FILES) {
+                val target = File(dir, name)
+                if (!target.exists()) {
+                    ctx.assets.open("anime4k/" + name).use { input ->
+                        target.outputStream().use { output -> input.copyTo(output) }
+                    }
+                }
+            }
+            true
+        }.onFailure { LogBus.w("MpvPlayer", "Anime4K 着色器安装失败：" + (it.message ?: "")) }
+            .getOrDefault(false)
     }
 
     /**

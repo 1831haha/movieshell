@@ -65,6 +65,7 @@ import com.movieshell.data.store.SubRefreshStore
 import com.movieshell.data.sync.BackupManager
 import com.movieshell.data.sync.CloudSyncManager
 import com.movieshell.domain.model.PlayerEngine
+import com.movieshell.player.Anime4K
 import com.movieshell.player.EngineHost
 import com.movieshell.player.EnginePlugins
 import com.movieshell.player.MagnetCache
@@ -752,6 +753,37 @@ private fun settingRowContent(
                                     context,
                                     options.firstOrNull { it.second == label }?.first.orEmpty(),
                                 )
+                                showDialog = false
+                            },
+                        )
+                    }
+                },
+            )
+        }
+        SettingsLayoutStore.ITEM_ANIME4K -> {
+            // v1.3.25 合并 5：Anime4K 画质增强——仅 libmpv 引擎生效，
+            // 换档即时生效（正在用 libmpv 播时直接挂着色器）。
+            val anime4kKey by PlayerSettings.anime4kMode.collectAsState()
+            var showDialog by remember { mutableStateOf(false) }
+            val mode = Anime4K.fromKey(anime4kKey)
+            SettingRowContent(
+                icon = Icons.Outlined.AutoAwesome,
+                title = "画质增强（Anime4K）",
+                subtitle = "仅 libmpv 引擎生效，当前：" + mode.label +
+                    if (mode == Anime4K.Mode.VL) "（画质档发热明显）" else "",
+                onClick = { showDialog = true },
+                dialog = {
+                    if (showDialog) {
+                        SingleChoiceDialog(
+                            title = "画质增强（Anime4K）",
+                            options = Anime4K.Mode.values().map { it.label },
+                            selected = mode.label,
+                            onDismiss = { showDialog = false },
+                            onSelect = { label ->
+                                val picked = Anime4K.Mode.values()
+                                    .firstOrNull { it.label == label } ?: Anime4K.Mode.OFF
+                                PlayerSettings.setAnime4KMode(context, picked.key)
+                                EngineHost.setAnime4K(picked)
                                 showDialog = false
                             },
                         )

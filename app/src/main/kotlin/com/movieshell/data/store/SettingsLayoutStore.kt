@@ -47,6 +47,8 @@ object SettingsLayoutStore {
     const val ITEM_AUDIO_LANG = "audio_lang"
     /** v1.2.14 B片（3）：首选字幕语言。 */
     const val ITEM_SUB_LANG = "subtitle_lang"
+    /** v1.3.25 合并 5：Anime4K 画质增强（off/s/m/vl，仅 libmpv 生效）。 */
+    const val ITEM_ANIME4K = "anime4k"
 
     /** v1.2.16：数据组 12 项（默认全在 main:data，顺序同设置页原顺序）。 */
     const val ITEM_DATA_SUB_REFRESH = "data_sub_refresh"
@@ -65,6 +67,7 @@ object SettingsLayoutStore {
     val ALL_ITEMS = listOf(
         ITEM_ENGINE, ITEM_AUTOPLAY, ITEM_ADFILTER, ITEM_MAX_PARALLEL, ITEM_GRAVITY,
         ITEM_TMDB_KEY, ITEM_DEF_ORIENTATION, ITEM_TRANSITION, ITEM_AUDIO_LANG, ITEM_SUB_LANG,
+        ITEM_ANIME4K,
         ITEM_DATA_SUB_REFRESH, ITEM_DATA_FOLLOW_REMIND, ITEM_DATA_WEBDAV, ITEM_DATA_AI,
         ITEM_DATA_AI_CHAT, ITEM_DATA_BACKUP, ITEM_DATA_CLEAR_CACHE, ITEM_DATA_VIDEO_CAP,
         ITEM_DATA_VIDEO_AGE, ITEM_DATA_MAGNET_CACHE, ITEM_DATA_MAGNET_ENGINE,
@@ -89,7 +92,7 @@ object SettingsLayoutStore {
         ),
         PAGE_PLAYBACK to listOf(
             ITEM_ENGINE, ITEM_AUTOPLAY, ITEM_ADFILTER, ITEM_MAX_PARALLEL, ITEM_TMDB_KEY,
-            ITEM_DEF_ORIENTATION, ITEM_TRANSITION, ITEM_AUDIO_LANG, ITEM_SUB_LANG,
+            ITEM_DEF_ORIENTATION, ITEM_TRANSITION, ITEM_AUDIO_LANG, ITEM_SUB_LANG, ITEM_ANIME4K,
         ),
         // v1.2.19：数据页默认空着（数据行默认全在主页面数据组里，用户长按拖进来收纳）。
         PAGE_DATA to emptyList(),
