@@ -910,11 +910,18 @@ object MpvPlayerManager {
                 "，$phase，起播后${elapsed}ms，eof=false）"
             LogBus.w("MpvPlayer", "播放异常结束（非自然播完）：$detail")
             // v1.3.15：把 mpv 日志末尾打进 LogBus——END_FILE 不给原因，这是唯一真凶来源。
+            // v1.3.25 合并 6：日志尾里有解码失败行时给错误串打解码标记，播放页
+            // handlePlayFailure 认标记直换内核，不烧同内核重拉与清 Referer。
+            var decodeFailed = false
             runCatching {
                 val tail = mpvLogTail(appContext)
-                if (tail.isNotBlank()) LogBus.w("MpvPlayer", "mpv 日志末尾：\n$tail")
+                if (tail.isNotBlank()) {
+                    LogBus.w("MpvPlayer", "mpv 日志末尾：\n$tail")
+                    decodeFailed = PlayFailureClass.mpvLogHasDecodeFailure(tail)
+                }
             }
-            mainHandler.post { errorListener?.invoke(detail) }
+            val report = if (decodeFailed) "${PlayFailureClass.DECODE_FAILED_MARKER}|$detail" else detail
+            mainHandler.post { errorListener?.invoke(report) }
         } else {
             // v0.217.0（F23）：自然播完同样置 paused——原来只有异常结束置，
             // 自然播完 isPlaying 仍为 true，中央大播放键出不来；

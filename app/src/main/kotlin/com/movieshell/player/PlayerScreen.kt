@@ -975,8 +975,18 @@ fun PlayerScreen(
     fun handlePlayFailure(msg: String) {
         // v1.3.21：展开检测的错误带标记——剥掉标记再用，日志与后续链路
         // 只认剥掉后的正文；标记只在入口读一次。
+        // v1.3.25 合并 6：解码失败也是确定性失败（同编解码器再试也解不出来），
+        // 与展开同款处理：跳过同内核重拉与清 Referer，直换内核（Media3 硬解
+        // 失败 → libmpv 软解；libmpv 解码失败 → Media3 试一次）。标记来源：
+        // Media3 由 EngineHost 在错误串前拼 errorCodeName，libmpv 由
+        // MpvPlayerManager 按 mpv 日志尾打 decode-failed 标记。
         val isExpansion = msg.startsWith(MpvPlayerManager.PLAYLIST_EXPANDED_MARKER)
-        val cleanMsg = if (isExpansion) msg.substringAfter("|", msg) else msg
+        val isDecodeFailure = PlayFailureClass.isDecodeFailure(msg)
+        val cleanMsg = when {
+            isExpansion -> msg.substringAfter("|", msg)
+            msg.startsWith(PlayFailureClass.DECODE_FAILED_MARKER + "|") -> msg.substringAfter("|", msg)
+            else -> msg
+        }
         // v1.3.21 H6：后台时不推进重试链——延迟任务在后台把已暂停的播放
         // 重新拉起来、把重试次数烧光，回来只剩报错。只记日志，等用户
         // 回前台手动重试。
@@ -996,9 +1006,13 @@ fun PlayerScreen(
         com.movieshell.data.source.ParseCache.invalidateResult(playUrl)
         // v1.3.21：展开是确定性失败（分片拉不到），同内核重拉/清 Referer
         // 都只会再展开一次，直接跳到换内核。
-        if (isExpansion) {
+        // v1.3.25 合并 6：解码失败同款——确定性失败不烧重试预算。
+        if (isExpansion || isDecodeFailure) {
             sameEngineRetries.intValue = 2
             triedNoReferer = true
+            if (isDecodeFailure && !isExpansion) {
+                LogBus.i("Player", "解码失败（确定性），跳过同内核重拉/清 Referer，直换内核：$cleanMsg")
+            }
         }
         if (sameEngineRetries.intValue < 2) {
             sameEngineRetries.intValue++
@@ -1100,7 +1114,9 @@ fun PlayerScreen(
                     "自动换内核异常：${t::class.java.simpleName}: ${t.message}",
                 )
                 AppToast.show(context, "切换内核失败，尝试换线路", long = false)
-                tryNextLine(msg)
+                // v1.3.25 合并 6：走剥掉标记后的 cleanMsg，别把 decode-failed
+                // 标记与 ERROR_CODE_ 前缀带进错误弹窗的分类输入。
+                tryNextLine(cleanMsg)
             }
             return
         }

@@ -470,7 +470,10 @@ object EngineHost {
         errorListenerToken = token
         errorListener = listener
         PlayerManager.setOnErrorListener(
-            listener?.let { l -> { e: PlaybackException -> l(e.message ?: "播放出错") } }
+            // v1.3.25 合并 6：错误串前拼 errorCodeName——handlePlayFailure 要凭
+            // 码认确定性解码失败（直换内核），只靠 message 文案认不全；
+            // 用户侧不回显原串（PlayError.classify 只出友好文案），拼码不影响弹窗。
+            listener?.let { l -> { e: PlaybackException -> l("${e.errorCodeName}: ${e.message ?: "播放出错"}") } }
         )
         MpvPlayerManager.setOnErrorListener(listener)
     }
