@@ -13,6 +13,7 @@ import com.movieshell.data.store.PluginStore
 import com.movieshell.data.store.PluginStore.InstalledPlugin
 import com.movieshell.data.source.CmsApi
 import com.movieshell.core.log.LogBus
+import com.movieshell.data.source_mgr.ClashProxy
 import com.movieshell.data.source_mgr.PhpSourceManager
 import com.movieshell.data.source_mgr.ServicePluginManager
 import kotlinx.coroutines.CancellationException
@@ -680,6 +681,9 @@ object PluginMarket {
                             ZipInstall.copyEntryBounded(zf, e, dst, budget)
                             installed.add(e.name)
                         }
+                        // v1.3.28：暂存目录先验摘要，通过再换入——坏包不能先把
+                        // 旧版换掉再失败（旧版丢失、注册表旧锚锁死服务，只能重装）。
+                        ServicePluginManager.verifyServiceDir(staging)
                         ZipInstall.swapDir(root, staging)
                         // v0.192.0：落盘后写 .nomedia，插件包里带媒体味后缀的
                         // 文件（如 node_modules 的 .ts）不再被相册收成假视频。
@@ -966,6 +970,11 @@ object PluginMarket {
                 // plugins/ 下是旧版市场安装的残留，一并删。
                 File(StoragePaths.pluginsDir(context), id).deleteRecursively()
                 runCatching { ServicePluginManager.uninstall(context, id) }
+                // v1.3.28：卸载 clash 一并清除它的订阅与每源代理开关（卸载即
+                // 移除全部数据；重装后重新粘贴订阅、重新开开关）。
+                if (id == ClashProxy.PLUGIN_ID) {
+                    runCatching { ClashProxy.clearAll() }
+                }
             }
             // v0.137.0：runtime 插件卸载删私有安装目录（服务页共享安装的拷备由
             // ServicePluginManager 下次解析 php 占位时按来源存亡自行清理）

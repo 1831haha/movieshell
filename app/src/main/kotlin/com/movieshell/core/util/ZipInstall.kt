@@ -26,10 +26,19 @@ object ZipInstall {
         var bytes = 0L
     }
 
-    /** zip-slip 防护：解压目标必须落在 dir 内。 */
+    /**
+     * zip-slip 防护：解压目标必须落在 dir 内（含 dir 本身）。
+     * v1.3.28：此前只认“dir/ 前缀”，workDir "."（clash 的 server.json
+     * 就是 "."，即服务根本身）会被误判成逃逸——启动时 effectiveLaunch
+     * 调本函数解析 workDir，直接抛“插件包路径非法：.”，服务起不来。
+     * 逃逸的真义是“跑到 dir 外面”，等于 dir 本身是合法的（"."、"./"、
+     * "sub/.." 这类解析后就是 dir）；"../x" 与绝对路径仍拒绝。
+     */
     fun safeDst(dir: File, name: String): File {
         val dst = File(dir, name)
-        if (!dst.canonicalPath.startsWith(dir.canonicalPath + File.separator)) {
+        val base = dir.canonicalPath
+        val cp = dst.canonicalPath
+        if (cp != base && !cp.startsWith(base + File.separator)) {
             throw IllegalStateException("插件包路径非法：$name")
         }
         return dst

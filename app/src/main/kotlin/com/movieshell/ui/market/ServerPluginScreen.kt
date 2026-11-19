@@ -111,6 +111,10 @@ fun ServerPluginScreen(
 
     var plugins by remember { mutableStateOf<List<ServicePluginManager.PluginInfo>>(emptyList()) }
     var tick by remember { mutableStateOf(0) }
+    // v1.3.28：认领只在进页首次跑一次——此前每次 tick 都跑，STARTING
+    // 轮询每秒 reload()，认领全程持 SPM 锁，大文件拷贝期间启动/停止/
+    // 探活全被挡在锁外。
+    var reconciled by remember { mutableStateOf(false) }
     var busyId by remember { mutableStateOf<String?>(null) }
     var logFor by remember { mutableStateOf<ServicePluginManager.PluginInfo?>(null) }
     var logLines by remember { mutableStateOf<List<String>>(emptyList()) }
@@ -246,11 +250,15 @@ fun ServerPluginScreen(
         }
     }
     LaunchedEffect(tick) {
+        val doReconcile = !reconciled
         plugins = withContext(Dispatchers.IO) {
             // v1.3.27：先认领市场装到 plugins/ 的旧服务（无注册表），再读列表。
-            runCatching { ServicePluginManager.reconcileMarketServices(context) }
+            if (doReconcile) {
+                runCatching { ServicePluginManager.reconcileMarketServices(context) }
+            }
             ServicePluginManager.installedPlugins(context)
         }
+        if (doReconcile) reconciled = true
     }
     // v0.138.0：启动中轮询——STARTING 是 5 秒宽限窗内的过渡态，仍有
     // STARTING 时每秒刷新一次，直到翻绿（运行中）或翻红（异常）才停。
@@ -317,25 +325,17 @@ fun ServerPluginScreen(
         }
     }
 
-    // v1.0.0：卡片展开区直接拨动自启动/常驻——走编辑页同一保存口径
-    // （读 serviceDef 改一字段后 saveService，不重启正在跑的进程）；
-    // 保存成功才 reload，开关显示永远以落盘值为准，失败则保持原态。
+    // v1.3.28：卡片开关只改注册表里的自启动/常驻两个字段，不走
+    // serviceDef→saveService 全量保存（后者会把 zip 服务翻成注册表权威，
+    // 此后市场更新改命令全部被旧值盖掉；还会重分运行中服务的端口）。
     fun toggleCardFlag(p: ServicePluginManager.PluginInfo, autoStart: Boolean?, resident: Boolean?) {
         if (saving) return
         saving = true
         scope.launch {
             val ok = withContext(Dispatchers.IO) {
                 runCatching {
-                    val def = ServicePluginManager.serviceDef(context, p.id)
-                        ?: throw IllegalStateException("读取服务配置失败")
-                    ServicePluginManager.saveService(
-                        context,
-                        def.copy(
-                            autoStart = autoStart ?: def.autoStart,
-                            resident = resident ?: def.resident,
-                        ),
-                    )
-                }.isSuccess
+                    ServicePluginManager.setCardFlags(context, p.id, autoStart, resident)
+                }.getOrDefault(false)
             }
             saving = false
             if (ok) {
@@ -958,9 +958,7 @@ private fun ServiceEditor(
                 port = portText.toIntOrNull() ?: 0,
                 runtime = runtime,
                 command = command.trim(),
-                args = argsText.trim()
-                    .split(Regex("\\s+"))
-                    .filter { it.isNotBlank() },
+                args = splitArgs(argsText.trim()),
                 workDir = workDir.trim(),
                 env = envList
                     .filter { it.first.isNotBlank() }
@@ -1034,14 +1032,8 @@ private fun ServiceEditor(
                     },
                     label = { Text("PHP") },
                 )
-                FilterChip(
-                    selected = runtime == ServicePluginManager.RuntimeKind.NODE,
-                    onClick = {
-                        runtime = ServicePluginManager.RuntimeKind.NODE
-                        if (command.isBlank()) command = "__plugin:nodejs__/bin/node"
-                    },
-                    label = { Text("Node") },
-                )
+                // v1.3.28：Node 选项已撤——全仓没有 nodejs 运行时本体，
+                // 建 Node 服务启动必报“服务/插件 nodejs 未安装”，是个死选项。
                 FilterChip(
                     selected = runtime == ServicePluginManager.RuntimeKind.CUSTOM,
                     onClick = { runtime = ServicePluginManager.RuntimeKind.CUSTOM },
@@ -1052,7 +1044,7 @@ private fun ServiceEditor(
             TechTextField(
                 value = argsText,
                 onValueChange = { argsText = it },
-                placeholder = "多个参数以空格分隔",
+                placeholder = "多个参数以空格分隔，含空格的参数用引号括起来",
                 modifier = Modifier.fillMaxWidth()
                     .onFocusChanged { if (it.isFocused) insertTarget = "args" },
             )
@@ -1249,4 +1241,42 @@ private fun ServiceEditor(
             }
         }
     }
+}
+
+/**
+ * v1.3.28：启动参数切分（支持引号内空格）：
+ * `--path "/sdcard/My Dir/x" --flag` → ["--path", "/sdcard/My Dir/x", "--flag"]。
+ * 单/双引号配对才算一组；不成对的引号按普通字符处理；空引号 "" 保留为空参数。
+ * 纯函数（不碰 Android），见 SplitArgsTest。
+ */
+fun splitArgs(text: String): List<String> {
+    val out = mutableListOf<String>()
+    val cur = StringBuilder()
+    var quote: Char? = null
+    var hasToken = false
+    for (c in text) {
+        when {
+            quote != null -> {
+                if (c == quote) quote = null else cur.append(c)
+                hasToken = true
+            }
+            c == '"' || c == '\'' -> {
+                quote = c
+                hasToken = true
+            }
+            c.isWhitespace() -> {
+                if (hasToken) {
+                    out.add(cur.toString())
+                    cur.clear()
+                    hasToken = false
+                }
+            }
+            else -> {
+                cur.append(c)
+                hasToken = true
+            }
+        }
+    }
+    if (hasToken) out.add(cur.toString())
+    return out
 }

@@ -74,6 +74,17 @@ object ClashProxy {
         ProxyRouting.proxyAddress = { mixedPort()?.let { InetSocketAddress("127.0.0.1", it) } }
     }
 
+    /**
+     * v1.3.28：卸载 clash 时一并清除订阅链接、每源代理开关与 host 集
+     * （卸载即移除全部数据；重装后重新粘贴订阅、重新开开关）。内存镜像
+     * 也清掉，否则路由还按旧 host 集走代理。
+     */
+    fun clearAll() {
+        if (::prefs.isInitialized) prefs.edit().clear().apply()
+        hostsBySource.clear()
+        hostsSnapshot = emptySet()
+    }
+
     // ---------------- 服务运行态 ----------------
 
     /** clash 服务是否在跑（只认运行中端口，没跑就不代理）。 */

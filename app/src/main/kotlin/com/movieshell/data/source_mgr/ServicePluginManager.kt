@@ -167,6 +167,9 @@ object ServicePluginManager {
         val healthPath: String = "",
         val autoStart: Boolean = false,
         val resident: Boolean = false,
+        // v1.3.28：连续占用端口数（clash 的混合端口 = 控制端口+1，需 2 个；
+        // 默认 1）。分配时整段预留，别的服务分不到这段里去。
+        val portCount: Int = 1,
     ) {
         /** 定义字段是否权威（自定义服务恒是；zip 服务在编辑保存后是）。 */
         val defAuthoritative: Boolean get() = custom || command.isNotBlank()
@@ -311,6 +314,7 @@ object ServicePluginManager {
                     healthPath = o.optString("healthPath", ""),
                     autoStart = o.optBoolean("autoStart", false),
                     resident = o.optBoolean("resident", false),
+                    portCount = o.optInt("portCount", 1).coerceAtLeast(1),
                 )
             }.toMap().toMutableMap()
         }.onSuccess { registryCorrupt = false }
@@ -359,7 +363,8 @@ object ServicePluginManager {
                     .put("healthMode", e.healthMode)
                     .put("healthPath", e.healthPath)
                     .put("autoStart", e.autoStart)
-                    .put("resident", e.resident),
+                    .put("resident", e.resident)
+                    .put("portCount", e.portCount.coerceAtLeast(1)),
             )
         }
         val ok = AtomicFile.writeText(
@@ -388,6 +393,12 @@ object ServicePluginManager {
         val env: Map<String, String>,
         val sha256: String,
         val md5: String,
+        // v1.3.28：连续占用端口数（server.json "portCount"，默认 1；
+        // clash 写 2，混合端口 = 控制端口+1 一并预留）与声明的探活方式、
+        // 自启动（server.json "healthMode"/"autoStart"，以前写了也不读）。
+        val portCount: Int,
+        val healthMode: String,
+        val autoStart: Boolean,
     )
 
     private fun parseSpec(text: String): Spec {
@@ -411,6 +422,9 @@ object ServicePluginManager {
             }.orEmpty(),
             sha256 = o.optString("sha256").trim().lowercase(),
             md5 = o.optString("md5").trim().lowercase(),
+            portCount = o.optInt("portCount", 1).coerceAtLeast(1),
+            healthMode = o.optString("healthMode", "HTTP").trim().ifBlank { "HTTP" },
+            autoStart = o.optBoolean("autoStart", false),
         )
     }
 
@@ -802,7 +816,7 @@ object ServicePluginManager {
                 }
                 throw e
             }
-            val port = allocatePort(reg, spec.port, excludeId = spec.id)
+            val port = allocatePort(reg, spec.port, excludeId = spec.id, count = spec.portCount)
             reg[spec.id] = RegistryEntry(
                 id = spec.id,
                 name = spec.name,
@@ -819,8 +833,10 @@ object ServicePluginManager {
                 envList = prev?.envList.orEmpty(),
                 healthMode = prev?.healthMode ?: "HTTP",
                 healthPath = prev?.healthPath.orEmpty(),
-                autoStart = prev?.autoStart == true,
+                // v1.3.28：新装按包声明的 autoStart seeding；已装过的沿用用户设置。
+                autoStart = prev?.autoStart ?: spec.autoStart,
                 resident = prev?.resident == true,
+                portCount = spec.portCount,
             )
             saveRegistry(context, reg)
             LogBus.i(TAG, "安装成功：${spec.id} v${spec.version}（端口 $port）")
@@ -852,6 +868,18 @@ object ServicePluginManager {
     }
 
     /**
+     * v1.3.28：验已解压目录的服务定义与 command 文件摘要（不写注册表）。
+     * 供市场安装分支在暂存目录上先验、通过再换入——坏包（摘要不符、命令
+     * 缺失）不能先把旧版换掉再失败，否则旧版丢失、注册表旧锚锁死服务。
+     */
+    fun verifyServiceDir(dir: File) {
+        val manifest = File(dir, "server.json")
+        if (!manifest.isFile) throw IllegalStateException("目录缺 server.json：${dir.name}")
+        val spec = parseSpec(manifest.readText())
+        verifyExecutable(dir, spec)
+    }
+
+    /**
      * v1.3.27：认领市场装到 plugins/ 的旧服务（clash/示例服务/danmu-service）。
      * 市场以前只解到 plugins/ 从不登记，这些服务在服务页隐身。逐个核对：
      * 有 server.json、id 合法、注册表里没有、command 摘要验得过，才搬入
@@ -871,7 +899,17 @@ object ServicePluginManager {
                 val manifest = File(dir, "server.json")
                 if (!manifest.isFile) continue
                 val spec = runCatching { parseSpec(manifest.readText()) }.getOrNull() ?: continue
-                if (reg.containsKey(spec.id)) continue
+                val entry = reg[spec.id]
+                if (entry != null) {
+                    // v1.3.28：已登记服务的结构字段跟随包声明补齐（只升不降）：
+                    // 旧注册表没有 portCount，clash 的混合端口就没人预留。
+                    if (spec.portCount > entry.portCount.coerceAtLeast(1)) {
+                        reg[spec.id] = entry.copy(portCount = spec.portCount)
+                        changed = true
+                        LogBus.i(TAG, "补齐服务端口段：${spec.id} portCount=${spec.portCount}")
+                    }
+                    continue
+                }
                 try {
                     val home = File(installedRoot, spec.id)
                     if (dir.canonicalPath != home.canonicalPath) {
@@ -956,7 +994,7 @@ object ServicePluginManager {
                 ExecutableTrust.record(context.filesDir, "service:${spec.id}:manifest", manifest)
             }
         }
-        val port = allocatePort(reg, spec.port, excludeId = spec.id)
+        val port = allocatePort(reg, spec.port, excludeId = spec.id, count = spec.portCount)
         reg[spec.id] = RegistryEntry(
             id = spec.id,
             name = spec.name,
@@ -972,8 +1010,10 @@ object ServicePluginManager {
             envList = prev?.envList.orEmpty(),
             healthMode = prev?.healthMode ?: "HTTP",
             healthPath = prev?.healthPath.orEmpty(),
-            autoStart = prev?.autoStart == true,
+            // v1.3.28：新登记按包声明的 autoStart seeding；已登记过的沿用用户设置。
+            autoStart = prev?.autoStart ?: spec.autoStart,
             resident = prev?.resident == true,
+            portCount = spec.portCount,
         )
         LogBus.i(TAG, "登记服务：${spec.id} v${spec.version}（端口 $port）")
         return spec
@@ -989,6 +1029,9 @@ object ServicePluginManager {
             File(installRoot(context), id).deleteRecursively()
             // v0.294.56：连同删掉该服务的私有执行暂存，不留 100MB 级孤儿文件。
             File(context.filesDir, "server_plugins_exec/$id").deleteRecursively()
+            // v1.3.28：连同删掉该服务的私有临时目录（clash 的 sub.yaml、
+            // 生成的 config.yaml 都在里面；卸载即移除全部数据，重装重新生成）。
+            File(context.filesDir, "service_tmp/$id").deleteRecursively()
             ExecutableTrust.clear(context.filesDir, "service:$id:exe")
             ExecutableTrust.clear(context.filesDir, "service:$id:manifest")
             reg.remove(id)
@@ -1030,9 +1073,10 @@ object ServicePluginManager {
      * v0.162.0：插件安装全量清单闸门（解压前调用，拒绝即不落盘）。
      * - server.json 带 files 清单 → 逐文件流式哈希比对，多余/缺失/不符均拒绝；
      *   清单键兼容两种写法：zip 内全路径（如 my-service/server.sh）或相对 workDir（如 server.sh）。
-     * - v0.186.0（M22）：无 files 清单的旧格式包一律拒绝安装，不再退回只验主脚本
-     *   的旧分支；市场包 MD5 本身不动、也不以换 SHA-256 冒充信任锚，签名公钥
-     *   是产品决策，本波不做。暂存后 verifyExecutable 仍做主脚本签名复核。
+     * - v1.3.28：无 files 清单不再拒绝——市场包（clash/hello-service/
+     *   danmu-service）都没有 files 清单，同一个 zip 从市场装得进、从
+     *   “从文件安装”却被拒；无清单时退回只验 command 文件摘要（与市场
+     *   安装同一信任口径，暂存后 verifyExecutable 仍做主脚本签名复核）。
      * 流式算哈希，不把大包整包读进内存（磁力类插件含 node_modules 时尤其重要）。
      */
     private fun verifyFullManifest(zip: File) {
@@ -1046,8 +1090,13 @@ object ServicePluginManager {
                 throw IllegalStateException("server.json 缺 workDir/command")
             }
             val files = conf.optJSONObject("files")
+            // v1.3.28：无 files 清单不再直接拒绝——市场包（clash/hello-service/
+            // danmu-service）都没有 files 清单，同一个 zip 从市场装得进、从
+            // “从文件安装”却被拒。无清单时退回只验 command 文件摘要（与市场
+            // 安装同一信任口径）；有清单时仍逐文件全量比对。
             if (files == null || files.length() == 0) {
-                throw IllegalStateException("旧格式服务插件缺 files 清单，拒绝安装：请在 server.json 补全量文件 SHA-256 清单")
+                LogBus.w(TAG, "服务插件无 files 清单，退回只验 command 文件摘要：${conf.optString("id")}")
+                return@use
             }
             val fileEntries = zf.entries().asSequence()
                 .filter { !it.isDirectory && it.name != "server.json" }.toList()
@@ -1109,25 +1158,42 @@ object ServicePluginManager {
 
     // ---------------- 端口 ----------------
 
-    /** 分配端口：显式 port 若保留/冲突则顺延；port=0 从 BASE_PORT 起找。 */
+    /**
+     * 分配端口：显式 port 若保留/冲突则顺延；port=0 从 BASE_PORT 起找。
+     * v1.3.28：count>1 时连续分配整段（clash 的混合端口 = 控制端口+1，
+     * 整段预留，别的服务分不到这段里）；taken 按各服务已占的整段展开。
+     * 自己的当前端口段免 canBind（运行中的服务正占着它；否则拨开关/
+     * 保存编辑会把端口顺延改掉，进程还监听旧端口，探活与打开全失效）。
+     */
     private fun allocatePort(
         reg: Map<String, RegistryEntry>,
         want: Int,
         excludeId: String? = null,
+        count: Int = 1,
     ): Int {
-        val taken = reg.filterKeys { it != excludeId }.values.map { it.port }.toSet()
-        var p = if (want > 0) want else BASE_PORT
-        // v0.294.23：磁力转播固定口 17890——MagnetPlayer 默认探这个口；
-        // 其它服务仍不许占用保留口。excludeId 是 magnet-stream 时放行 want。
+        val n = count.coerceAtLeast(1)
+        val taken = reg.filterKeys { it != excludeId }.values
+            .flatMap { e -> (e.port until e.port + e.portCount.coerceAtLeast(1)).toList() }
+            .toSet()
         val allowReserved = excludeId == "magnet-stream" && want == 17890
         if (want > 0 && want in RESERVED_PORTS && !allowReserved) {
             LogBus.w(TAG, "端口 $want 为保留端口，自动顺延")
         }
         val start = if (want > 0 && (want !in RESERVED_PORTS || allowReserved)) want else BASE_PORT
-        p = start
+        val ownPort = own?.port
+        val ownCount = own?.portCount?.coerceAtLeast(1) ?: 1
+        val ownRange = ownPort != null && want == ownPort && n == ownCount
+        var p = start
         while (p < BASE_PORT + 2000) {
-            val reservedOk = allowReserved && p == want
-            if ((p !in RESERVED_PORTS || reservedOk) && p !in taken && canBind(p)) return p
+            // v0.294.23：磁力转播固定口 17890——MagnetPlayer 默认探这个口；
+            // 其它服务仍不许占用保留口。excludeId 是 magnet-stream 时放行 want。
+            val rangeOk = (p until p + n).all { q ->
+                val reservedOk = allowReserved && q == want
+                val isOwnPort = ownRange && ownPort != null && q in ownPort until ownPort + ownCount
+                (q !in RESERVED_PORTS || reservedOk) && q !in taken &&
+                    (isOwnPort || canBind(q))
+            }
+            if (rangeOk) return p
             p++
         }
         throw IllegalStateException("无可用端口（$start 起 2000 范围内）")
@@ -1201,6 +1267,15 @@ object ServicePluginManager {
                 throw IllegalStateException("服务 $id 的可执行文件复制到私有目录后摘要不符，已拒绝启动")
             }
         }
+        // v1.3.28：同级 .so 一并拷进暂存目录（启动时 LD_LIBRARY_PATH 会
+        // 指过去）；只拷主程序的话，配套库留在共享存储上加载不到。
+        // .so 不验摘要（只验主程序），拷完即用。
+        exe.parentFile?.listFiles()
+            ?.filter { it.isFile && it.name.endsWith(".so", ignoreCase = true) }
+            .orEmpty()
+            .forEach { lib ->
+                runCatching { lib.copyTo(File(stagedDir, lib.name), overwrite = true) }
+            }
         return staged
     }
 
@@ -1230,21 +1305,32 @@ object ServicePluginManager {
         // 首次启动无锚定时：先按公开 server.json 的摘要验一次，通过后
         // 锚定，之后改写即拒绝；安装/保存后已有锚定的直接按锚定验。
         verifyServiceAtStart(context, id, launch)
+        val port = entry.port
+        // v1.3.28：多端口服务启动前验附加端口可绑（clash 的混合端口 =
+        // 控制端口+1）——否则 mihomo 绑不上直接退出，启动先报成功随即翻红。
+        if (entry.portCount > 1) {
+            for (q in port + 1 until port + entry.portCount.coerceAtLeast(1)) {
+                if (!canBind(q)) {
+                    throw IllegalStateException("端口 $q 已被占用，${entry.id} 的附加端口绑不上")
+                }
+            }
+        }
         // v0.294.56：原生二进制在共享存储上无法加载——直执报 error=13，
         // linker64 也会在映射程序段时报 Permission denied（OpenList 真机实测）。
         // 脚本不受影响（经 sh 解释执行，不映射自身）；已在私有目录内的不折腾。
-        // 只把可执行文件本身复制到私有目录执行，工作目录不动，数据与配置
+        // 只把可执行文件复制到私有目录执行，工作目录不动，数据与配置
         // 仍留在公开服务目录；复制后按验过的摘要再验一次才拉起。
         var stagingNote: String? = null
+        var stagedDir: File? = null
         if (!exe.name.endsWith(".sh", ignoreCase = true) && isElfBinary(exe) &&
             !exe.absolutePath.startsWith(context.filesDir.absolutePath + "/")
         ) {
             exe = stageNativeExe(context, id, exe)
+            stagedDir = exe.parentFile
             stagingNote = "原生程序在共享存储上无法加载，已复制到私有目录执行"
         }
         runCatching { exe.setExecutable(true) }
 
-        val port = entry.port
         val resolvedArgs = launch.args.map { it.replace("\${PORT}", port.toString()) }
         val env = mutableMapOf<String, String>()
         env.putAll(launch.env)
@@ -1272,6 +1358,16 @@ object ServicePluginManager {
                 phpLibDir.absolutePath
             } else {
                 phpLibDir.absolutePath + ":" + prev
+            }
+        }
+        // v1.3.28：原生程序被暂存到私有目录时，同级 .so 一并拷过去了
+        // （stageNativeExe），库路径也要指过去，否则加载器找不到配套库。
+        stagedDir?.let { dir ->
+            val prev = env["LD_LIBRARY_PATH"].orEmpty()
+            env["LD_LIBRARY_PATH"] = if (prev.isBlank()) {
+                dir.absolutePath
+            } else {
+                dir.absolutePath + ":" + prev
             }
         }
         val altCmd = if (!isScript && linker.isFile) {
@@ -1328,9 +1424,23 @@ object ServicePluginManager {
         val handle = running[id]
         if (handle != null) {
             handle.userStopped = true
+            // v1.3.28：先杀整棵进程树再杀直接子进程——danmu/hello-service 的
+            // server.sh 是 `while true; do nc -l … | serve_once; done` 前台循环，
+            // 只 destroy() 掉 sh，nc 子进程成孤儿继续占端口，再启动就绑不上。
+            // ProcessHandle 需 API 26+（本项目 minSdk 26），失败也不影响主流程。
+            runCatching {
+                handle.process.toHandle().descendants().use { stream ->
+                    stream.forEach { d -> runCatching { d.destroy() } }
+                }
+            }
             runCatching {
                 handle.process.destroy()
                 if (!handle.process.waitFor(3, TimeUnit.SECONDS)) {
+                    runCatching {
+                        handle.process.toHandle().descendants().use { stream ->
+                            stream.forEach { d -> runCatching { d.destroyForcibly() } }
+                        }
+                    }
                     handle.process.destroyForcibly()
                 }
             }
@@ -1376,7 +1486,11 @@ object ServicePluginManager {
                 )
             } else {
                 val spec = runCatching { readInstalledSpec(context, id) }.getOrNull()
-                Triple(e.port, HealthMode.HTTP, spec?.healthPath ?: "/healthz")
+                Triple(
+                    e.port,
+                    spec?.healthMode?.let { parseHealthMode(it) } ?: HealthMode.HTTP,
+                    spec?.healthPath ?: "/healthz",
+                )
             }
         }
         when (mode) {
@@ -1589,12 +1703,34 @@ object ServicePluginManager {
                 args = spec.args,
                 workDir = "__plugin:${e.id}__/${spec.workDir}",
                 env = spec.env.entries.map { it.key to it.value },
-                healthMode = HealthMode.HTTP,
+                healthMode = parseHealthMode(spec.healthMode),
                 healthPath = spec.healthPath,
                 autoStart = e.autoStart,
                 resident = e.resident,
             )
         }.getOrNull()
+    }
+
+    /**
+     * v1.3.28：只改卡片上的自启动/常驻两个开关（注册表字段级修改）。
+     * 此前 toggleCardFlag 走 serviceDef→saveService 全量保存，会把 zip
+     * 服务的占位符命令（__plugin:<id>__/./start.sh）原样写回注册表，
+     * command 非空 → defAuthoritative 永久变真，此后市场更新改命令/
+     * 参数/探活全部被注册表旧值盖掉。拨开关本不该改启动定义。
+     */
+    fun setCardFlags(
+        context: Context,
+        id: String,
+        autoStart: Boolean?,
+        resident: Boolean?,
+    ): Boolean = synchronized(lock) {
+        val reg = loadRegistry(context)
+        val e = reg[id] ?: return@synchronized false
+        reg[id] = e.copy(
+            autoStart = autoStart ?: e.autoStart,
+            resident = resident ?: e.resident,
+        )
+        saveRegistry(context, reg)
     }
 
     /** 由名字生成合法 id（小写字母/数字/点/横线）；重名加 -2、-3 后缀。 */
@@ -1632,6 +1768,27 @@ object ServicePluginManager {
             else -> def.id
         }
         val port = allocatePort(reg, def.port, excludeId = id)
+        // v1.3.28：zip 服务未改启动定义时不抢权威——编辑页回显的命令是
+        // 占位符形式（__plugin:<id>__/<workDir>/<command>），原样存回会
+        // 让 command 非空、defAuthoritative 永久变真，此后市场更新改命令
+        // 全部被注册表旧值盖掉。与包声明一致时只存端口/开关等用户设置，
+        // 启动定义继续以 server.json 为准。
+        val specForGuard = if (existing != null && !existing.custom) {
+            runCatching { readInstalledSpec(context, id) }.getOrNull()
+        } else {
+            null
+        }
+        val defMatchesSpec = specForGuard?.let { spec ->
+            def.command.trim() == "__plugin:$id__/${spec.workDir}/${spec.command}" &&
+                def.workDir.trim() == "__plugin:$id__/${spec.workDir}" &&
+                def.args == spec.args &&
+                def.env.filter { it.first.isNotBlank() } ==
+                spec.env.entries.map { it.key to it.value } &&
+                def.healthMode == parseHealthMode(spec.healthMode) &&
+                def.healthPath.trim() == spec.healthPath
+        } == true
+        val commandForStore = if (defMatchesSpec) "" else def.command.trim()
+        val workDirForStore = if (defMatchesSpec) "" else def.workDir.trim()
         reg[id] = RegistryEntry(
             id = id,
             name = def.name.trim(),
@@ -1641,14 +1798,15 @@ object ServicePluginManager {
             desc = def.desc.trim(),
             custom = existing?.custom ?: true,
             runtime = def.runtime.name,
-            command = def.command.trim(),
+            command = commandForStore,
             args = def.args,
-            workDir = def.workDir.trim(),
+            workDir = workDirForStore,
             envList = def.env.filter { it.first.isNotBlank() },
             healthMode = def.healthMode.name,
             healthPath = def.healthPath.trim(),
             autoStart = def.autoStart,
             resident = def.resident,
+            portCount = existing?.portCount ?: 1,
         )
         saveRegistry(context, reg)
         // S2：自定义服务保存即锚定当前可执行文件，启动时按此复验。
@@ -1722,10 +1880,24 @@ object ServicePluginManager {
     fun exportServicesJson(context: Context): String = synchronized(lock) {
         val reg = loadRegistry(context)
         val arr = JSONArray()
+        val skipped = JSONArray()
         reg.keys.sorted().forEach { id ->
-            serviceDef(context, id)?.let { arr.put(defToJson(it)) }
+            val def = serviceDef(context, id)
+            if (def != null) {
+                arr.put(defToJson(def))
+            } else {
+                // v1.3.28：server.json 损坏的服务以前静默丢弃，导出后“看起来
+                // 完整”，重装也找不回来；记进 skipped（导入方忽略未知键），
+                // 并写日志，导出的 JSON 里能看到缺了谁。
+                skipped.put(
+                    JSONObject()
+                        .put("id", id)
+                        .put("reason", "server.json 缺失或损坏，定义读不出来"),
+                )
+                LogBus.w(TAG, "导出跳过服务 $id：server.json 缺失或损坏")
+            }
         }
-        JSONObject().put("services", arr).toString(2)
+        JSONObject().put("services", arr).put("skipped", skipped).toString(2)
     }
 
     /**
@@ -1744,16 +1916,26 @@ object ServicePluginManager {
         if (arr.length() == 0) throw IllegalStateException("导入内容里没有服务定义")
         var imported = 0
         var renamed = 0
+        val failed = mutableListOf<String>()
         for (i in 0 until arr.length()) {
             val o = arr.optJSONObject(i) ?: continue
             var def = defFromJson(o)
-            if (def.name.isBlank() || def.command.isBlank()) continue
+            if (def.name.isBlank() || def.command.isBlank()) {
+                failed += "${def.id.ifBlank { def.name }.ifBlank { "第 ${i + 1} 项" }}：名称与命令必填"
+                continue
+            }
             val regNow = loadRegistry(context)
-            val idTaken = def.id.isNotBlank() && regNow.containsKey(def.id)
+            // v1.3.28：id 一律过 uniqueId 清洗（不只冲突时才洗），非法 id
+            // （空格/大写）以前直接抛掉整个导入；逐项 runCatching，一项坏
+            // 了只记失败，不中断后面各项。
+            if (def.id.isBlank() || !ID_RE.matches(def.id)) {
+                def = def.copy(id = uniqueId(def.id.ifBlank { def.name }, regNow.keys))
+                renamed++
+            }
+            val idTaken = regNow.containsKey(def.id)
             val nameTaken = regNow.values.any { it.name == def.name }
-            if (def.id.isBlank() || idTaken || nameTaken) {
-                val baseId = def.id.ifBlank { def.name }
-                val newId = uniqueId(baseId, regNow.keys)
+            if (idTaken || nameTaken) {
+                val newId = uniqueId(def.id, regNow.keys)
                 var newName = def.name
                 if (nameTaken) {
                     var n = 2
@@ -1766,16 +1948,20 @@ object ServicePluginManager {
                 def = def.copy(id = newId, name = newName)
                 renamed++
             }
-            saveService(context, def)
-            imported++
+            runCatching { saveService(context, def) }
+                .onSuccess { imported++ }
+                .onFailure { failed += "${def.id}：${it.message}" }
         }
         if (imported == 0) {
-            throw IllegalStateException("没有可导入的服务（名称与命令必填）")
+            throw IllegalStateException(
+                "没有可导入的服务（名称与命令必填）" +
+                    if (failed.isNotEmpty()) "；失败：${failed.joinToString("；")}" else "",
+            )
         }
-        val summary = if (renamed > 0) {
-            "已导入 $imported 个服务（其中 $renamed 个重名，已自动改名加后缀）"
-        } else {
-            "已导入 $imported 个服务"
+        val summary = buildString {
+            append("已导入 $imported 个服务")
+            if (renamed > 0) append("（其中 $renamed 个重名/非法 id，已自动改名加后缀）")
+            if (failed.isNotEmpty()) append("；${failed.size} 个失败：${failed.joinToString("；")}")
         }
         LogBus.i(TAG, summary)
         summary
@@ -2005,6 +2191,42 @@ object ServicePluginManager {
             nativeDetail = it.message.orEmpty()
         }
         items.add(CheckItem("原生二进制执行", nativeOk, nativeDetail))
+
+        // 6. 脚本调用同级原生程序（v1.3.28：clash 式失败探针）：.sh 脚本直接
+        // exec 同目录 ELF 会在共享存储上 error=13 起不来，脚本必须走
+        // linker64；自检以前只测“sh 能跑、原生四路通”，发现不了这种
+        // “脚本里调同级二进制”的组合失败。只查 zip/自定义服务里命令是
+        // .sh 的；脚本含 linker64 即放行。
+        val scriptElfRisks = mutableListOf<String>()
+        runCatching {
+            val reg = loadRegistry(context)
+            for ((id, _) in reg) {
+                val launch = runCatching { effectiveLaunch(context, reg.getValue(id)) }.getOrNull()
+                    ?: continue
+                val exe = launch.exe
+                if (!exe.name.endsWith(".sh", ignoreCase = true) || !exe.isFile) continue
+                val text = runCatching { exe.readText() }.getOrNull() ?: continue
+                if (text.contains("linker64")) continue
+                val siblings = launch.workDir.listFiles()
+                    ?.filter { it.isFile && it.name != exe.name && isElfBinary(it) }
+                    .orEmpty()
+                for (elf in siblings) {
+                    if (text.contains(elf.name)) scriptElfRisks += "$id/${elf.name}"
+                }
+            }
+        }
+        items.add(
+            CheckItem(
+                "脚本调用同级原生程序",
+                scriptElfRisks.isEmpty(),
+                if (scriptElfRisks.isEmpty()) {
+                    "无风险项（脚本未直接调用同级 ELF，或已走 linker64）"
+                } else {
+                    "以下服务脚本直接调用同级 ELF 且未走 linker64，启动会失败：" +
+                        scriptElfRisks.joinToString("、")
+                },
+            ),
+        )
 
         val result = SelfCheck(items)
         LogBus.i(

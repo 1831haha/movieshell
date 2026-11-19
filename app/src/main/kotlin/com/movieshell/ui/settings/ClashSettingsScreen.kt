@@ -131,9 +131,22 @@ fun ClashSettingsScreen(
                                 AppButton(
                                     text = "停止",
                                     onClick = {
-                                        runCatching { ServicePluginManager.stop(context, ClashProxy.PLUGIN_ID) }
-                                            .onFailure { AppToast.show(context, "停止失败：${it.message}") }
-                                        refresh()
+                                        // v1.3.28：启动/停止走 IO 线程——start/stop 内有
+                                        // 注册表文件 IO 与摘要验算，主线程点按有 ANR 风险。
+                                        scope.launch {
+                                            val r = withContext(Dispatchers.IO) {
+                                                runCatching {
+                                                    ServicePluginManager.stop(
+                                                        context,
+                                                        ClashProxy.PLUGIN_ID,
+                                                    )
+                                                }
+                                            }
+                                            r.onFailure {
+                                                AppToast.show(context, "停止失败：${it.message}")
+                                            }
+                                            refresh()
+                                        }
                                     },
                                     variant = AppButtonVariant.Secondary,
                                 )
@@ -141,9 +154,21 @@ fun ClashSettingsScreen(
                                 AppButton(
                                     text = "启动",
                                     onClick = {
-                                        runCatching { ServicePluginManager.start(context, ClashProxy.PLUGIN_ID) }
-                                            .onFailure { AppToast.show(context, "启动失败：${it.message}") }
-                                        refresh()
+                                        // v1.3.28：同上，走 IO 线程。
+                                        scope.launch {
+                                            val r = withContext(Dispatchers.IO) {
+                                                runCatching {
+                                                    ServicePluginManager.start(
+                                                        context,
+                                                        ClashProxy.PLUGIN_ID,
+                                                    )
+                                                }
+                                            }
+                                            r.onFailure {
+                                                AppToast.show(context, "启动失败：${it.message}")
+                                            }
+                                            refresh()
+                                        }
                                     },
                                 )
                             }
@@ -233,7 +258,7 @@ fun ClashSettingsScreen(
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                         Text(
-                            text = "订阅只存本机私有目录，不上传；更新订阅时带 Clash 客户端标识拉取（面板只认它才回配置）。服务启动后自动读订阅里的节点，挑延迟最低的用。",
+                            text = "订阅只存本机私有目录，不上传；更新订阅时带 Clash 客户端标识拉取（面板只认它才回配置）。服务启动后自动读订阅里的节点，挑延迟最低的用；运行中更新订阅，新节点最长 5 分钟内生效（想立刻生效就去服务页重启一下 clash）。",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
