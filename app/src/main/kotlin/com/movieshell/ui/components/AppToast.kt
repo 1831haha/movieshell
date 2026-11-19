@@ -13,13 +13,14 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
@@ -105,13 +106,16 @@ fun AppToastOverlay(bottomPadding: androidx.compose.ui.unit.Dp = 16.dp) {
     }
     LaunchedEffect(msg?.id) {
         val m = msg ?: return@LaunchedEffect
-        delay(if (m.long) 3600L else 2200L)
+        delay(if (m.long) 3000L else 1800L)
         AppToast.dismiss(m.id)
     }
-    Box(
+    // v1.3.32：小小小——满宽横条改按内容自适应（最宽屏宽 70%），字 12sp、
+    // 内边距收紧、圆角 6dp、显示时长缩短；347 处调用点一处生效。
+    BoxWithConstraints(
         modifier = Modifier.fillMaxSize(),
         contentAlignment = Alignment.BottomCenter,
     ) {
+        val maxToastWidth = maxWidth * 0.7f
         AnimatedVisibility(
             visible = msg != null,
             enter = fadeIn() + slideInVertically { it / 2 },
@@ -120,32 +124,31 @@ fun AppToastOverlay(bottomPadding: androidx.compose.ui.unit.Dp = 16.dp) {
             val m = msg ?: return@AnimatedVisibility
             Row(
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 24.dp)
                     // F6：不再固定离底 110dp——调用方按底栏/迷你播放条高度传 bottomPadding，
                     // 有底栏时悬在底栏上方 16dp，没底栏时离底 16dp，不压迷你播放条也不悬空。
                     .padding(bottom = bottomPadding)
                     // v0.279.0 旧版：平面提示条——底栏同款 #161921 实底 + 1px 分隔线描边 + 8dp 圆角。
-                    .shadow(12.dp, RoundedCornerShape(8.dp))
-                    .clip(RoundedCornerShape(8.dp))
+                    .widthIn(max = maxToastWidth)
+                    .shadow(8.dp, RoundedCornerShape(6.dp))
+                    .clip(RoundedCornerShape(6.dp))
                     .background(MaterialTheme.colorScheme.surfaceContainer)
-                    .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(8.dp))
+                    .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(6.dp))
                     .clickable { AppToast.dismiss(m.id) }
-                    .padding(horizontal = 18.dp, vertical = 13.dp),
+                    .padding(horizontal = 12.dp, vertical = 8.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Box(
                     modifier = Modifier
-                        .size(6.dp)
+                        .size(5.dp)
                         .clip(CircleShape)
                         .background(MaterialTheme.colorScheme.primary),
                 )
-                Spacer(Modifier.width(10.dp))
+                Spacer(Modifier.width(8.dp))
                 Text(
                     text = m.text,
                     color = MaterialTheme.colorScheme.onSurface,
-                    fontSize = 13.sp,
-                    lineHeight = 18.sp,
+                    fontSize = 12.sp,
+                    lineHeight = 16.sp,
                     // v0.272.0（T34）：原来 maxLines=3，稍长一点的提示就被截掉后半句；
                     // 提示本来就能点一下关闭，不再截断，全文显示。
                 )

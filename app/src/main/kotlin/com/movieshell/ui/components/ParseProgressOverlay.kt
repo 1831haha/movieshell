@@ -5,7 +5,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -36,6 +36,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.movieshell.domain.model.ParseConfig
 import com.movieshell.data.source.ParseProgressBus
 import kotlinx.coroutines.delay
@@ -66,7 +67,9 @@ fun ParseProgressOverlay(onManualSniff: (String) -> Unit) {
         visibleId = s.id
     }
 
-    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
+    // v1.3.32：通知小小小——胶囊最宽屏宽 70%、字 12sp、边距收紧。
+    BoxWithConstraints(Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
+        val capsuleMax = maxWidth * 0.7f
         AnimatedVisibility(
             visible = s != null && visibleId == s.id,
             enter = fadeIn(),
@@ -76,15 +79,15 @@ fun ParseProgressOverlay(onManualSniff: (String) -> Unit) {
             Surface(
                 modifier = Modifier
                     .statusBarsPadding()
-                    .padding(top = 8.dp, start = 16.dp, end = 16.dp)
-                    .widthIn(max = 420.dp),
+                    .padding(top = 8.dp, start = 8.dp, end = 8.dp)
+                    .widthIn(max = capsuleMax),
                 shape = RoundedCornerShape(50),
                 color = MaterialTheme.colorScheme.surfaceContainerHigh,
                 tonalElevation = 3.dp,
                 shadowElevation = 3.dp,
             ) {
                 Row(
-                    modifier = Modifier.padding(start = 14.dp, end = 4.dp),
+                    modifier = Modifier.padding(start = 10.dp, end = 2.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     CircularProgressIndicator(
@@ -96,16 +99,17 @@ fun ParseProgressOverlay(onManualSniff: (String) -> Unit) {
                     Text(
                         text = if (cur.total > 1) "正在尝试 ${cur.current} (${cur.index.coerceAtLeast(1)}/${cur.total})…"
                         else "正在${cur.current}…",
-                        style = MaterialTheme.typography.bodyMedium,
+                        fontSize = 12.sp,
+                        lineHeight = 16.sp,
                         color = MaterialTheme.colorScheme.onSurface,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.weight(1f, fill = false),
                     )
                     if (cur.lines.size > 1 && !cur.picked) {
-                        TextButton(onClick = { showPicker = true }) { Text("选线路") }
+                        TextButton(onClick = { showPicker = true }) { Text("选线路", fontSize = 12.sp) }
                     }
-                    TextButton(onClick = { ParseProgressBus.cancel() }) { Text("取消") }
+                    TextButton(onClick = { ParseProgressBus.cancel() }) { Text("取消", fontSize = 12.sp) }
                 }
             }
         }

@@ -57,6 +57,7 @@ import com.movieshell.ui.ai.AiScreen
 import com.movieshell.ui.bookshelf.BookshelfScreen
 import com.movieshell.ui.bookshelf.NovelTocScreen
 import com.movieshell.ui.changelog.ChangelogScreen
+import com.movieshell.ui.components.AppToast
 import com.movieshell.ui.detail.DetailScreen
 import com.movieshell.ui.download.DownloadScreen
 import com.movieshell.ui.follow.FollowScreen
@@ -217,11 +218,7 @@ fun NavGraphBuilder.appDestinations(
                                             "detail/${Uri.encode(vodId)}?title=${Uri.encode(title)}&episode=$episode$siteParam",
                                         )
                                     } else {
-                                        android.widget.Toast.makeText(
-                                            context,
-                                            "该记录的源已删除或不可用，当前源未变",
-                                            android.widget.Toast.LENGTH_SHORT,
-                                        ).show()
+                                        AppToast.show(context, "该记录的源已删除或不可用，当前源未变")
                                     }
                                     }
                                 },
@@ -381,11 +378,7 @@ fun NavGraphBuilder.appDestinations(
                                         }
                                         navController.navigate("detail/${Uri.encode(item.vodId)}$siteParam")
                                     } else {
-                                        android.widget.Toast.makeText(
-                                            context,
-                                            "该记录的源已删除或不可用，当前源未变",
-                                            android.widget.Toast.LENGTH_SHORT,
-                                        ).show()
+                                        AppToast.show(context, "该记录的源已删除或不可用，当前源未变")
                                     }
                                     }
                                 },
