@@ -364,7 +364,7 @@ fun PlayerScreen(
     val engineSetting by PlayerSettings.engine.collectAsState()
     val engineOverride by EngineHost.engineOverride.collectAsState()
     val engine = engineOverride ?: engineSetting
-    // v1.2.14 B片（3）：音轨——Media3 当前流的音频轨道；libmpv 为空。
+    // v1.3.25 合并 7：音轨——当前流的音频轨道（双引擎都推到这里）。
     // 手动选过音轨的地址 / 已自动按偏好选过的地址（切集后比对失效，旧选择不串到新集）。
     val audioTracks by EngineHost.audioTracks.collectAsState()
     val preferredAudioLang by PlayerSettings.audioLanguage.collectAsState()
@@ -1348,8 +1348,9 @@ fun PlayerScreen(
 
     // v1.2.14 B片（3）：多音轨时按首选语言自动选轨——只在轨道刚到、用户没手动
     // 选过、本地址没自动选过时跑一次；单音轨/无偏好/无匹配时什么都不做。
+    // v1.3.25 合并 7：双引擎通用（libmpv 的轨道表由 track-list 推上来）。
     LaunchedEffect(playUrl, audioTracks) {
-        if (isLive || engine != PlayerEngine.MEDIA3) return@LaunchedEffect
+        if (isLive) return@LaunchedEffect
         if (audioTracks.size <= 1) return@LaunchedEffect
         if (manualAudioTrackUrl == playUrl || audioAutoPickUrl == playUrl) return@LaunchedEffect
         val picked = TrackLanguage.pickPreferredAudioTrack(audioTracks, preferredAudioLang)
@@ -2338,9 +2339,8 @@ fun PlayerScreen(
                 }
                 // v0.259.0：三个点菜单整体删除，改成信息 + 追剧开关 + 齿轮；
                 // 追剧开关紧邻齿轮左侧，齿轮点开底部页（六组），信息点开简介弹窗。
-                // 音轨选择在齿轮页轨道组里（Media3 多音轨时出选项，单音轨明示，
-                // libmpv 暂不支持）；片头/片尾在齿轮播放组里用跳过设置管理，
-                // 不在顶栏单独造开关。
+                // 音轨选择在齿轮页轨道组里（多音轨时出选项，单音轨明示）；
+                // 片头/片尾在齿轮播放组里用跳过设置管理，不在顶栏单独造开关。
                 RoundControlButton(
                     icon = Icons.Filled.Info,
                     desc = "简介",
@@ -2845,8 +2845,7 @@ fun PlayerScreen(
         }
 
         // v0.259.0：齿轮底部页（六组），替代三个点菜单，是播放器唯一设置入口；
-        // v1.2.14 B片（3）：音轨选择已实现（Media3 多音轨时出选项，单音轨明示，
-        // libmpv 暂不支持）；视轨仍无选择能力，不做假按钮。
+        // v1.3.25 合并 7：音轨选择已实现（双引擎：多音轨时出选项，单音轨明示）；视轨仍无选择能力，不做假按钮。
         // 时间/标题/进度已在顶栏与进度条显示，屏显组只留真实画中画开关。
         // v0.262.0：齿轮页必须落在屏幕下半部分（参考图2）——原来是 PlayerScreen
         // 内部的内联 Box，嵌入详情页时它的 fillMaxSize 只是顶部 16:9 播放盒子，
@@ -2962,60 +2961,52 @@ fun PlayerScreen(
                                 variant = AppButtonVariant.Ghost,
                             )
                         }
-                        // v1.2.14 B片（3）：音轨选择（Media3 多音轨时才出选项；
-                        // 单音轨只明示，libmpv 暂不支持、不做假按钮）。
+                        // v1.2.14 B片（3）：音轨选择（多音轨时才出选项；单音轨只明示）。
+                        // v1.3.25 合并 7：双引擎通用（libmpv 的轨道表由 track-list 推上来）。
                         // 手动选轨只对当前地址生效，切集后按首选语言重新自动选。
-                        if (engine == PlayerEngine.MEDIA3) {
-                            when {
-                                audioTracks.size > 1 -> {
-                                    Spacer(Modifier.height(8.dp))
-                                    FlowRow(
-                                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                        verticalArrangement = Arrangement.spacedBy(8.dp),
-                                        modifier = Modifier.fillMaxWidth(),
-                                    ) {
+                        when {
+                            audioTracks.size > 1 -> {
+                                Spacer(Modifier.height(8.dp))
+                                FlowRow(
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                                    modifier = Modifier.fillMaxWidth(),
+                                ) {
+                                    V5Chip(
+                                        text = "自动",
+                                        selected = manualAudioTrackUrl != playUrl,
+                                        onClick = {
+                                            manualAudioTrackUrl = null
+                                            audioAutoPickUrl = null
+                                            EngineHost.selectAudioTrack(null)
+                                        },
+                                    )
+                                    audioTracks.forEach { track ->
                                         V5Chip(
-                                            text = "自动",
-                                            selected = manualAudioTrackUrl != playUrl,
+                                            text = TrackLanguage.displayName(track),
+                                            selected = manualAudioTrackUrl == playUrl && track.selected,
                                             onClick = {
-                                                manualAudioTrackUrl = null
-                                                audioAutoPickUrl = null
-                                                EngineHost.selectAudioTrack(null)
+                                                manualAudioTrackUrl = playUrl
+                                                EngineHost.selectAudioTrack(track.id)
                                             },
                                         )
-                                        audioTracks.forEach { track ->
-                                            V5Chip(
-                                                text = TrackLanguage.displayName(track),
-                                                selected = manualAudioTrackUrl == playUrl && track.selected,
-                                                onClick = {
-                                                    manualAudioTrackUrl = playUrl
-                                                    EngineHost.selectAudioTrack(track.id)
-                                                },
-                                            )
-                                        }
                                     }
                                 }
-                                audioTracks.size == 1 -> {
-                                    Text(
-                                        text = "仅 1 条音轨（${TrackLanguage.displayName(audioTracks[0])}）",
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    )
-                                }
-                                else -> {
-                                    Text(
-                                        text = "当前片源暂无可切换的音轨",
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    )
-                                }
                             }
-                        } else {
-                            Text(
-                                text = "libmpv 内核暂不支持音轨切换",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
+                            audioTracks.size == 1 -> {
+                                Text(
+                                    text = "仅 1 条音轨（${TrackLanguage.displayName(audioTracks[0])}）",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                            else -> {
+                                Text(
+                                    text = "当前片源暂无可切换的音轨",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
                         }
                         Spacer(Modifier.height(12.dp))
                         Text("屏显", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface)

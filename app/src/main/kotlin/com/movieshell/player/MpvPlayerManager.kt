@@ -123,7 +123,11 @@ object MpvPlayerManager {
 
     private val observer = object : MPVLib.EventObserver {
         override fun eventProperty(property: String) {}
-        override fun eventProperty(property: String, value: Long) {}
+        override fun eventProperty(property: String, value: Long) {
+            // v1.3.25 合并 7：aid 变了 = 音轨切了（含 mpv 自己按默认选轨），
+            // 重新读 track-list 更新齿轮页的选中态。
+            if (property == "aid") runCatching { executor.execute { refreshAudioTracks() } }
+        }
         override fun eventProperty(property: String, value: Double) {
             when (property) {
                 "time-pos" -> lastPositionMs = (value * 1000).toLong().coerceAtLeast(0L)
@@ -138,6 +142,10 @@ object MpvPlayerManager {
             // native 事件线程 → 排到 executor 串行处理，保证 eof-reached 读取时序
             if (eventId == MPVLib.MPV_EVENT_END_FILE && !destroyed.get()) {
                 runCatching { executor.execute { handleEndFile() } }
+            }
+            // v1.3.25 合并 7：文件载入后轨道表才完整，读 track-list 推给 UI。
+            if (eventId == MPVLib.MPV_EVENT_FILE_LOADED && !destroyed.get()) {
+                runCatching { executor.execute { refreshAudioTracks() } }
             }
         }
     }
@@ -198,6 +206,8 @@ object MpvPlayerManager {
                 MPVLib.observeProperty("time-pos", MPVLib.MPV_FORMAT_DOUBLE)
                 MPVLib.observeProperty("duration", MPVLib.MPV_FORMAT_DOUBLE)
                 MPVLib.observeProperty("pause", MPVLib.MPV_FORMAT_FLAG)
+                // v1.3.25 合并 7：监听 aid，音轨切换后刷新选中态（见 observer）。
+                MPVLib.observeProperty("aid", MPVLib.MPV_FORMAT_INT64)
                 MPVLib.addObserver(observer)
                 // M38：初始化时画面可能已在排队期间销毁——直接 attach 会抛
                 // 异常进 catch、把 initFailed 粘滞成永久不可用。改走
@@ -403,6 +413,9 @@ object MpvPlayerManager {
         lastPositionMs = 0L
         lastDurationMs = 0L
         sawExpandedPlaylist = false
+        // v1.3.25 合并 7：新文件起播先清掉上一文件的旧音轨，新的等
+        // FILE_LOADED 后由 refreshAudioTracks() 推上来，不拿旧的冒充。
+        PlayerManager.publishMpvAudioTracks(emptyList())
         lastPlayHost = runCatching { Uri.parse(url).host.orEmpty() }.getOrDefault("")
         lastPlayExt = url.substringBefore("?").substringAfterLast(".", "").take(8)
         lastPlayStartMs = SystemClock.elapsedRealtime()
@@ -572,6 +585,8 @@ object MpvPlayerManager {
         lastPositionMs = 0L
         lastDurationMs = 0L
         sawExpandedPlaylist = false
+        // v1.3.25 合并 7：停播清掉音轨列表，免得齿轮页还挂着上一文件的轨。
+        PlayerManager.publishMpvAudioTracks(emptyList())
         // v1.3.21：停播丢弃下载窗口内未补发的 seek，不串到下一集。
         pendingSeekMs = null
         execIfReady {
@@ -584,6 +599,40 @@ object MpvPlayerManager {
                     runCatching { MPVLib.command(arrayOf("playlist-clear")) }
                 }
                 .onFailure { LogBus.w("MpvPlayer", "stop 失败：${it.message}") }
+        }
+    }
+
+    /**
+     * v1.3.25 合并 7：读 mpv track-list 刷音轨列表，推给 PlayerManager 的
+     * 同一条 StateFlow（齿轮页音轨选择与 Media3 共用）。只在 executor 上
+     * 调（MPVLib 调用串行）；读失败留旧值，不弹错。
+     * 沙箱 mpv 0.37 实测：getPropertyString("track-list") 给 JSON 数组串，
+     * 每条含 id/type/title/lang/selected/codec。
+     */
+    private fun refreshAudioTracks() {
+        if (!initialized.get() || destroyed.get()) return
+        runCatching {
+            val list = MpvAudioTracks.parseTrackList(MPVLib.getPropertyString("track-list"))
+            PlayerManager.publishMpvAudioTracks(list)
+            if (list.isNotEmpty()) LogBus.i("MpvPlayer", "音轨列表：" + list.size + " 条")
+        }.onFailure { LogBus.w("MpvPlayer", "读 track-list 失败：" + (it.message ?: "")) }
+    }
+
+    /**
+     * v1.3.25 合并 7：libmpv 音轨切换。trackId 是 MpvAudioTracks 给的
+     * "mpv:<id>"，null=回到自动（aid=auto）。id 对不上当前流直接忽略，
+     * 不报错、不乱切。切完靠 aid 属性变化事件触发 refreshAudioTracks()
+     * 更新选中态。沙箱 mpv 0.37 实测：set aid=2 与 aid=auto 均生效。
+     */
+    fun selectAudioTrack(trackId: String?) {
+        val mpvId = trackId?.let { MpvAudioTracks.trackIdFromMpvId(it) }
+        if (trackId != null && mpvId == null) return
+        execIfReady {
+            runCatching {
+                if (mpvId == null) MPVLib.setPropertyString("aid", "auto")
+                else MPVLib.setPropertyInt("aid", mpvId)
+                LogBus.i("MpvPlayer", "音轨切换：" + (trackId ?: "自动"))
+            }.onFailure { LogBus.w("MpvPlayer", "音轨切换失败：" + (it.message ?: "")) }
         }
     }
 

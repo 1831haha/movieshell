@@ -14,8 +14,8 @@ android {
         applicationId = "com.movieshell"
         minSdk = 26
         targetSdk = 34
-        versionCode = 513
-        versionName = "1.3.24"
+        versionCode = 514
+        versionName = "1.3.25"
 
         // v1.1.25：阿里云盘开放平台应用凭证——构建期注入，仓库不许出现凭证明文。
         // 未配置时为空串，阿里扫码入口给明确提示；CI 里由 secrets 注入环境变量。

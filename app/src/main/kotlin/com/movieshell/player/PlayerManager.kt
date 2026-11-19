@@ -563,6 +563,14 @@ object PlayerManager {
     }
 
     /**
+     * v1.3.25 合并 7：libmpv 侧解析出的音轨由此推给 UI——与 Media3 的监听
+     * 走同一条 _audioTracks，齿轮页音轨选择共用，不另开流。
+     */
+    internal fun publishMpvAudioTracks(tracks: List<TrackLanguage.AudioTrackInfo>) {
+        _audioTracks.value = tracks
+    }
+
+    /**
      * v1.2.14 B片（3）：手动选音轨（齿轮页音轨选择用）。
      *
      * @param trackId AudioTracks.fromTracks 给的 "组下标:轨下标"，null=回到自动
