@@ -9,6 +9,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -32,10 +33,11 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -54,7 +56,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -444,8 +448,10 @@ fun MusicSourceScreen(onBack: () -> Unit = {}) {
             modifier = Modifier
                 .fillMaxSize()
                 .padding(inner),
-            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
+            // v1.3.31：卡片改小贴边——横向 padding 0、卡片 fillMaxWidth 真正贴边；
+            // 卡片之间缝收到 4dp，一屏能看六七个源。
+            contentPadding = PaddingValues(horizontal = 0.dp, vertical = 4.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
         ) {
             // v0.121.0：Cookie 引导条——用户找不到 Cookie 入口，这里先讲清（每行右侧按钮）
             item {
@@ -507,8 +513,31 @@ fun MusicSourceScreen(onBack: () -> Unit = {}) {
                         text = "还没有音乐源，点右下角 + 添加",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(vertical = 8.dp),
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
                     )
+                }
+            }
+            // v1.3.31：内置音源分组头（效果图 v5b 定稿）——左组名、右计数；有源时才显示。
+            if (sources.isNotEmpty()) {
+                item {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 12.dp, vertical = 2.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            text = "内置音源",
+                            fontSize = 12.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.weight(1f),
+                        )
+                        Text(
+                            text = "共 ${sources.size} 个源",
+                            fontSize = 11.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                        )
+                    }
                 }
             }
             items(sources, key = { it.id }) { source ->
@@ -528,19 +557,45 @@ fun MusicSourceScreen(onBack: () -> Unit = {}) {
                         }
                     }
                 }
-                // v0.127.0：行重做为统一骨架卡片（内置/非内置同构，三行对齐成列）：
-                // 一行 源名+内置徽标+开关；二行 地址小字+操作组右对齐；三行 音质 chips。
-                // 测试/Cookie/开关/删除的逻辑与原先完全一致，只重排布局。
+                // v1.3.31：卡片改小（效果图 v5b 定稿）——一张卡片一个源、卡片内两行：
+                // 一行 小图标+源名+瘦开关；细分隔线；二行 音质小字+测试/Cookie/删除。
+                // 地址行已删（全是同一目录，没信息量）；音质仍走现成的 labels
+                // （脚本自报 qualitys），只改排布不写死。测试/Cookie/开关/删除的逻辑
+                // 与原先完全一致，只重排布局。
+                val qualityText = labels?.joinToString(" · ").orEmpty()
                 AppCard(modifier = Modifier.fillMaxWidth()) {
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(horizontal = 16.dp, vertical = 12.dp),
+                            .padding(horizontal = 12.dp, vertical = 6.dp),
                     ) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
+                            // 小图标：音符 + 柔和绿渐变小圆角（28dp）
+                            Box(
+                                modifier = Modifier
+                                    .size(28.dp)
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(
+                                        Brush.verticalGradient(
+                                            listOf(
+                                                MaterialTheme.colorScheme.primary.copy(alpha = 0.85f),
+                                                MaterialTheme.colorScheme.primary.copy(alpha = 0.55f),
+                                            ),
+                                        ),
+                                    ),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Filled.MusicNote,
+                                    contentDescription = null,
+                                    tint = Color.White,
+                                    modifier = Modifier.size(16.dp),
+                                )
+                            }
+                            Spacer(Modifier.width(8.dp))
                             Text(
                                 text = source.name,
-                                fontSize = 15.sp,
+                                fontSize = 14.sp,
                                 fontWeight = FontWeight.SemiBold,
                                 color = MaterialTheme.colorScheme.onSurface,
                                 maxLines = 1,
@@ -574,6 +629,8 @@ fun MusicSourceScreen(onBack: () -> Unit = {}) {
                                 )
                             }
                             Spacer(Modifier.width(8.dp))
+                            // 瘦开关：标准开关视觉缩到 0.85（只改绘制，布局仍 52×32dp，
+                            // 触摸区不缩水）
                             AppSwitch(
                                 checked = source.enabled,
                                 onCheckedChange = { enabled ->
@@ -585,62 +642,70 @@ fun MusicSourceScreen(onBack: () -> Unit = {}) {
                                         reload()
                                     }
                                 },
+                                modifier = Modifier.graphicsLayer {
+                                    scaleX = 0.85f
+                                    scaleY = 0.85f
+                                },
                             )
                         }
+                        HorizontalDivider(
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f),
+                            modifier = Modifier.padding(top = 6.dp),
+                        )
                         Row(
                             modifier = Modifier.fillMaxWidth().padding(top = 2.dp),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
                             Text(
-                                text = if (source.builtin) "内置音源" else source.url,
-                                fontSize = 12.sp,
+                                text = qualityText,
+                                fontSize = 11.sp,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    .copy(alpha = 0.7f),
+                                    .copy(alpha = 0.8f),
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
                                 modifier = Modifier.weight(1f),
                             )
-                            TextButton(onClick = { doTest(source) }) {
-                                Text("测试", fontSize = 13.sp)
-                            }
+                            // 小字按钮：TextButton 自带 40dp 最小高，改用可点 Text
+                            // 压到一行，功能与原来一致。
+                            Text(
+                                text = "测试",
+                                fontSize = 11.sp,
+                                color = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier
+                                    .padding(horizontal = 6.dp, vertical = 4.dp)
+                                    .clip(RoundedCornerShape(6.dp))
+                                    .clickable { doTest(source) },
+                            )
                             // v0.123.0：内置行也给 Cookie 按钮（原先只有非内置行有，用户在
                             // huibq 行找不到入口直呼"没有 cookie 界面"）；内置点开是免配置说明
-                            TextButton(onClick = {
-                                if (source.builtin) {
-                                    builtinCookieTip = source
-                                } else {
-                                    openCookie(source)
-                                }
-                            }) {
-                                Text("Cookie", fontSize = 13.sp)
-                            }
+                            Text(
+                                text = "Cookie",
+                                fontSize = 11.sp,
+                                color = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier
+                                    .padding(horizontal = 6.dp, vertical = 4.dp)
+                                    .clip(RoundedCornerShape(6.dp))
+                                    .clickable {
+                                        if (source.builtin) {
+                                            builtinCookieTip = source
+                                        } else {
+                                            openCookie(source)
+                                        }
+                                    },
+                            )
                             if (!source.builtin) {
-                                IconButton(onClick = { deleteSourceTarget = source }) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(24.dp)
+                                        .clip(RoundedCornerShape(6.dp))
+                                        .clickable { deleteSourceTarget = source },
+                                    contentAlignment = Alignment.Center,
+                                ) {
                                     Icon(
                                         imageVector = Icons.Filled.Delete,
                                         contentDescription = "删除音乐源",
                                         tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        modifier = Modifier.size(20.dp),
-                                    )
-                                }
-                            }
-                        }
-                        if (!labels.isNullOrEmpty()) {
-                            Spacer(Modifier.height(8.dp))
-                            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                labels.forEach { label ->
-                                    Text(
-                                        text = label,
-                                        fontSize = 11.sp,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        modifier = Modifier
-                                            .clip(RoundedCornerShape(8.dp))
-                                            .background(
-                                                MaterialTheme.colorScheme.onSurfaceVariant
-                                                    .copy(alpha = 0.12f),
-                                            )
-                                            .padding(horizontal = 8.dp, vertical = 2.dp),
-                                        maxLines = 1,
+                                        modifier = Modifier.size(16.dp),
                                     )
                                 }
                             }
