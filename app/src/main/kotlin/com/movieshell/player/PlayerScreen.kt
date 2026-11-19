@@ -13,8 +13,10 @@ import android.content.pm.ActivityInfo
 import android.content.res.Configuration
 import android.os.Build
 import com.movieshell.data.source.EmbyApi
+import com.movieshell.data.source_mgr.ClashProxy
 import com.movieshell.data.source_mgr.DrpySourceManager
 import com.movieshell.data.source_mgr.SiteRepository
+import com.movieshell.data.source_mgr.SubSiteStore
 import com.movieshell.data.store.FollowItem
 import com.movieshell.data.store.FollowStore
 import com.movieshell.core.log.LogBus
@@ -278,6 +280,21 @@ fun PlayerScreen(
             else -> ""
         }
     }
+    // v1.3.26：本会话走代理用的源 key（与开关的 key 同口径）与是否走代理。
+    // 只认 JS 与 CMS 两类：PY/PHP/网页源 v1 不支持走代理（PY 走 Python 请求、
+    // PHP 走原生 php、网页源走 WebView，都不经过 OkHttp 选择器）。
+    // CMS 站点 key 要先经 SubSiteStore.findSite 还原出订阅 URL 再拼 key。
+    val playProxyKey = remember {
+        when (playSourceType) {
+            "drpy" -> playSourceKey?.let { ClashProxy.jsKey(it) }
+            "sub" -> runCatching {
+                playSourceKey?.let { SubSiteStore.findSite(context, it)?.first }
+                    ?.let { ClashProxy.cmsKey(it) }
+            }.getOrNull()
+            else -> null
+        }
+    }
+    val playUseProxy = remember { playProxyKey?.let { ClashProxy.isSourceProxied(it) } ?: false }
     val scope = rememberCoroutineScope()
     var playerView by remember { mutableStateOf<PlayerView?>(null) }
     // v0.109.0 A2：双引擎画面 View 引用（keepScreenOn 用，Media3/libmpv 统一）
@@ -696,7 +713,7 @@ fun PlayerScreen(
             val ok = EngineHost.play(
                 context, playUrl, headers = lastHeaders,
                 startPositionMs = rotatePosMs, subtitleUrl = sub, live = isLive,
-                ignoreCert = ignoreCert,
+                ignoreCert = ignoreCert, useProxy = playUseProxy,
             )
             if (ok) {
                 EngineHost.applySubtitleStyle(PlayerSettings.subtitleStyle.value, playerView)
@@ -783,7 +800,7 @@ fun PlayerScreen(
             EngineHost.play(
                 context, playUrl, headers = lastHeaders,
                 startPositionMs = startPositionMs, subtitleUrl = sub, live = isLive,
-                ignoreCert = ignoreCert,
+                ignoreCert = ignoreCert, useProxy = playUseProxy,
             )
         }
     }
@@ -1232,6 +1249,10 @@ fun PlayerScreen(
                             LogBus.w("Player", "字幕准备失败，不挂字幕：${it.message}")
                         }
                         .getOrNull()
+                    // v1.3.26：走代理时把播放地址 host 记进该源的 host 集（分片/CDN host
+                    // 与源站 host 常不同，只靠源站 host 的话播单能走代理、分片仍直连；
+                    // 记一次后同会话重试/切集都受益）。
+                    if (playUseProxy) playProxyKey?.let { ClashProxy.registerUrls(it, playUrl) }
                     val ok = EngineHost.play(
                         context,
                         playUrl,
@@ -1239,6 +1260,7 @@ fun PlayerScreen(
                         startPositionMs = startPos,
                         subtitleUrl = subtitleUrl, live = isLive,
                         ignoreCert = ignoreCert,
+                        useProxy = playUseProxy,
                     )
                     // v0.21.0：应用字幕样式
                     if (ok) {
@@ -1487,7 +1509,7 @@ fun PlayerScreen(
                 val ok = EngineHost.play(
                     context, playUrl, headers = lastHeaders,
                     startPositionMs = pos, subtitleUrl = sub, live = isLive,
-                    ignoreCert = ignoreCert,
+                    ignoreCert = ignoreCert, useProxy = playUseProxy,
                 )
                 if (ok) EngineHost.applySubtitleStyle(PlayerSettings.subtitleStyle.value, playerView)
                 else AppToast.show(context, "字幕应用失败", long = false)
@@ -1552,7 +1574,7 @@ fun PlayerScreen(
                 val ok = EngineHost.play(
                     context, playUrl, headers = lastHeaders,
                     startPositionMs = pos, subtitleUrl = sub, live = isLive,
-                    ignoreCert = ignoreCert,
+                    ignoreCert = ignoreCert, useProxy = playUseProxy,
                 )
                 if (ok) {
                     // v1.3.21 M3：手动切内核成功是新的重试对象——已试过的
@@ -1639,7 +1661,7 @@ fun PlayerScreen(
                                         val ok = EngineHost.play(
                                             context, playUrl, headers = noRefHeaders,
                                             startPositionMs = pos, subtitleUrl = sub, live = isLive,
-                                            ignoreCert = ignoreCert,
+                                            ignoreCert = ignoreCert, useProxy = playUseProxy,
                                         )
                                         if (!ok) playError = PlayError.classify("重试失败")
                                     } catch (t: Throwable) {

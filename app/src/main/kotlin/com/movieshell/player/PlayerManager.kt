@@ -33,6 +33,7 @@ import com.movieshell.domain.model.PlayerEngine
 import com.movieshell.core.util.StoragePaths
 import com.movieshell.domain.model.SubtitleStyle
 import com.movieshell.core.net.DEFAULT_UA
+import com.movieshell.core.net.HttpClient
 import com.movieshell.data.source.EmbyApi
 import com.movieshell.data.source.SniffConfig
 import com.movieshell.data.store.PlayerSettings
@@ -386,6 +387,8 @@ object PlayerManager {
         // v1.2.14：Emby 自签证书播放（EngineHost 带来，该台服务器的
         // EmbyServer.ignoreCert）；其他入口默认关，链路一丝不变。
         ignoreCert: Boolean = false,
+        // v1.3.26：本次播放走 clash 代理（EngineHost 按源开关传进来；默认关）。
+        useProxy: Boolean = false,
     ): Boolean {
         // v0.102.0 P2-6：视频开播联动暂停音乐——只暂停不自动恢复，恢复走音乐迷你条手动。
         // MusicPlayer 无 fun pause()（只读），用现有 fadeOutAndPause（保留队列/状态）。
@@ -442,6 +445,13 @@ object PlayerManager {
                     .setUserAgent(ua)
                     // v1.1.19：带宽表挂上游——只计量真正走网络的流量（缓存命中不经过这里），
                     // 采样码率进 bitrateEstimate，供顶栏显示网速。
+                    .setTransferListener(bandwidthMeter)
+            } else if (useProxy) {
+                // v1.3.26：走代理的源——DefaultHttpDataSource 走 HttpURLConnection，
+                // 吃不到 OkHttp 的代理选择器；改走挂了 selector 的共享客户端，
+                // host 集里的播放地址走本地 clash 代理，其余直连。
+                OkHttpDataSource.Factory(HttpClient.defaultClient())
+                    .setUserAgent(ua)
                     .setTransferListener(bandwidthMeter)
             } else {
                 DefaultHttpDataSource.Factory()

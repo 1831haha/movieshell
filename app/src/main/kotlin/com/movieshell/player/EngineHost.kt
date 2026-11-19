@@ -9,6 +9,7 @@ import android.os.SystemClock
 import androidx.media3.common.PlaybackException
 import androidx.media3.ui.PlayerView
 import com.movieshell.core.log.LogBus
+import com.movieshell.data.source_mgr.ClashProxy
 import com.movieshell.domain.model.PlayerEngine
 import com.movieshell.data.store.PlayerSettings
 import com.movieshell.domain.model.SubtitleStyle
@@ -128,6 +129,8 @@ object EngineHost {
         // v1.2.14：Emby 自签证书播放（MediaServerScreen.playItem 带来，
         // 该台服务器的 EmbyServer.ignoreCert）；其他入口默认关。
         ignoreCert: Boolean = false,
+        // v1.3.26：本次播放走 clash 代理（PlayerScreen 按当前源的开关算好传进来；默认关）。
+        useProxy: Boolean = false,
     ): Boolean {
         // v1.3.17：后台拒绝起播（见 backgrounded 注释）
         if (backgrounded) {
@@ -228,12 +231,15 @@ object EngineHost {
             val effHeaders = PlayHeaders.withSiteDefaults(url, headers)
             // v1.3.21 L1：引擎 play() 返回是否真的提交起播（静默早返时
             // 为 false），原样返回，不再无条件 true。
+            // v1.3.26：走代理时给 libmpv 一个 http-proxy 地址；Media3 侧只传开关，
+            // 数据源里按开关切 OkHttp 客户端（selector 按 host 集路由）。
+            val proxyAddr = if (useProxy) ClashProxy.mixedPort()?.let { "http://127.0.0.1:$it" } else null
             val dispatched = if (eng == PlayerEngine.MEDIA3) {
                 PlayerManager.init(context)
-                PlayerManager.play(url, effHeaders, startPositionMs, subtitleUrl, live, ignoreCert = ignoreCert)
+                PlayerManager.play(url, effHeaders, startPositionMs, subtitleUrl, live, ignoreCert = ignoreCert, useProxy = useProxy)
             } else {
                 MpvPlayerManager.init(context)
-                MpvPlayerManager.play(url, effHeaders, startPositionMs, subtitleUrl, live)
+                MpvPlayerManager.play(url, effHeaders, startPositionMs, subtitleUrl, live, proxyAddr = proxyAddr)
             }
             actualEngine = if (dispatched) eng else null
             val cost = SystemClock.elapsedRealtime() - t0

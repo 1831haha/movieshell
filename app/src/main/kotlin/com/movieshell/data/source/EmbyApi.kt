@@ -2,6 +2,7 @@ package com.movieshell.data.source
 
 import com.movieshell.core.log.LogBus
 import com.movieshell.core.net.HttpClient
+import com.movieshell.core.net.ProxyRouting
 import com.movieshell.core.net.ioSafe
 import kotlinx.coroutines.ensureActive
 import kotlinx.serialization.Serializable
@@ -358,6 +359,7 @@ object EmbyApi {
     val insecurePlaybackClient: OkHttpClient by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
         val (socketFactory, trustManager) = insecureSsl()
         OkHttpClient.Builder()
+            .proxySelector(ProxyRouting.selector)
             .connectTimeout(15, TimeUnit.SECONDS)
             .readTimeout(15, TimeUnit.SECONDS)
             .writeTimeout(15, TimeUnit.SECONDS)

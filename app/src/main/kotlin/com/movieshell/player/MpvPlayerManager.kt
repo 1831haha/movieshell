@@ -404,6 +404,8 @@ object MpvPlayerManager {
         startPositionMs: Long = 0L,
         subtitleUrl: String? = null,
         live: Boolean = false,
+        // v1.3.26：走代理时 mpv 拉分片用的 http-proxy 地址（http://127.0.0.1:混合端口），不走代理为 null。
+        proxyAddr: String? = null,
     ): Boolean {
         if (url.isBlank()) {
             LogBus.e("MpvPlayer", "播放地址为空，已拒绝")
@@ -459,7 +461,7 @@ object MpvPlayerManager {
                     return@Thread
                 }
                 runCatching {
-                    executor.execute { loadFilteredFile(gen, seq, filteredPath, url, headers, startPositionMs, subtitleUrl) }
+                    executor.execute { loadFilteredFile(gen, seq, filteredPath, url, headers, startPositionMs, subtitleUrl, proxyAddr) }
                 }.onFailure { LogBus.w("MpvPlayer", "起播任务投递失败：${it.message}") }
             }, "mpv-play-download").apply { isDaemon = true }.start()
             true
@@ -487,6 +489,7 @@ object MpvPlayerManager {
         headers: Map<String, String>,
         startPositionMs: Long,
         subtitleUrl: String?,
+        proxyAddr: String? = null,
     ) {
         if (!initialized.get() || destroyed.get()) {
             clearDownloadFlagIfCurrent(seq)
@@ -515,7 +518,7 @@ object MpvPlayerManager {
                 else MPVLib.setOptionString("demuxer-lavf-format", "")
             }.onFailure { LogBus.w("MpvPlayer", "demuxer-lavf-format 设置失败：${it.message}") }
             MPVLib.command(
-                arrayOf("loadfile", playUrl, "replace", "-1", buildFileOptions(headers, startPositionMs, subtitleUrl))
+                arrayOf("loadfile", playUrl, "replace", "-1", buildFileOptions(headers, startPositionMs, subtitleUrl, proxyAddr))
             )
             // 下载已移出 executor：下载期间用户点的暂停不再排在 loadfile
             // 之后——按本地 paused 现值设，不把刚点的暂停顶掉。
@@ -996,6 +999,7 @@ object MpvPlayerManager {
         headers: Map<String, String>,
         startPositionMs: Long,
         subtitleUrl: String?,
+        proxyAddr: String? = null,
     ): String {
         val opts = ArrayList<String>()
         opts += if (startPositionMs > 0) "start=${startPositionMs / 1000.0}" else "start=none"
@@ -1007,6 +1011,10 @@ object MpvPlayerManager {
             val fields = rest.entries.joinToString(",") { (k, v) -> "$k: $v" }
             opts += "http-header-fields=${q(fields)}"
         }
+        // v1.3.26：走代理的源——mpv 拉分片走原生网络，唯一挂点就是这个
+        // per-file 的 http-proxy 选项；每次都显式设（不走代理设空清掉，
+        // 与 start、demuxer-lavf-format 同款“每次显式设置”口径，防残留）。
+        opts += "http-proxy=${q(proxyAddr.orEmpty())}"
         subtitleUrl?.trim()?.takeIf { it.isNotEmpty() }?.let { sub ->
             opts += "sub-file=${q(sub)}"
             opts += "sub-visibility=yes"

@@ -5,6 +5,7 @@ import coil.Coil
 import coil.ImageLoader
 import com.movieshell.core.js.LegadoJsEngine
 import com.movieshell.core.net.HttpClient
+import com.movieshell.core.net.ProxyRouting
 import com.movieshell.core.util.ProcessExitLog
 import com.movieshell.data.maintain.CacheAutoClean
 import com.movieshell.data.novel.NovelMigration
@@ -14,6 +15,7 @@ import com.movieshell.core.log.CrashHandler
 import com.movieshell.core.log.LogBus
 import com.movieshell.data.source_mgr.PhpSourceManager
 import com.movieshell.data.source_mgr.ServicePluginManager
+import com.movieshell.data.source_mgr.ClashProxy
 import com.movieshell.data.source_mgr.SpiderEngine
 import com.movieshell.core.util.StartupWatchdog
 import com.movieshell.core.util.StoragePaths
@@ -25,6 +27,7 @@ import com.movieshell.data.source.ProxyImageFetcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import okhttp3.OkHttpClient
 
 /**
  * v0.25.0：Application 入口。
@@ -51,6 +54,8 @@ class XiaYingApp : Application() {
         Coil.setImageLoader(
             ImageLoader.Builder(this)
                 .components { add(ProxyImageFetcher.Factory()) }
+                // v1.3.26：封面图也走代理路由（只代理已开代理的源的 host，其余直连）
+                .okHttpClient { OkHttpClient.Builder().proxySelector(ProxyRouting.selector).build() }
                 .build(),
         )
         // v0.113.0：V8 sandbox 上下文注入（进程级单例，首次用 JS 源时才真正连接）
@@ -91,6 +96,8 @@ class XiaYingApp : Application() {
             }
         }
         HttpClient.initCookies(filesDir)
+        // v1.3.26：clash 代理路由注入（订阅/开关/host 集，见 ClashProxy）
+        ClashProxy.init(this)
         // v0.85.0：小说自动追更（每天一次，KEEP 防重复入队）
         NovelUpdateWorker.schedule(this)
         // v0.162.0：图片缓存超 1GB 时每日空闲清理一次（只清图片，不碰视频 SimpleCache）

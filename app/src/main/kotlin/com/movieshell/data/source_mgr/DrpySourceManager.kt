@@ -173,6 +173,8 @@ object DrpySourceManager {
             engine = V8DrpyEngine(ctx).also { it.loadRule(trustedExpand(ctx, js)) }
             activeName = name
             Log.i(TAG, "active 规则: $name")
+            // v1.3.26：切到已开代理的规则时，把它的 base host 记进代理 host 集
+            primeProxyHost(name, js)
             true
         } catch (e: Exception) {
             Log.w(TAG, "载入规则失败: $name", e)
@@ -256,7 +258,29 @@ object DrpySourceManager {
         engine = eng
         activeName = name
         Log.i(TAG, "active 规则: $name")
+        // v1.3.26：切到已开代理的规则时，把它的 base host 记进代理 host 集
+        primeProxyHost(name, js)
         return true
+    }
+
+    /**
+     * v1.3.26：读某规则的 base host（Clash 设置页开开关时用；读不到返回 null）。
+     * host 从规则文本的 host 字段取，不猜。
+     */
+    fun ruleHost(name: String): String? {
+        val file = File(rulesDirOrNull() ?: return null, name)
+        if (!file.isFile) return null
+        return runCatching { ClashProxy.extractRuleHost(file.readText()) }.getOrNull()
+    }
+
+    /**
+     * v1.3.26：切源后若该规则开了代理，把 base host 记进它的 host 集——
+     * 切源后首页/搜索的请求才能走代理。没开开关或取不到 host 就什么都不做。
+     */
+    private fun primeProxyHost(name: String, js: String) {
+        val key = ClashProxy.jsKey(name)
+        if (!ClashProxy.isSourceProxied(key)) return
+        ClashProxy.extractRuleHost(js)?.let { ClashProxy.registerHosts(key, listOf(it)) }
     }
 
     /**

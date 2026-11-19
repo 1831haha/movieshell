@@ -87,6 +87,7 @@ import com.movieshell.ui.preview.FilePreviewScreen
 import com.movieshell.ui.reader.ReaderScreen
 import com.movieshell.ui.search.SearchScreen
 import com.movieshell.ui.settings.DataSettingsScreen
+import com.movieshell.ui.settings.ClashSettingsScreen
 import com.movieshell.ui.settings.ParseSettingsScreen
 import com.movieshell.ui.settings.SettingsScreen
 import com.movieshell.ui.settings.SniffPatternsScreen
@@ -609,6 +610,8 @@ fun NavGraphBuilder.appDestinations(
                                 onPlaybackSettingsClick = { navController.navigate("playback_settings") },
                                 // v1.2.19：数据设置子页面
                                 onDataSettingsClick = { navController.navigate("data_settings") },
+                                // v1.3.26：Clash 代理设置页
+                                onClashSettingsClick = { navController.navigate("clash_settings") },
                                 // v1.2.14：TMDB 独立设置页
                                 onTmdbSettingsClick = { navController.navigate("tmdb_settings") },
                                 // v0.127.0：插件中心单入口（原插件市场/服务插件合并）
@@ -658,6 +661,13 @@ fun NavGraphBuilder.appDestinations(
                                 onBack = { navController.popBackStack() },
                                 onOpenMarketClick = { navController.navigate("plugin_center/2") },
                                 onAiChatClick = { navController.navigateTab("ai") },
+                            )
+                        }
+                        // v1.3.26：Clash 代理设置页（订阅 + 每源走代理开关）
+                        composable("clash_settings") {
+                            ClashSettingsScreen(
+                                onBack = { navController.popBackStack() },
+                                onOpenServicePage = { navController.navigate("plugin_center/1") },
                             )
                         }
                         // v1.2.14：TMDB 独立设置页

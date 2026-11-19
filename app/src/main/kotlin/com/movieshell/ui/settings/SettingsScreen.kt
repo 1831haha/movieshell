@@ -187,6 +187,8 @@ fun SettingsScreen(
     onThemeCollectionClick: () -> Unit = {}, // v1.2.5：主题收藏夹子页面入口
     onPlaybackSettingsClick: () -> Unit = {}, // v1.2.6：播放设置子页面入口
     onDataSettingsClick: () -> Unit = {}, // v1.2.19：数据设置子页面入口
+    // v1.3.26：Clash 代理设置页入口（订阅 + 每源走代理开关）
+    onClashSettingsClick: () -> Unit = {},
     // v1.2.14：TMDB 独立设置页入口（播放设置页 TMDB Key 行点进）
     onTmdbSettingsClick: () -> Unit = {},
     onPluginCenterClick: () -> Unit = {}, // v0.127.0：插件中心（插件/服务/市场三页签，原两入口合并）
@@ -595,7 +597,14 @@ fun SettingsScreen(
                 ) {
                     Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 SegItem(
-                    position = SegPos.Single,
+                    position = SegPos.First,
+                    icon = Icons.Outlined.VpnKey,
+                    title = "Clash 代理",
+                    subtitle = "订阅 + 每源走代理开关",
+                    onClick = onClashSettingsClick,
+                )
+                SegItem(
+                    position = SegPos.Last,
                     icon = Icons.Outlined.Extension,
                     title = "显示不兼容插件",
                     subtitle = (if (showIncompatible) "显示" else "隐藏") + " · apk/import 仅查看",

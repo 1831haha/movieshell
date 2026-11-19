@@ -58,6 +58,7 @@ object HttpClient {
     }
 
     private fun buildDefaultClient(): OkHttpClient = OkHttpClient.Builder()
+        .proxySelector(ProxyRouting.selector)
         .connectTimeout(TIMEOUT_S, TimeUnit.SECONDS)
         .readTimeout(TIMEOUT_S, TimeUnit.SECONDS)
         .writeTimeout(TIMEOUT_S, TimeUnit.SECONDS)
@@ -83,6 +84,7 @@ object HttpClient {
 
     private val drpySharedClient: OkHttpClient by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
         OkHttpClient.Builder()
+            .proxySelector(ProxyRouting.selector)
             .connectTimeout(DRPY_CONNECT_TIMEOUT_S, TimeUnit.SECONDS)
             .readTimeout(DRPY_READ_TIMEOUT_S, TimeUnit.SECONDS)
             .writeTimeout(DRPY_WRITE_TIMEOUT_S, TimeUnit.SECONDS)
