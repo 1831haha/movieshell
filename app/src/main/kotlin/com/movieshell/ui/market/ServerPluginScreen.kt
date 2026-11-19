@@ -246,7 +246,11 @@ fun ServerPluginScreen(
         }
     }
     LaunchedEffect(tick) {
-        plugins = withContext(Dispatchers.IO) { ServicePluginManager.installedPlugins(context) }
+        plugins = withContext(Dispatchers.IO) {
+            // v1.3.27：先认领市场装到 plugins/ 的旧服务（无注册表），再读列表。
+            runCatching { ServicePluginManager.reconcileMarketServices(context) }
+            ServicePluginManager.installedPlugins(context)
+        }
     }
     // v0.138.0：启动中轮询——STARTING 是 5 秒宽限窗内的过渡态，仍有
     // STARTING 时每秒刷新一次，直到翻绿（运行中）或翻红（异常）才停。

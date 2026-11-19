@@ -832,6 +832,153 @@ object ServicePluginManager {
         }
     }
 
+    /**
+     * v1.3.27：给已解压到位的服务目录登记（市场安装共用）。
+     * 与 install() 的区别：不解压、不要求 files 全量清单——只验 server.json
+     * 与 command 文件的摘要（spec.sha256/md5），验过才写注册表。市场装服务
+     * 插件以前只解到 plugins/ 从不登记，服务页永远看不见（clash 实证），
+     * 从此市场分支解完即调本函数登记。
+     */
+    fun registerExtracted(context: Context, dir: File) {
+        synchronized(lock) {
+            val reg = loadRegistry(context)
+            val spec = registerDirLocked(context, dir, reg)
+            saveRegistry(context, reg)
+            if (reg[spec.id]?.desiredRunning == true) {
+                runCatching { startLocked(context, spec.id) }
+                    .onFailure { LogBus.w(TAG, "登记后自动拉起失败：${it.message}") }
+            }
+        }
+    }
+
+    /**
+     * v1.3.27：认领市场装到 plugins/ 的旧服务（clash/示例服务/danmu-service）。
+     * 市场以前只解到 plugins/ 从不登记，这些服务在服务页隐身。逐个核对：
+     * 有 server.json、id 合法、注册表里没有、command 摘要验得过，才搬入
+     * 服务根并登记；任一步失败只记日志跳过，绝不让认领拖垮服务页加载。
+     * 幂等：已登记的跳过，每次加载只扫未登记项。
+     */
+    fun reconcileMarketServices(context: Context) {
+        synchronized(lock) {
+            val reg = loadRegistry(context)
+            var changed = false
+            // ① 服务根下未登记的残留目录（安装中途失败、注册表没写上）：就地登记。
+            // 目录名与 server.json 的 id 不一致时先改名归位，再登记。
+            val installedRoot = installRoot(context)
+            val installedDirs = runCatching { installedRoot.listFiles() }.getOrNull()
+                ?.filter { it.isDirectory }.orEmpty()
+            for (dir in installedDirs) {
+                val manifest = File(dir, "server.json")
+                if (!manifest.isFile) continue
+                val spec = runCatching { parseSpec(manifest.readText()) }.getOrNull() ?: continue
+                if (reg.containsKey(spec.id)) continue
+                try {
+                    val home = File(installedRoot, spec.id)
+                    if (dir.canonicalPath != home.canonicalPath) {
+                        if (home.exists()) home.deleteRecursively()
+                        val moved = dir.renameTo(home) || runCatching {
+                            check(dir.copyRecursively(home)) { "复制返回 false" }
+                            dir.deleteRecursively()
+                            true
+                        }.getOrDefault(false)
+                        if (!moved) {
+                            LogBus.w(TAG, "认领服务根残留失败 ${spec.id}：改名归位失败")
+                            continue
+                        }
+                    }
+                    registerDirLocked(context, home, reg)
+                    changed = true
+                    LogBus.i(TAG, "认领服务根残留：${spec.id} v${spec.version}")
+                } catch (e: Exception) {
+                    LogBus.w(TAG, "认领服务根残留失败 ${dir.name}：${e.message}")
+                }
+            }
+            // ② 市场装到 plugins/ 的旧服务：搬入服务根再登记。
+            val marketRoot = StoragePaths.pluginsDir(context)
+            val dirs = runCatching { marketRoot.listFiles() }.getOrNull()
+                ?.filter { it.isDirectory }.orEmpty()
+            if (dirs.isEmpty()) {
+                if (changed) saveRegistry(context, reg)
+                return
+            }
+            for (dir in dirs) {
+                val manifest = File(dir, "server.json")
+                if (!manifest.isFile) continue
+                val spec = runCatching { parseSpec(manifest.readText()) }.getOrNull() ?: continue
+                if (reg.containsKey(spec.id)) continue
+                val target = File(installRoot(context), spec.id)
+                try {
+                    if (target.exists()) target.deleteRecursively()
+                    val moved = dir.renameTo(target) || runCatching {
+                        check(dir.copyRecursively(target)) { "复制返回 false" }
+                        dir.deleteRecursively()
+                        true
+                    }.getOrDefault(false)
+                    if (!moved) {
+                        LogBus.w(TAG, "认领市场服务失败 ${spec.id}：搬入服务根失败")
+                        continue
+                    }
+                    registerDirLocked(context, target, reg)
+                    changed = true
+                    LogBus.i(TAG, "认领市场服务：${spec.id} v${spec.version}")
+                } catch (e: Exception) {
+                    LogBus.w(TAG, "认领市场服务失败 ${spec.id}：${e.message}")
+                }
+            }
+            if (changed) saveRegistry(context, reg)
+        }
+    }
+
+    /**
+     * 登记已在服务根下的目录：验 command 文件摘要、锚定可执行文件与
+     * server.json、分配端口、写注册表项（已登记过的用户设置予以保留，
+     * 与 install() 同口径）。不负责搬运与写盘，调用方管。
+     */
+    private fun registerDirLocked(
+        context: Context,
+        dir: File,
+        reg: MutableMap<String, RegistryEntry>,
+    ): Spec {
+        val manifest = File(dir, "server.json")
+        if (!manifest.isFile) throw IllegalStateException("目录缺 server.json：${dir.name}")
+        val spec = parseSpec(manifest.readText())
+        val root = File(installRoot(context), spec.id)
+        if (root.canonicalPath != dir.canonicalPath) {
+            throw IllegalStateException("待登记目录不在服务根下：${dir.absolutePath}")
+        }
+        val prev = reg[spec.id]
+        running[spec.id]?.let { stopLocked(context, spec.id) }
+        verifyExecutable(dir, spec)
+        runCatching {
+            val exe = File(File(dir, spec.workDir), spec.command)
+            if (exe.isFile) ExecutableTrust.record(context.filesDir, "service:${spec.id}:exe", exe)
+            if (manifest.isFile) {
+                ExecutableTrust.record(context.filesDir, "service:${spec.id}:manifest", manifest)
+            }
+        }
+        val port = allocatePort(reg, spec.port, excludeId = spec.id)
+        reg[spec.id] = RegistryEntry(
+            id = spec.id,
+            name = spec.name,
+            version = spec.version,
+            port = port,
+            desiredRunning = prev?.desiredRunning == true,
+            desc = prev?.desc.orEmpty(),
+            custom = prev?.custom == true,
+            runtime = prev?.runtime ?: "CUSTOM",
+            command = prev?.command.orEmpty(),
+            args = prev?.args.orEmpty(),
+            workDir = prev?.workDir.orEmpty(),
+            envList = prev?.envList.orEmpty(),
+            healthMode = prev?.healthMode ?: "HTTP",
+            healthPath = prev?.healthPath.orEmpty(),
+            autoStart = prev?.autoStart == true,
+            resident = prev?.resident == true,
+        )
+        LogBus.i(TAG, "登记服务：${spec.id} v${spec.version}（端口 $port）")
+        return spec
+    }
+
     fun uninstall(context: Context, id: String) {
         synchronized(lock) {
             val reg = loadRegistry(context)

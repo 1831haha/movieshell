@@ -40,6 +40,8 @@ import com.movieshell.ui.components.AppButtonVariant
 import com.movieshell.ui.components.AppCard
 import com.movieshell.ui.components.AppSwitch
 import com.movieshell.ui.components.AppToast
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import com.movieshell.ui.components.TabTopBar
 import com.movieshell.ui.components.TechTextField
 import com.movieshell.ui.theme.V5
@@ -80,7 +82,14 @@ fun ClashSettingsScreen(
         cmsSubs = runCatching { ApiSourceStore.load(context) }.getOrDefault(emptyList())
         proxyOn = ClashProxy.enabledKeys()
     }
-    LaunchedEffect(Unit) { refresh() }
+    LaunchedEffect(Unit) {
+        // v1.3.27：进页先认领市场装到 plugins/ 的旧 clash（无注册表），
+        // 再读安装态——不然已装好的 clash 在这里仍显示未安装。
+        withContext(Dispatchers.IO) {
+            runCatching { ServicePluginManager.reconcileMarketServices(context) }
+        }
+        refresh()
+    }
 
     val statusText = when {
         // v1.3.27：安装在市场页，不在服务页（服务页只列已装的服务）。

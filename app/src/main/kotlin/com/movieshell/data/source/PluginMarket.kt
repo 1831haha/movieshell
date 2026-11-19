@@ -14,6 +14,7 @@ import com.movieshell.data.store.PluginStore.InstalledPlugin
 import com.movieshell.data.source.CmsApi
 import com.movieshell.core.log.LogBus
 import com.movieshell.data.source_mgr.PhpSourceManager
+import com.movieshell.data.source_mgr.ServicePluginManager
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.TimeoutCancellationException
@@ -661,7 +662,11 @@ object PluginMarket {
                     }
                 }
                 "server" -> {
-                    val root = File(StoragePaths.pluginsDir(context), plugin.id)
+                    // v1.3.27：服务插件直接解到服务根（serviceDir），解完即登记——
+                    // 以前解到 plugins/ 从不登记，服务页只认注册表，装完也看不见
+                    // （clash 实证）。登记只验 server.json 与 command 文件摘要，
+                    // 不要求 files 全量清单（那是服务页从文件安装的门）。
+                    val root = File(StoragePaths.serviceDir(context), plugin.id)
                     // v0.171.0：先解到同目录暂存目录，全部解完才替换旧目录；
                     // 解压中途失败时旧目录原样保留，注册表也不更新，不再出现
                     // "旧版已删、新版残缺、注册表仍显示旧版"的不一致态
@@ -679,6 +684,7 @@ object PluginMarket {
                         // v0.192.0：落盘后写 .nomedia，插件包里带媒体味后缀的
                         // 文件（如 node_modules 的 .ts）不再被相册收成假视频。
                         StoragePaths.ensureNomedia(root)
+                        ServicePluginManager.registerExtracted(context, root)
                     } catch (e: Exception) {
                         runCatching { staging.deleteRecursively() }
                         throw e
@@ -955,7 +961,12 @@ object PluginMarket {
                 if (deleteDocs) deleteSetupDocs(context, id)
                 File(StoragePaths.pluginsDir(context), id).deleteRecursively()
             }
-            "server" -> File(StoragePaths.pluginsDir(context), id).deleteRecursively()
+            "server" -> {
+                // v1.3.27：服务文件在 serviceDir、注册表在 SPM——市场卸载须两边都清；
+                // plugins/ 下是旧版市场安装的残留，一并删。
+                File(StoragePaths.pluginsDir(context), id).deleteRecursively()
+                runCatching { ServicePluginManager.uninstall(context, id) }
+            }
             // v0.137.0：runtime 插件卸载删私有安装目录（服务页共享安装的拷备由
             // ServicePluginManager 下次解析 php 占位时按来源存亡自行清理）
             "runtime" -> File(StoragePaths.runtimeDir(context), id).deleteRecursively()
