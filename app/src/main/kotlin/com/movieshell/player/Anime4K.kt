@@ -25,17 +25,17 @@ object Anime4K {
         VL("vl", "画质"),
     }
 
-    fun fromKey(key: String): Mode = Mode.values().firstOrNull { it.key == key } ?: OFF
+    fun fromKey(key: String): Mode = Mode.values().firstOrNull { it.key == key } ?: Mode.OFF
 
     /** 某档用的着色器文件名（按上游模板顺序）。 */
     fun shaderFiles(mode: Mode): List<String> = when (mode) {
-        OFF -> emptyList()
-        S -> listOf(
+        Mode.OFF -> emptyList()
+        Mode.S -> listOf(
             "Anime4K_Clamp_Highlights.glsl",
             "Anime4K_Restore_CNN_S.glsl",
             "Anime4K_Upscale_CNN_x2_S.glsl",
         )
-        M -> listOf(
+        Mode.M -> listOf(
             "Anime4K_Clamp_Highlights.glsl",
             "Anime4K_Restore_CNN_M.glsl",
             "Anime4K_Upscale_CNN_x2_M.glsl",
@@ -43,7 +43,7 @@ object Anime4K {
             "Anime4K_AutoDownscalePre_x4.glsl",
             "Anime4K_Upscale_CNN_x2_S.glsl",
         )
-        VL -> listOf(
+        Mode.VL -> listOf(
             "Anime4K_Clamp_Highlights.glsl",
             "Anime4K_Restore_CNN_VL.glsl",
             "Anime4K_Upscale_CNN_x2_VL.glsl",
@@ -55,7 +55,7 @@ object Anime4K {
 
     /** 全部 9 个着色器文件名（首次安装时从 assets 拷到 filesDir 用）。 */
     val ALL_SHADER_FILES: List<String> =
-        (shaderFiles(S) + shaderFiles(M) + shaderFiles(VL)).distinct()
+        (shaderFiles(Mode.S) + shaderFiles(Mode.M) + shaderFiles(Mode.VL)).distinct()
 
     /** 某档的 glsl-shaders 属性值（绝对路径，":" 连接；OFF 为空串）。 */
     fun shaderChain(dir: File, mode: Mode): String =
