@@ -29,7 +29,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.movieshell.data.source_mgr.ApiSource
-import com.movieshell.data.source_mgr.ApiSourceStore
+import com.movieshell.data.store.ApiSourceStore
 import com.movieshell.data.source_mgr.ClashProxy
 import com.movieshell.data.source_mgr.DrpySourceManager
 import com.movieshell.data.source_mgr.ServicePluginManager
