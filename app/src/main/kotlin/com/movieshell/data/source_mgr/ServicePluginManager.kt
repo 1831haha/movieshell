@@ -6,6 +6,8 @@ import com.movieshell.core.util.AtomicFile
 import com.movieshell.core.util.ExecutableTrust
 import com.movieshell.core.util.StoragePaths
 import com.movieshell.core.util.ZipInstall
+import com.movieshell.core.util.collectProcDescendants
+import com.movieshell.core.util.parseProcChildren
 import com.movieshell.data.source.CmsApi
 import com.movieshell.core.log.LogBus
 import kotlinx.coroutines.Dispatchers
@@ -1428,24 +1430,14 @@ object ServicePluginManager {
             // v1.3.28：先杀整棵进程树再杀直接子进程——danmu/hello-service 的
             // server.sh 是 `while true; do nc -l … | serve_once; done` 前台循环，
             // 只 destroy() 掉 sh，nc 子进程成孤儿继续占端口，再启动就绑不上。
-            // ProcessHandle 需 API 26+（本项目 minSdk 26），失败也不影响主流程。
-            runCatching {
-                ProcessHandle.of(handle.process.pid()).ifPresent { ph ->
-                    ph.descendants().use { stream ->
-                        stream.forEach { d -> runCatching { d.destroy() } }
-                    }
-                }
-            }
+            // Android 的 Process 没有 pid()/toHandle()，ProcessHandle 类也不在
+            // android.jar 里——按 /proc 扫 cmdline 找本服务进程、递归读 children
+            // 收集后代再杀（core/util/ProcTree 纯函数 + 单测）；扫不到或失败
+            // 就退回只杀直接子进程。
+            runCatching { killProcessTree(context, id) }
             runCatching {
                 handle.process.destroy()
                 if (!handle.process.waitFor(3, TimeUnit.SECONDS)) {
-                    runCatching {
-                        ProcessHandle.of(handle.process.pid()).ifPresent { ph ->
-                            ph.descendants().use { stream ->
-                                stream.forEach { d -> runCatching { d.destroyForcibly() } }
-                            }
-                        }
-                    }
                     handle.process.destroyForcibly()
                 }
             }
@@ -1457,6 +1449,44 @@ object ServicePluginManager {
             saveRegistry(context, reg)
         }
         LogBus.i(TAG, "已停止：$id")
+    }
+
+    /**
+     * v1.3.28：杀掉 id 服务的整棵进程树（不含主进程本身——主进程由调用方
+     * destroy()）。按 cmdline 含可执行文件绝对路径定位服务进程（.sh 服务
+     * 是 `sh <脚本>`，原生服务是 linker64/直执 <程序>），再递归读
+     * /proc/<pid>/task/<pid>/children 收集后代，深的先杀。
+     */
+    private fun killProcessTree(context: Context, id: String) {
+        val entry = loadRegistry(context)[id] ?: return
+        val exePath = runCatching { effectiveLaunch(context, entry).exe.absolutePath }
+            .getOrNull() ?: return
+        val roots = findProcessesWithCmdline(exePath)
+        for (root in roots) {
+            val descendants = collectProcDescendants(root) { pid ->
+                runCatching {
+                    File("/proc/$pid/task/$pid/children").readText()
+                        .let { parseProcChildren(it) }
+                }.getOrDefault(emptyList())
+            }
+            for (pid in descendants.asReversed()) {
+                runCatching { android.os.Process.killProcess(pid) }
+            }
+        }
+    }
+
+    /** 扫 /proc，找 cmdline 里某个参数恰好等于 needle 的进程 pid。 */
+    private fun findProcessesWithCmdline(needle: String): List<Int> {
+        return File("/proc").listFiles()
+            ?.mapNotNull { it.name.toIntOrNull() }
+            ?.filter { pid ->
+                runCatching {
+                    File("/proc/$pid/cmdline").readBytes()
+                        .toString(Charsets.UTF_8)
+                        .split('\u0000')
+                        .any { it == needle }
+                }.getOrDefault(false)
+            }.orEmpty()
     }
 
     fun isRunning(id: String): Boolean = synchronized(lock) {
