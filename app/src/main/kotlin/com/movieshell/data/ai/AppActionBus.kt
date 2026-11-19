@@ -57,7 +57,18 @@ ActionDef("switch_source", "切换视频源", listOf(ParamDef("name", "文字", 
 
 /** 给模型看的操作说明（以 user 角色消息发，Anthropic 的 messages 里不接受 system 角色）。 */
 fun toolsPrompt(): String = buildString {
-append("")
+    appendLine("你可以直接操作这个 App（播放器与搜索）。想操作时，只回一个 ```action 代码块，里面是 JSON：")
+    appendLine("```action")
+    appendLine("{\"action\": \"pause\", \"args\": {}}")
+    appendLine("```")
+    appendLine("可用动作（一次只做一个）：")
+    for (def in definitions()) {
+        val params = if (def.params.isEmpty()) "" else "，参数：" + def.params.joinToString("、") { p ->
+            p.name + "（" + p.type + "，" + (if (p.required) "必填" else "可选") + "，" + p.description + "）"
+        }
+        appendLine("- " + def.id + "：" + def.description + params)
+    }
+    appendLine("不需要操作时直接回文字，不用发代码块。")
 }
 
 /**

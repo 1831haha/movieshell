@@ -11,6 +11,7 @@ import org.junit.Test
  * v1.2.14 B片：默认播放方向 / 转场动画 / 首选音频语言 / 首选字幕语言成第 7–10 个
  * 可移项（默认在 page 末尾，顺序同 ALL_ITEMS）。
  * v1.2.16：数据组 12 项成第 11–22 个可移项（默认全在 main:data，顺序同设置页原顺序）。
+ * v1.3.25 合并 5：Anime4K 画质增强成第 23 个可移项（默认在 page 末尾，顺序同 ALL_ITEMS）。
  * v1.2.19：数据行进数据设置子页面（moveDataRowIntoDataPage 锁住），子页面只认
  * 自家行——串页的 move 直接拦下，存坏了的布局由 normalize 搬回主组。
  */
@@ -36,7 +37,7 @@ class SettingsLayoutStoreTest {
         assertEquals(
             listOf(
                 "max_parallel", "engine", "autoplay", "adfilter", "gravity", "tmdb_key",
-                "def_orientation", "player_transition", "audio_lang", "subtitle_lang",
+                "def_orientation", "player_transition", "audio_lang", "subtitle_lang", "anime4k",
             ),
             got[page],
         )
@@ -50,7 +51,7 @@ class SettingsLayoutStoreTest {
         assertEquals(
             listOf(
                 "engine", "autoplay", "adfilter", "max_parallel", "tmdb_key",
-                "def_orientation", "player_transition", "audio_lang", "subtitle_lang",
+                "def_orientation", "player_transition", "audio_lang", "subtitle_lang", "anime4k",
             ),
             got[page],
         )
@@ -64,7 +65,7 @@ class SettingsLayoutStoreTest {
         assertEquals(
             listOf(
                 "engine", "autoplay", "adfilter", "max_parallel", "tmdb_key",
-                "def_orientation", "player_transition", "audio_lang", "subtitle_lang",
+                "def_orientation", "player_transition", "audio_lang", "subtitle_lang", "anime4k",
             ),
             got[page],
         )
@@ -75,7 +76,7 @@ class SettingsLayoutStoreTest {
         assertEquals(
             listOf(
                 "adfilter", "engine", "autoplay", "max_parallel", "tmdb_key",
-                "def_orientation", "player_transition", "audio_lang", "subtitle_lang",
+                "def_orientation", "player_transition", "audio_lang", "subtitle_lang", "anime4k",
             ),
             moved[page],
         )
@@ -88,7 +89,7 @@ class SettingsLayoutStoreTest {
         assertEquals(
             listOf(
                 "engine", "autoplay", "adfilter", "max_parallel", "tmdb_key",
-                "def_orientation", "player_transition", "audio_lang", "subtitle_lang", "gravity",
+                "def_orientation", "player_transition", "audio_lang", "subtitle_lang", "anime4k", "gravity",
             ),
             moved[page],
         )
@@ -99,7 +100,7 @@ class SettingsLayoutStoreTest {
         assertEquals(
             listOf(
                 "engine", "gravity", "autoplay", "adfilter", "max_parallel", "tmdb_key",
-                "def_orientation", "player_transition", "audio_lang", "subtitle_lang",
+                "def_orientation", "player_transition", "audio_lang", "subtitle_lang", "anime4k",
             ),
             moved[page],
         )
@@ -112,7 +113,7 @@ class SettingsLayoutStoreTest {
         assertEquals(
             listOf(
                 "gravity", "autoplay", "adfilter", "max_parallel", "tmdb_key",
-                "def_orientation", "player_transition", "audio_lang", "subtitle_lang",
+                "def_orientation", "player_transition", "audio_lang", "subtitle_lang", "anime4k",
             ),
             back[page],
         )
@@ -182,7 +183,7 @@ class SettingsLayoutStoreTest {
         assertEquals(
             listOf(
                 "engine", "autoplay", "adfilter", "max_parallel", "tmdb_key",
-                "def_orientation", "player_transition", "audio_lang", "subtitle_lang",
+                "def_orientation", "player_transition", "audio_lang", "subtitle_lang", "anime4k",
             ),
             got[page],
         )
@@ -205,7 +206,7 @@ class SettingsLayoutStoreTest {
         assertEquals(
             listOf(
                 "engine", "autoplay", "adfilter", "max_parallel", "tmdb_key",
-                "def_orientation", "player_transition", "audio_lang", "subtitle_lang",
+                "def_orientation", "player_transition", "audio_lang", "subtitle_lang", "anime4k",
             ),
             before,
         )
