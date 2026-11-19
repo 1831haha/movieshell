@@ -52,6 +52,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.activity.ComponentActivity
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
@@ -123,6 +124,16 @@ fun SearchScreen(
     fun doSearch(text: String) {
         focusManager.clearFocus()
         vm.doSearch(text)
+    }
+
+    // v1.3.25 合并 3：AI 搜片命令——Bus 发来片名后填框并直接搜。
+    LaunchedEffect(Unit) {
+        SearchQueryBus.queries.collect { q ->
+            if (q.isNotBlank()) {
+                vm.setQuery(q)
+                doSearch(q)
+            }
+        }
     }
 
     Column(modifier = Modifier.fillMaxSize()) {

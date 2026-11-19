@@ -1311,6 +1311,32 @@ fun PlayerScreen(
         }
     }
 
+    // v1.3.25 合并 3（AI Agent 工具化操控）：订阅播放器命令通道。
+    // switchEpisode / applySpeed 是局部函数，收集器必须放在它们声明之后；
+    // 切集先按 PlaySession 校验边界（Bus 侧已拦过一次，这里再拦一次防竞态）。
+    LaunchedEffect(Unit) {
+        PlayerCommands.commands.collect { cmd ->
+            when (cmd) {
+                is PlayerCommands.Command.Pause -> EngineHost.pause()
+                is PlayerCommands.Command.Resume -> EngineHost.resume()
+                is PlayerCommands.Command.NextEpisode -> {
+                    val line = PlaySession.lineIndex
+                    val ep = PlaySession.episodeIndex + 1
+                    if (PlaySession.lines.getOrNull(line)?.episodes?.getOrNull(ep) != null) {
+                        switchEpisode(line, ep)
+                    }
+                }
+                is PlayerCommands.Command.PrevEpisode -> {
+                    val line = PlaySession.lineIndex
+                    val ep = PlaySession.episodeIndex - 1
+                    if (ep >= 0) switchEpisode(line, ep)
+                }
+                is PlayerCommands.Command.SeekTo -> EngineHost.seekTo(cmd.ms.coerceAtLeast(0L))
+                is PlayerCommands.Command.SetSpeed -> applySpeed(cmd.speed)
+            }
+        }
+    }
+
     // v1.2.14 B片（2）：当前集播放时后台预解析下一集——解析结果缓存起来，
     // 切集时直接用。effect 跟 playUrl 走：切集/换源时旧预解析自动取消；
     // 退出播放器时 composition 离开，effect 一并取消，不留后台任务。

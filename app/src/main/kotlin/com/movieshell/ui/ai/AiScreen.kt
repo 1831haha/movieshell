@@ -39,6 +39,7 @@ import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -49,6 +50,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -63,6 +65,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.movieshell.data.store.AiChatStore
+import com.movieshell.data.ai.AiAgent
 import com.movieshell.data.ai.AiRepairEngine
 import com.movieshell.data.ai.AiRepairSettings
 import com.movieshell.data.ai.LlmClient
@@ -366,6 +369,9 @@ fun AiScreen() {
     val listState = rememberLazyListState()
     var input by remember { mutableStateOf("") }
     var thinking by remember { mutableStateOf(false) }
+    // v1.3.25 合并 3：Agent 模式开关（默认开）——开着时“暂停/下一集/
+    // 搜片/换源”这类话由 AI 直接操作 App，执行结果写进对话；关了只聊天。
+    var agentMode by rememberSaveable { mutableStateOf(true) }
     // v1.1.11：待发的图（AiChatStore 里已压缩落盘的文件名，未发送前显示缩略图）。
     var pendingImage by remember { mutableStateOf<String?>(null) }
     // v1.1.12：新对话先确认再清空——长对话误触清掉找不回来，全站删除都有确认，这里补上。
@@ -467,7 +473,10 @@ fun AiScreen() {
                     it.imagePath?.let { name -> AiChatStore.imageFile(context, name).absolutePath },
                 )
             }
-            when (val r = LlmClient.chatMessages(context, history)) {
+            // v1.3.25 合并 3：Agent 模式（默认开、无附件时）走带工具循环的
+            // AiAgent；带图/带文件时走原 plain 路径（动作循环不处理附件）。
+            val useAgent = agentMode && image == null && file == null
+            when (val r = if (useAgent) AiAgent.chat(context, history) else LlmClient.chatMessages(context, history)) {
                 is LlmClient.ChatResult.Ok -> AiChatStore.addAssistant(r.text, context)
                 is LlmClient.ChatResult.Fail -> AiChatStore.addAssistant("调用失败：${r.reason}", context)
             }
@@ -720,6 +729,26 @@ fun AiScreen() {
                 }
                 Spacer(Modifier.height(8.dp))
             }
+            // v1.3.25 合并 3：AI 操作开关——开着时“暂停/切集/搜片/换源”
+            // 这类话由 AI 直接操作 App，执行结果写进对话；关了只聊天。
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Switch(
+                    checked = agentMode,
+                    onCheckedChange = { agentMode = it },
+                    enabled = !thinking,
+                )
+                Text(
+                    text = "允许 AI 操作 App（暂停 / 切集 / 搜片 / 换源）",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = v.onSurfaceVariant,
+                    modifier = Modifier.weight(1f),
+                )
+            }
+            Spacer(Modifier.height(8.dp))
             // 输入卡片：surfaceContainer 底 + outlineVariant 微光描边 + CornerLg。
             Row(
                 modifier = Modifier

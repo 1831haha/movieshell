@@ -64,6 +64,7 @@ import androidx.navigation.NavDestination.Companion.hierarchy
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import com.movieshell.data.ai.NavCommands
 import com.movieshell.data.download.FollowCheckWorker
 import com.movieshell.data.download.SubRefreshWorker
 import com.movieshell.data.download.Notify
@@ -75,6 +76,7 @@ import com.movieshell.data.store.LiveStore
 import com.movieshell.data.store.PluginStore
 import com.movieshell.data.store.SourceStateStore
 import com.movieshell.core.log.LogBus
+import com.movieshell.ui.search.SearchQueryBus
 import com.movieshell.data.store.LogStore
 import com.movieshell.data.novel.NovelDirectoryFill
 import com.movieshell.data.store.NovelStore
@@ -418,6 +420,18 @@ class MainActivity : ComponentActivity() {
                 }
                 val backStackEntry by navController.currentBackStackEntryAsState()
                 val current = backStackEntry?.destination
+                // v1.3.25 合并 3：AI 导航命令——搜片时先切搜索 tab，片名再经
+                // SearchQueryBus 递给搜索页（搜索页订阅后填框并直接搜）。
+                LaunchedEffect(Unit) {
+                    NavCommands.commands.collect { cmd ->
+                        when (cmd) {
+                            is NavCommands.Command.Search -> {
+                                navController.navigateTab("search")
+                                SearchQueryBus.post(cmd.query)
+                            }
+                        }
+                    }
+                }
                 // 详情页等非 tab 页面隐藏底部导航栏
                 // v0.96.2：直播页横屏全屏播放时也隐藏，播放器真正占满
                 val curRoute = current?.route
