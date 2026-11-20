@@ -130,12 +130,10 @@ fun DataSettingsScreen(
                                         )
                                     }
                                     if (id == SettingsLayoutStore.ITEM_DATA_BACKUP) {
-                                        AnimatedVisibility(visible = backupExpanded) {
-                                            BackupExpandBlock(
-                                                style = SettingRowStyle.Plain,
-                                                isLastRow = index == rows.size - 1,
-                                            )
-                                        }
+                                        DataBackupExpandBlock(
+                                            expanded = backupExpanded,
+                                            isLastRow = index == rows.size - 1,
+                                        )
                                     }
                                 }
                             }
@@ -156,5 +154,22 @@ fun DataSettingsScreen(
             }
         }
         SettingDragOverlay(dragState, SettingRowStyle.Plain, onOpenMarketClick, dataActions)
+    }
+}
+
+// v1.4.4：备份展开块抽成无接收者的 @Composable——AnimatedVisibility 有
+// ColumnScope/RowScope/BoxScope 重载，放在 LazyColumn 的 item 里时，外层 Column
+// 的 ColumnScope 会让编译器选中 ColumnScope 重载、却够不到这个隐式接收者而
+// 编译失败；无接收者的函数里只会选中无接收者的重载。
+@Composable
+private fun DataBackupExpandBlock(
+    expanded: Boolean,
+    isLastRow: Boolean,
+) {
+    AnimatedVisibility(visible = expanded) {
+        BackupExpandBlock(
+            style = SettingRowStyle.Plain,
+            isLastRow = isLastRow,
+        )
     }
 }
