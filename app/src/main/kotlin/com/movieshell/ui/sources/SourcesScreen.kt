@@ -1493,6 +1493,7 @@ fun SourcesScreen(
                             onParse = ::parseSubscription,
                             onSetCurrent = ::setCurrentSubSite,
                             onEdit = { pendingEditSub = entry },
+                            onOpenBookSource = onOpenBookSource,
                         )
                     }
                 } else {
@@ -2814,6 +2815,7 @@ private fun SubscriptionExpandedCard(
     onParse: (String) -> Unit,
     onSetCurrent: (subUrl: String, siteKey: String, siteName: String) -> Unit,
     onEdit: () -> Unit,
+    onOpenBookSource: () -> Unit = {},
 ) {
     val context = LocalContext.current
     val clipboard = LocalClipboardManager.current
@@ -2875,6 +2877,7 @@ private fun SubscriptionExpandedCard(
                 onSetCurrent = onSetCurrent,
                 parseButtonText = "解析站点",
                 depth = 0,
+                onOpenBookSource = onOpenBookSource,
             )
         }
     }
@@ -2895,6 +2898,7 @@ private fun SubscriptionCacheBody(
     onSetCurrent: (subUrl: String, siteKey: String, siteName: String) -> Unit,
     parseButtonText: String,
     depth: Int,
+    onOpenBookSource: () -> Unit = {},
 ) {
     val context = LocalContext.current
     val clipboard = LocalClipboardManager.current
@@ -2988,6 +2992,7 @@ private fun SubscriptionCacheBody(
                                 onSetCurrent = onSetCurrent,
                                 parseButtonText = "解析子仓",
                                 depth = 1,
+                                onOpenBookSource = onOpenBookSource,
                             )
                         }
                     }
@@ -3010,6 +3015,7 @@ private fun SubscriptionCacheBody(
                     currentSiteKey = currentSiteKey,
                     onParse = onParse,
                     onSetCurrent = onSetCurrent,
+                    onOpenBookSource = onOpenBookSource,
                 )
             }
         }
@@ -3026,6 +3032,7 @@ private fun SubscriptionSiteRows(
     currentSiteKey: String?,
     onParse: (String) -> Unit,
     onSetCurrent: (subUrl: String, siteKey: String, siteName: String) -> Unit,
+    onOpenBookSource: () -> Unit = {},
 ) {
     val context = LocalContext.current
     val clipboard = LocalClipboardManager.current

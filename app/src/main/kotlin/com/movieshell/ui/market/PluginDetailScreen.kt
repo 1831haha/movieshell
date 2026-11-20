@@ -3,6 +3,7 @@ package com.movieshell.ui.market
 import com.movieshell.ui.theme.V5
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.only
