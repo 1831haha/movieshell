@@ -358,18 +358,27 @@ private fun ProbeResultRow(
     result: SourceProbe.Result?,
     onAiChatClick: () -> Unit = {},
 ) {
-        val (label, color) = when (result) {
-        is SourceProbe.Result.Ok -> "${result.ms}ms" to MaterialTheme.colorScheme.ok
-        is SourceProbe.Result.Slow -> "${result.ms}ms" to MaterialTheme.colorScheme.tertiary
+        val color = when (result) {
+        is SourceProbe.Result.Ok -> MaterialTheme.colorScheme.ok
+        is SourceProbe.Result.Slow -> MaterialTheme.colorScheme.tertiary
+        is SourceProbe.Result.Fail -> MaterialTheme.colorScheme.error
+        else -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+    }
+    // v1.3.34：耗时与失败原因分开——耗时仍跟状态同行，失败原因另起一行。
+    // 根因：旧版把长原因与源名放在同一 Row 里，无权重的长原因先占满整行，
+    // 带 weight(1f) 的源名被挤到 0 宽，失败行看不到是哪个源。
+    val msText = when (result) {
+        is SourceProbe.Result.Ok -> "${result.ms}ms"
+        is SourceProbe.Result.Slow -> "${result.ms}ms"
+        else -> null
+    }
+    val reasonText = when (result) {
         is SourceProbe.Result.Fail -> {
             // v1.0.9：失效分类打头（未知分类只显示原因，不加“未知 · ”噪音）。
-            val text = if (result.category == SourceProbe.FailCategory.UNKNOWN) result.reason
+            if (result.category == SourceProbe.FailCategory.UNKNOWN) result.reason
             else "${result.category.label} · ${result.reason}"
-            text to MaterialTheme.colorScheme.error
         }
-        is SourceProbe.Result.Unsupported -> "不支持" to
-            MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
-        null -> "待检测" to MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+        else -> null
     }
     val statusText = when (result) {
         is SourceProbe.Result.Ok -> "正常"
@@ -404,7 +413,7 @@ private fun ProbeResultRow(
                 )
                 Spacer(Modifier.width(10.dp))
                 Text(
-                    text = target.label,
+                    text = target.label.ifBlank { target.name },
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurface,
                     maxLines = 1,
@@ -417,12 +426,22 @@ private fun ProbeResultRow(
                     color = color,
                     fontWeight = FontWeight.Bold,
                 )
-                Spacer(Modifier.width(8.dp))
+                if (msText != null) {
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        text = msText,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+            if (reasonText != null) {
+                Spacer(Modifier.height(4.dp))
                 Text(
-                    text = label,
+                    text = reasonText,
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
+                    maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                 )
             }
@@ -492,6 +511,42 @@ private fun ProbeResultRow(
                 }
             }
         }
+    }
+}
+
+/** v1.3.34：批量检测分组头——状态色圆点 + “失败 · 52” + 展开/收起箭头 */
+@Composable
+private fun ProbeGroupHeader(
+    title: String,
+    color: Color,
+    expanded: Boolean,
+    onClick: () -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(
+            modifier = Modifier
+                .size(10.dp)
+                .background(color, CircleShape),
+        )
+        Spacer(Modifier.width(10.dp))
+        Text(
+            text = title,
+            style = MaterialTheme.typography.bodyMedium,
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.onSurface,
+            modifier = Modifier.weight(1f),
+        )
+        Icon(
+            imageVector = if (expanded) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
+            contentDescription = if (expanded) "收起" else "展开",
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
     }
 }
 
@@ -1814,6 +1869,26 @@ fun SourcesScreen(
         val slow = records.count { it.status == "SLOW" }
         val fail = records.count { it.status == "FAIL" }
         val unsupported = records.count { it.status == "UNSUPPORTED" }
+        // v1.3.34：按状态分组折叠——失败/缓慢默认展开（要修的在眼前），正常/
+        // 不支持默认收起；组内按源名排序，好找。空组不出现。
+        var expandedGroups by rememberSaveable { mutableStateOf(listOf("FAIL", "SLOW")) }
+        fun isGroupExpanded(key: String) = expandedGroups.contains(key)
+        fun toggleGroup(key: String) {
+            expandedGroups = if (expandedGroups.contains(key)) expandedGroups - key
+            else expandedGroups + key
+        }
+        val probeGroups = listOf(
+            Triple("FAIL", "失败", records.filter { it.status == "FAIL" }),
+            Triple("SLOW", "缓慢", records.filter { it.status == "SLOW" }),
+            Triple("OK", "正常", records.filter { it.status == "OK" }),
+            Triple("UNSUPPORTED", "不支持", records.filter { it.status == "UNSUPPORTED" }),
+        ).filter { it.third.isNotEmpty() }
+        fun groupColor(key: String): Color = when (key) {
+            "FAIL" -> MaterialTheme.colorScheme.error
+            "SLOW" -> MaterialTheme.colorScheme.tertiary
+            "OK" -> MaterialTheme.colorScheme.ok
+            else -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+        }
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
@@ -1877,12 +1952,27 @@ fun SourcesScreen(
                     )
                 }
             }
-            items(records, key = { "${it.kind}:${it.name}" }) { r ->
-                ProbeResultRow(
-                    target = ProbeTarget(r.kind, r.name, r.label),
-                    result = r.toResult(),
-                    onAiChatClick = onAiChatClick,
-                )
+            probeGroups.forEach { (key, title, group) ->
+                item(key = "probe-group:$key") {
+                    ProbeGroupHeader(
+                        title = "$title · ${group.size}",
+                        color = groupColor(key),
+                        expanded = isGroupExpanded(key),
+                        onClick = { toggleGroup(key) },
+                    )
+                }
+                if (isGroupExpanded(key)) {
+                    items(
+                        group.sortedBy { it.label.ifBlank { it.name } },
+                        key = { "${it.kind}:${it.name}" },
+                    ) { r ->
+                        ProbeResultRow(
+                            target = ProbeTarget(r.kind, r.name, r.label),
+                            result = r.toResult(),
+                            onAiChatClick = onAiChatClick,
+                        )
+                    }
+                }
             }
             if (records.isEmpty() && !probeRunning) {
                 item {
