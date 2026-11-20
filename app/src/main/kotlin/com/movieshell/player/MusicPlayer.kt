@@ -903,6 +903,14 @@ object MusicPlayer {
     /** v0.278.0：播放与下载共用一条解析链，lastTrialOnly/lastLxFailures 是共享可变态，串行防串味。 */
     private val resolveMutex = Mutex()
 
+    /** v1.4.3：解析成功 URL 短 TTL 缓存。key＝源 id＋平台＋歌 id＋音质；20 分钟，
+     * 上限 100 条（超限淘汰最旧插入项）。只缓存成功、不缓存失败；同一首重播/切回
+     * 秒开，不再重走后端链。访问全在 resolveMutex 内串行，无需额外同步。 */
+    private data class CachedLxUrl(val url: String, val expiryMs: Long)
+    private val lxUrlCache = LinkedHashMap<String, CachedLxUrl>()
+    private val lxUrlCacheTtlMs = 20 * 60 * 1000L
+    private val lxUrlCacheMaxSize = 100
+
     /** v0.278.0：下载用——只取直链，不碰播放态；Resolved 是私有类型，只对外给 url。 */
     suspend fun resolvePlayUrl(context: Context, track: MusicApi.Track): String? =
         resolveOnlineUrl(context.applicationContext, track, null, silent = true)?.url
@@ -982,14 +990,29 @@ object MusicPlayer {
             var reason = "解析失败"
             for (q in qualities) {
                 currentCoroutineContext().ensureActive()
-                val url = runCatching {
-                    if (s.builtin) resolveBuiltinHuibq(platform, songId, q)
-                    else engine.resolveMusicUrl(
-                        s.url, platform, songId, q,
-                        name = track.name, singer = track.artist,
-                        albumName = track.album, interval = "",
-                    )
-                }.getOrNull()?.takeIf { it.isNotBlank() }
+                // v1.4.3：先查成功缓存，命中直接用；过期条目顺手清掉。
+                val cacheKey = "${s.id}|$platform|$songId|$q"
+                val now = System.currentTimeMillis()
+                val cachedEntry = lxUrlCache[cacheKey]
+                val url = if (cachedEntry != null && cachedEntry.expiryMs > now) {
+                    LogBus.i("MusicPlayer", "LX 解析缓存命中：${s.name} $q")
+                    cachedEntry.url
+                } else {
+                    if (cachedEntry != null) lxUrlCache.remove(cacheKey)
+                    runCatching {
+                        if (s.builtin) resolveBuiltinHuibq(platform, songId, q)
+                        else engine.resolveMusicUrl(
+                            s.url, platform, songId, q,
+                            name = track.name, singer = track.artist,
+                            albumName = track.album, interval = "",
+                        )
+                    }.getOrNull()?.takeIf { it.isNotBlank() }?.also { fresh ->
+                        if (lxUrlCache.size >= lxUrlCacheMaxSize) {
+                            lxUrlCache.keys.firstOrNull()?.let { lxUrlCache.remove(it) }
+                        }
+                        lxUrlCache[cacheKey] = CachedLxUrl(fresh, now + lxUrlCacheTtlMs)
+                    }
+                }
                 if (url != null) {
                     LogBus.i("MusicPlayer", "LX 解析成功：${s.name} $q")
                     return Resolved(url, s.name, q)

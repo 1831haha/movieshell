@@ -2,6 +2,7 @@ package com.movieshell.data.source
 
 import android.content.Context
 import com.movieshell.core.log.LogBus
+import com.movieshell.core.net.HttpClient
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
@@ -439,7 +440,16 @@ class LxMusicSourceEngine(context: Context) {
                 "GET" -> reqBuilder.get()
                 else -> reqBuilder.method(method, null)
             }
-            http.newCall(reqBuilder.build()).execute().use { resp ->
+            // v1.4.3：lx.request 走零重试 client（HttpClient.lxClient），并落实
+            // 脚本声明的单后端 timeout——此前 rpcHttpx 根本不读 options.timeout，
+            // 脚本写的 8000/10000 全被静默忽略，挂起的后端只能等 defaultClient 的
+            // 15s 读超时再被重试 3 次（2026-11-20 16:19:16 实证）。per-call timeout
+            // 直接覆盖本次调用；超时抛 SocketTimeoutException，进 catch 记 status=-1，
+            // 脚本侧 httpFetch 再转「网络错误」进 2 分钟熔断。
+            val call = HttpClient.lxClient().newCall(reqBuilder.build())
+            val timeoutMs = opt.optInt("timeout", 0)
+            if (timeoutMs > 0) call.timeout().timeout(timeoutMs.toLong(), TimeUnit.MILLISECONDS)
+            call.execute().use { resp ->
                 result.put("status", resp.code)
                 result.put("body", resp.body?.string() ?: "")
                 val hs = JSONObject()

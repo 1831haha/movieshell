@@ -117,6 +117,30 @@ object HttpClient {
     }
 
     /**
+     * v1.4.3：LX 脚本请求专用 client——与 defaultClient 同配置（代理/超时/
+     * CookieJar/UA/日志全继承），只去掉重试拦截器。背景：脚本每个后端都自带
+     * timeout 且自己轮询下一个后端，挂起的请求被 defaultClient 重试 3 次会把
+     * 单后端成本 ×3（2026-11-20 16:19:16 三次重试实证）；且脚本的单后端 timeout
+     * 由 LxMusicSourceEngine.rpcHttpx 经 per-call timeout 落实，client 层不
+     * 应再放大。超时与连接失败一律由脚本层按后端失败缓存处理。
+     */
+    fun lxClient(): OkHttpClient = sharedLxClient
+
+    private val sharedLxClient: OkHttpClient by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
+        OkHttpClient.Builder()
+            .proxySelector(ProxyRouting.selector)
+            .connectTimeout(TIMEOUT_S, TimeUnit.SECONDS)
+            .readTimeout(TIMEOUT_S, TimeUnit.SECONDS)
+            .writeTimeout(TIMEOUT_S, TimeUnit.SECONDS)
+            .callTimeout(CALL_TIMEOUT_S, TimeUnit.SECONDS)
+            .retryOnConnectionFailure(false)
+            .cookieJar(memoryCookieJar)
+            .addInterceptor(uaInterceptor)
+            .addInterceptor(simpleLogInterceptor)
+            .build()
+    }
+
+    /**
      * 内存 CookieJar：host → cookies，需要登录态的源保持会话。
      * v0.110.0：synchronized + mutableMapOf → ConcurrentHashMap，读写无锁；
      * host 维度 LRU 上限 200（超限淘汰最久未用，见 SniffPlayHeaders 同款 200 上限），
