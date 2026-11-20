@@ -1883,6 +1883,7 @@ fun SourcesScreen(
             Triple("OK", "正常", records.filter { it.status == "OK" }),
             Triple("UNSUPPORTED", "不支持", records.filter { it.status == "UNSUPPORTED" }),
         ).filter { it.third.isNotEmpty() }
+        @Composable
         fun groupColor(key: String): Color = when (key) {
             "FAIL" -> MaterialTheme.colorScheme.error
             "SLOW" -> MaterialTheme.colorScheme.tertiary
