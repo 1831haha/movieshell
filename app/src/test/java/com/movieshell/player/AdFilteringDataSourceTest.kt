@@ -1,9 +1,8 @@
 package com.movieshell.player
 
 import androidx.media3.common.C
-import com.movieshell.player.AdFilteringDataSource.LengthDecision
+import com.movieshell.player.AdFilteringDataSource.Companion.LengthDecision
 import java.io.IOException
-import kotlin.math.minOf
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Test

@@ -178,7 +178,7 @@ class BackupV2Test {
             MusicSource(id = "b", name = "悬空", url = "file:///old/lx_sources/missing.js"),
             MusicSource(id = "c", name = "远程", url = "https://example.com/x.js"),
         )
-        val scripts = listOf(BackupManager.RuleFileEntry("a.js", "code"))
+        val scripts = listOf(RuleFileEntry("a.js", "code"))
         val out = BackupManager.remapMusicSourceUrls(filesDir, registry, scripts)
         assertEquals(
             "file://" + File(File(filesDir, "lx_sources"), "a.js").absolutePath,
