@@ -1881,7 +1881,9 @@ fun SourcesScreen(
             Triple("FAIL", "失败", records.filter { it.status == "FAIL" }),
             Triple("SLOW", "缓慢", records.filter { it.status == "SLOW" }),
             Triple("OK", "正常", records.filter { it.status == "OK" }),
-            Triple("UNSUPPORTED", "不支持", records.filter { it.status == "UNSUPPORTED" }),
+            // v1.3.34 审查 P3-1：“不支持”组作兜底——status 非四种值（如老落盘记录缺
+            // 字段）的记录也进这组，不静默消失；页头总数与四组数量之和对得上。
+            Triple("UNSUPPORTED", "不支持", records.filter { it.status != "OK" && it.status != "SLOW" && it.status != "FAIL" }),
         ).filter { it.third.isNotEmpty() }
         @Composable
         fun groupColor(key: String): Color = when (key) {
@@ -1964,7 +1966,8 @@ fun SourcesScreen(
                 }
                 if (isGroupExpanded(key)) {
                     items(
-                        group.sortedBy { it.label.ifBlank { it.name } },
+                        // v1.3.34 审查 P3-2：先按失败分类、再按源名排，同原因的失败聚成一片。
+                        group.sortedWith(compareBy({ it.category }, { it.label.ifBlank { it.name } })),
                         key = { "${it.kind}:${it.name}" },
                     ) { r ->
                         ProbeResultRow(
