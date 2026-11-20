@@ -265,7 +265,12 @@ object DanmakuSource {
         return runCatching {
             val text = f.readText()
             val e = json.decodeFromString(CacheEntry.serializer(), text)
-            if (System.currentTimeMillis() - e.savedAt > CACHE_VALID_MS) return null
+            if (System.currentTimeMillis() - e.savedAt > CACHE_VALID_MS) {
+                // v1.3.33 B-P2-4：过期缓存顺手删文件——只返 null 不管磁盘，
+                // 从不访问的旧文件会一直占着地方。
+                runCatching { f.delete() }
+                return null
+            }
             if (e.items.isEmpty()) return null
             e.items.map { Danmaku(it.text, it.timeMs, it.color, it.type) }
         }.getOrNull()
@@ -287,6 +292,50 @@ object DanmakuSource {
     private data class CacheEntry(val savedAt: Long = 0L, val items: List<CacheItem> = emptyList())
     @Serializable
     private data class CacheItem(val text: String, val timeMs: Long, val color: Int, val type: Int)
+
+    /** 定期清理用的文件信息（名 / 修改时间 / 大小）。 */
+    internal data class CacheFileInfo(val name: String, val lastModified: Long, val length: Long)
+
+    /**
+     * v1.3.33 B-P2-4：定期清理选出要删的文件（纯函数，供单测）。
+     * 先删过期（修改时间距 now 超 TTL），再按最旧先删到数量/总大小上限内。
+     * 年龄按 lastModified 算——缓存文件写盘时间即保存时间，与 loadCache 的
+     * savedAt 口径一致，清理时不必逐个解析文件。
+     */
+    internal fun selectCacheFilesToDelete(
+        files: List<CacheFileInfo>, now: Long, ttlMs: Long, maxFiles: Int, maxBytes: Long,
+    ): List<CacheFileInfo> {
+        val expired = files.filter { now - it.lastModified > ttlMs }
+        val alive = (files - expired.toSet()).sortedBy { it.lastModified }
+        var total = alive.sumOf { it.length }
+        val over = mutableListOf<CacheFileInfo>()
+        var idx = 0
+        while ((alive.size - idx > maxFiles || total > maxBytes) && idx < alive.size) {
+            total -= alive[idx].length
+            over += alive[idx]
+            idx++
+        }
+        return expired + over
+    }
+
+    /**
+     * v1.3.33 B-P2-4：定期清理弹幕磁盘缓存（CacheAutoClean 每日任务调）：
+     * 过期文件全删；再按 1000 个文件 / 256MB 上限删最旧的。
+     * @return 删掉的文件数。
+     */
+    fun cleanCache(context: Context, maxFiles: Int = 1000, maxBytes: Long = 256L * 1024 * 1024): Int {
+        val dir = java.io.File(context.filesDir, "danmaku_cache")
+        if (!dir.isDirectory) return 0
+        val infos = dir.listFiles()?.filter { it.isFile }
+            ?.map { CacheFileInfo(it.name, it.lastModified(), it.length()) } ?: return 0
+        val toDelete = selectCacheFilesToDelete(infos, System.currentTimeMillis(), CACHE_VALID_MS, maxFiles, maxBytes)
+        var removed = 0
+        toDelete.forEach { info ->
+            if (runCatching { java.io.File(dir, info.name).delete() }.getOrDefault(false)) removed++
+        }
+        if (removed > 0) LogBus.i(TAG, "弹幕缓存定期清理：删 $removed 个文件")
+        return removed
+    }
 
     private fun searchAnime(title: String): Long? {
         // 取标题前 20 字搜，避免过长标题搜不到
@@ -472,18 +521,6 @@ object DanmakuSettings {
     }
 
 
-    /** 字号 px（对应小/中/大） */
-    fun fontPx(): Float = when (_textSize.value) {
-        0 -> 34f
-        2 -> 52f
-        else -> 42f
-    }
-    /** 滚动时长 ms（对应慢/中/快） */
-    fun scrollMs(): Long = when (_speed.value) {
-        0 -> 9000L
-        2 -> 4000L
-        else -> 6000L
-    }
-    /** 透明度 0-255 */
-    fun alphaInt(): Int = (_alpha.value * 2.55f).toInt()
+    // v1.3.33 B-P2-11：fontPx/scrollMs/alphaInt 已删——DanmakuView 里同名
+    // 的是局部变量（各算各的），此处三个函数生产+单测零调用。
 }

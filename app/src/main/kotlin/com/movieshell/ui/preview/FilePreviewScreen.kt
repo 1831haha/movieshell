@@ -32,6 +32,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -53,6 +55,8 @@ import com.movieshell.ui.components.TabTopBar
 import com.movieshell.ui.components.AppCard
 import com.movieshell.ui.components.EmptyKind
 import com.movieshell.ui.components.EmptyState
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import java.io.File
 
 /** FileProvider authority：跟随 applicationId（debug/release 包名不同） */
@@ -189,6 +193,9 @@ private fun highlightCode(
 
 /** v0.9.0：文件预览器。路由 preview/{kind}/{fileName}，kind∈js/py/php/web，只读。 */
 
+/** 预览内容：文本 / 是否截断 / 是否读取失败。 */
+private data class PreviewData(val text: String, val truncated: Boolean, val failed: Boolean)
+
 /**
  * v0.246.0：UTF-8 安全截断——返回不超过 max 的最大完整字符边界。
  * 从 max 往回走：后续字节（10xxxxxx）跳过，找到起始字节后看该字符完整长度
@@ -230,25 +237,30 @@ fun FilePreviewScreen(
     // v0.246.0 补（GPT 审）：截断边界退到完整 UTF-8 字符边界，不切出 �；
     // 截断判定以实际读到的字节数为准，不用解码后重编码的大小；
     // 复制提示按是否截断区分，不再截断了还说“已复制全文”。
+    // v1.3.33 B-P2-10：读盘从组合（主线程）移到 IO 线程——produceState
+    // 随 file 变化重启、组合离开时取消；读失败进明确错误态，不再静默空白。
     val maxBytes = 200 * 1024
-    val previewData = remember(file) {
-        if (!exists) Pair("", false) else runCatching {
-            val bytes = ByteArray(maxBytes + 1)
-            var read = 0
-            file!!.inputStream().buffered().use { input ->
-                while (read <= maxBytes) {
-                    val n = input.read(bytes, read, maxBytes + 1 - read)
-                    if (n < 0) break
-                    read += n
+    val previewData by produceState(initialValue = PreviewData("", false, false), file) {
+        value = if (!exists) PreviewData("", false, false) else withContext(Dispatchers.IO) {
+            runCatching {
+                val bytes = ByteArray(maxBytes + 1)
+                var read = 0
+                file!!.inputStream().buffered().use { input ->
+                    while (read <= maxBytes) {
+                        val n = input.read(bytes, read, maxBytes + 1 - read)
+                        if (n < 0) break
+                        read += n
+                    }
                 }
-            }
-            val truncated = read > maxBytes
-            val cut = if (truncated) utf8SafeCut(bytes, maxBytes) else read
-            Pair(String(bytes, 0, cut, Charsets.UTF_8), truncated)
-        }.getOrDefault(Pair("", false))
+                val truncated = read > maxBytes
+                val cut = if (truncated) utf8SafeCut(bytes, maxBytes) else read
+                PreviewData(String(bytes, 0, cut, Charsets.UTF_8), truncated, false)
+            }.getOrDefault(PreviewData("", false, true))
+        }
     }
-    val shownText = previewData.first
-    val truncated = previewData.second
+    val shownText = previewData.text
+    val truncated = previewData.truncated
+    val loadFailed = previewData.failed
 
     Scaffold(
         contentWindowInsets = WindowInsets.safeDrawing.only(WindowInsetsSides.Bottom + WindowInsetsSides.Horizontal),
@@ -303,6 +315,19 @@ fun FilePreviewScreen(
                         kind = EmptyKind.Error,
                         icon = Icons.Filled.ErrorOutline,
                         title = "文件不存在或已被删除",
+                    )
+                }
+                return@Column
+            }
+            if (loadFailed) {
+                Box(
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    EmptyState(
+                        kind = EmptyKind.Error,
+                        icon = Icons.Filled.ErrorOutline,
+                        title = "文件读取失败",
                     )
                 }
                 return@Column

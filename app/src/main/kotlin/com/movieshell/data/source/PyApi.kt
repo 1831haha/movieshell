@@ -68,6 +68,11 @@ class PyApi(private val engine: PyEngine = ChaquopyEngine) {
     private var sharedHomePath: String? = null
     private var sharedHomeData: JsonObject? = null
     private var sharedHomeAt: Long = 0L
+    /**
+     * v1.3.33 B-P2-3：共享结果代次——每次真正调 homeContent 成功才 +1；
+     * 10 秒窗口内复用同一份结果的并发 home() 共用同一代次，计数只计一次。
+     */
+    private var sharedHomeGen: Long = 0L
 
     /**
      * v0.188.0 M14：共享 home 缓存单例化锁。“查缓存、调规则、写回”全程持锁，
@@ -80,11 +85,36 @@ class PyApi(private val engine: PyEngine = ChaquopyEngine) {
     // homeContent 那次 invoke 省不掉——categories() 吃的是同一次调用，10s 共享）。
     private val noRecommendRules = mutableSetOf<String>()
     private val noRecommendHits = mutableMapOf<String, Int>()
+    /**
+     * v1.3.33 B-P2-3：规则 → 已计过数的代次。同一份共享结果被两个并发 home()
+     * 复用时，第二份不再重复累计，否则 3 次阈值会被一次结果顶满、误标规则。
+     */
+    private val countedGenerations = mutableMapOf<String, Long>()
 
-    private suspend fun sharedHomeContent(rulePath: String): JsonObject? = homeMutex.withLock {
+    /**
+     * v1.3.33 B-P2-3：无推荐计数（须在 homeMutex 内调，保证“读—加一—判断—
+     * 写回”是原子业务过程；只换 ConcurrentHashMap 拦不住这段竞态）。
+     * 同一代次只计一次；有推荐时清零。返回累计命中次数。
+     */
+    internal fun countNoRecommend(rulePath: String, generation: Long, hasRecommend: Boolean): Int {
+        if (hasRecommend) {
+            noRecommendHits.remove(rulePath)
+            return 0
+        }
+        if (countedGenerations[rulePath] == generation) return noRecommendHits[rulePath] ?: 0
+        countedGenerations[rulePath] = generation
+        val hits = (noRecommendHits[rulePath] ?: 0) + 1
+        noRecommendHits[rulePath] = hits
+        if (hits >= 3 && noRecommendRules.add(rulePath)) {
+            LogBus.i(TAG, "规则连续 $hits 次 homeContent 无推荐，已标记直调 homeVideoContent")
+        }
+        return hits
+    }
+
+    private suspend fun sharedHomeContent(rulePath: String): Pair<JsonObject?, Long> = homeMutex.withLock {
         val now = android.os.SystemClock.elapsedRealtime()
         if (rulePath == sharedHomePath && now - sharedHomeAt < 10_000) {
-            return@withLock sharedHomeData
+            return@withLock sharedHomeData to sharedHomeGen
         }
         val data = envelope(engine.invoke(rulePath, "homeContent", """{"filter":true}"""))
         // 失败结果（envelope 为 null）不进缓存、不刷新时间戳：此前失败结果
@@ -94,8 +124,9 @@ class PyApi(private val engine: PyEngine = ChaquopyEngine) {
             sharedHomePath = rulePath
             sharedHomeData = data
             sharedHomeAt = now
+            sharedHomeGen++
         }
-        data
+        data to sharedHomeGen
     }
 
     /**
@@ -105,20 +136,18 @@ class PyApi(private val engine: PyEngine = ChaquopyEngine) {
      * 先 1 后 2，保证两类规则首页都有推荐。
      */
     suspend fun home(rulePath: String): List<Vod> {
-        val data = sharedHomeContent(rulePath)
+        val (data, gen) = sharedHomeContent(rulePath)
         val first = ((data?.get("list") as? JsonArray).orEmpty()
             .mapNotNull { (it as? JsonObject) }).map { it.toVod() }
-        if (first.isNotEmpty()) {
-            noRecommendHits.remove(rulePath)
-            return first
+        // v1.3.33 B-P2-3：计数与标记读都在锁内——并发 home() 复用同一份共享
+        // 结果时只计一次；noRecommendRules 的读也不再裸奔。
+        val marked = homeMutex.withLock {
+            countNoRecommend(rulePath, gen, first.isNotEmpty())
+            rulePath in noRecommendRules
         }
+        if (first.isNotEmpty()) return first
         // v0.50.0：连续空标记
-        val hits = (noRecommendHits[rulePath] ?: 0) + 1
-        noRecommendHits[rulePath] = hits
-        if (hits >= 3 && noRecommendRules.add(rulePath)) {
-            LogBus.i(TAG, "规则连续 $hits 次 homeContent 无推荐，已标记直调 homeVideoContent")
-        }
-        if (rulePath in noRecommendRules) {
+        if (marked) {
             LogBus.i(TAG, "规则已标记无首页推荐，直调 homeVideoContent")
         } else {
             LogBus.i(TAG, "homeContent 无推荐列表，改调 homeVideoContent")
@@ -133,7 +162,7 @@ class PyApi(private val engine: PyEngine = ChaquopyEngine) {
      * v0.30.1：同时解析顶层 filters 字典，按 tid 切出每个分类的二级筛选组。
      */
     suspend fun categories(rulePath: String): List<CategoryType> = runCatching {
-        val data = sharedHomeContent(rulePath)
+        val data = sharedHomeContent(rulePath).first
             ?: return emptyList()
         // filters: {tid: [{key,name,value:[{n,v}]}]}
         val filtersMap = (data["filters"] as? JsonObject)?.entries.orEmpty()

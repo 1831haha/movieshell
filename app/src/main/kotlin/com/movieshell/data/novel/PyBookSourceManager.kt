@@ -110,14 +110,25 @@ object PyBookSourceManager {
 
     fun isEnabled(name: String): Boolean = name in _enabled.value
 
-    fun setEnabled(context: Context, name: String, enabled: Boolean): Boolean {
+    /**
+     * v1.3.33 B-P2-7：开关写盘改 suspend、IO 线程 commit——原来主线程同步
+     * commit，点按开关是主线程 IO，低端机/存储慢时会掉帧。
+     * 语义不变：先乐观更新内存态（UI 立即刷新），IO 线程 commit，失败回滚
+     * 内存并返回 false（调用方提示“保存失败”，开关随 StateFlow 旧值弹回，
+     * 同款见 BookSourceManager.setEnabled）；不用 apply()——它没有同步返回，
+     * 失败回滚逻辑保不住。loadMutex 串行化：与 load() 及连续两次快速切换
+     * 互斥，避免回滚覆盖。
+     */
+    suspend fun setEnabled(context: Context, name: String, enabled: Boolean): Boolean = loadMutex.withLock {
         val old = _enabled.value
         val cur = old.toMutableSet()
         if (enabled) cur.add(name) else cur.remove(name)
         _enabled.value = cur
-        val ok = prefs(context).edit().putStringSet(KEY_ENABLED, cur).commit()
+        val ok = withContext(Dispatchers.IO) {
+            prefs(context).edit().putStringSet(KEY_ENABLED, cur).commit()
+        }
         if (!ok) _enabled.value = old
-        return ok
+        ok
     }
 
     /** 导入 .py 书源文件：先写 .tmp、校验含 bookSearch、通过再改名。 */

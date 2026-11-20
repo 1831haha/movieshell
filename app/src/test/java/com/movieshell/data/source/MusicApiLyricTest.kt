@@ -1,6 +1,7 @@
 package com.movieshell.data.source
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -41,6 +42,61 @@ class MusicApiLyricTest {
     fun parseLrc_blankReturnsEmpty() {
         assertTrue(MusicApi.parseLrc("").isEmpty())
         assertTrue(MusicApi.parseLrc("   ").isEmpty())
+    }
+
+    @Test
+    fun parseLrc_badTimestampSkipsOnlyThatLine() {
+        // v1.3.33 B-P2-1：一行坏时间戳只跳过该行，不再整首无歌词。
+        val raw = """
+            [99999999999999999999:00]坏行
+            [00:12.00]好行
+        """.trimIndent()
+        val lines = MusicApi.parseLrc(raw)
+        assertEquals(1, lines.size)
+        assertEquals(12_000L, lines[0].timeMs)
+        assertEquals("好行", lines[0].text)
+    }
+
+    @Test
+    fun parseLrc_overflowMinuteSkipped() {
+        // 分钟数本身合法（toLongOrNull 能过），但 min*60000 回绕，必须丢弃该行。
+        val raw = """
+            [999999999999999999:00]溢出
+            [00:12.00]好行
+        """.trimIndent()
+        val lines = MusicApi.parseLrc(raw)
+        assertEquals(1, lines.size)
+        assertEquals("好行", lines[0].text)
+    }
+
+    @Test
+    fun parseLrc_secondOver59Skipped() {
+        val raw = """
+            [00:60.00]越界秒
+            [00:12.00]好行
+        """.trimIndent()
+        val lines = MusicApi.parseLrc(raw)
+        assertEquals(1, lines.size)
+        assertEquals("好行", lines[0].text)
+    }
+
+    @Test
+    fun parseLrc_badTimestampOnOneOfManyStampsSkipsOnlyThatStamp() {
+        val raw = "[00:12.00][99999999999999999999:00]叠句"
+        val lines = MusicApi.parseLrc(raw)
+        assertEquals(1, lines.size)
+        assertEquals(12_000L, lines[0].timeMs)
+        assertEquals("叠句", lines[0].text)
+    }
+
+    @Test
+    fun lrcTimeMs_overflowReturnsNull() {
+        val maxMin = (Long.MAX_VALUE - 60_000L) / 60_000L
+        assertEquals(maxMin * 60_000L, MusicApi.lrcTimeMs(maxMin, 0, 0))
+        assertNull(MusicApi.lrcTimeMs(maxMin + 1, 0, 0))
+        assertNull(MusicApi.lrcTimeMs(-1, 0, 0))
+        assertEquals(12_000L, MusicApi.lrcTimeMs(0, 12, 0))
+        assertEquals(62_500L, MusicApi.lrcTimeMs(1, 2, 500))
     }
 
     @Test

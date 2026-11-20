@@ -119,12 +119,6 @@ object NovelUpdateChecker {
             }.getOrDefault(false)
         }
 
-    /** 批量检查（并发），返回有更新的书 id→新章节数。 */
-    suspend fun checkAll(
-        context: Context,
-        novels: List<Novel>,
-    ): Map<String, Int> = checkAllDetailed(context, novels).updated
-
     /** v0.186.0 第 9 组：批量检查加失败计数——Failed 不再被悄悄丢掉，Worker 据此决定重试。 */
     data class CheckAllResult(
         val updated: Map<String, Int>,

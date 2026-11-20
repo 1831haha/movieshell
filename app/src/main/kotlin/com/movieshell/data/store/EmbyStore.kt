@@ -72,13 +72,6 @@ object EmbyStore {
     fun activeId(context: Context): String? =
         prefs(context).getString(KEY_ACTIVE, null)
 
-    fun activeServer(context: Context): EmbyServer? {
-        ensureLoaded(context)
-        val list = _servers.value
-        val id = activeId(context)
-        return list.firstOrNull { it.id == id } ?: list.firstOrNull()
-    }
-
     /**
      * v1.2.14：历史续播用的 ignoreCert 判定（纯函数）：历史记录的 vodId 是
      * "emby:{serverId}:{itemId}"（MediaServerScreen.playItem 写盘），按 serverId

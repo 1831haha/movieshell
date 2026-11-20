@@ -30,10 +30,8 @@ object BookSourceManager {
     private val _sources = MutableStateFlow<List<BookSource>>(emptyList())
     val sources: StateFlow<List<BookSource>> = _sources.asStateFlow()
 
-    // v0.186.0 第 9 组：改内存表再写盘的整段串行化——suspend 路径用 Mutex，
-    // 唯一非 suspend 公开读函数 enabledSources 用 synchronized；不为加锁改任何公开函数签名。
+    // v0.186.0 第 9 组：改内存表再写盘的整段串行化——suspend 路径用 Mutex。
     private val mutex = Mutex()
-    private val syncLock = Any()
 
     private fun fileOf(context: Context): File =
         File(context.filesDir, FILE_NAME)
@@ -234,10 +232,6 @@ object BookSourceManager {
             return@withLock false
         }
         true
-    }
-
-    fun enabledSources(): List<BookSource> = synchronized(syncLock) {
-        _sources.value.filter { it.enabled }
     }
 
     /**

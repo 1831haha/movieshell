@@ -53,29 +53,6 @@ object CrashHandler {
         crashFiles(context).forEach { runCatching { it.delete() } }
     }
 
-    /**
-     * 打包全部崩溃日志为 zip（供设置页"导出崩溃日志"经 SAF 分享）。
-     * 无日志时返回 null。
-     */
-    fun exportZip(context: Context): File? {
-        val files = crashFiles(context)
-        if (files.isEmpty()) return null
-        val zip = File(
-            context.cacheDir,
-            "xiaying_crash_${SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())}.zip",
-        )
-        runCatching {
-            java.util.zip.ZipOutputStream(zip.outputStream()).use { zos ->
-                files.forEach { f ->
-                    zos.putNextEntry(java.util.zip.ZipEntry(f.name))
-                    f.inputStream().use { it.copyTo(zos) }
-                    zos.closeEntry()
-                }
-            }
-        }.getOrElse { return null }
-        return zip.takeIf { it.exists() && it.length() > 0 }
-    }
-
     private fun crashFiles(context: Context): List<File> =
         runCatching {
             StoragePaths.crashDir(context)

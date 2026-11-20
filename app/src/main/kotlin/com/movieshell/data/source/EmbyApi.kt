@@ -438,15 +438,6 @@ object EmbyApi {
         data class Failed(val failure: LoginFailure) : LoginOutcome
     }
 
-    /** 用户名密码登录 → token + userId。失败返回 null（兼容薄壳，内部调带原因的新函数）。 */
-    suspend fun loginByPassword(
-        baseUrl: String, type: ServerType, deviceId: String, username: String, password: String,
-        ignoreCert: Boolean = false,
-    ): Auth? = when (val outcome = loginByPasswordResult(baseUrl, type, deviceId, username, password, ignoreCert)) {
-        is LoginOutcome.Success -> outcome.auth
-        is LoginOutcome.Failed -> null
-    }
-
     /**
      * 用户名密码登录（带失败原因，v1.3.6）：400/401 是账号错；请求发不出去
      * 与 502 等非 2xx 是连不上；200 但解不出 token 是服务器回的不是 Emby。
@@ -474,14 +465,6 @@ object EmbyApi {
         } else {
             LoginOutcome.Success(Auth(token, userId))
         }
-    }
-
-    /** API Key 登录：Key 本身当 token，再用 /Users/Me 换 userId。 */
-    suspend fun loginByApiKey(
-        baseUrl: String, type: ServerType, deviceId: String, apiKey: String, ignoreCert: Boolean = false,
-    ): Auth? = when (val outcome = loginByApiKeyResult(baseUrl, type, deviceId, apiKey, ignoreCert)) {
-        is LoginOutcome.Success -> outcome.auth
-        is LoginOutcome.Failed -> null
     }
 
     /** API Key 登录（带失败原因，v1.3.6）：与 [loginByPasswordResult] 同一套分原因口径。 */

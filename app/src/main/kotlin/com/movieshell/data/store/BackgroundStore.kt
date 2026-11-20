@@ -111,20 +111,4 @@ object BackgroundStore {
         }.getOrDefault(false)
         if (ok) null else reason ?: "未知原因"
     }
-
-    /**
-     * v0.273.0（T33）：返回是否真的清掉了——原来删没删掉都返回 Unit，
-     * 还无条件把内存状态置空，文件还在、下次 load 又复活，调用方却已提示“已恢复”。
-     * 文件本来就不存在算成功；删失败则内存状态不动，调用方按失败提示。
-     */
-    suspend fun clearCustomBg(context: Context): Boolean = withContext(Dispatchers.IO) {
-        val f = file(context)
-        if (!f.exists()) {
-            _customBg.value = null
-            return@withContext true
-        }
-        val ok = runCatching { f.delete() }.getOrDefault(false) && !f.exists()
-        if (ok) _customBg.value = null
-        ok
-    }
 }

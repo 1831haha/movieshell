@@ -1,13 +1,11 @@
 package com.movieshell.data.source_mgr
 
-import android.content.Context
 import com.movieshell.core.log.LogBus
 import com.movieshell.data.source.PhpCliEngine
 import com.movieshell.core.util.SearchSlowSourceFilter
 import com.movieshell.domain.model.CategoryType
 import com.movieshell.domain.model.Episode
 import com.movieshell.domain.model.FilterGroup
-import com.movieshell.domain.model.ParseConfig
 import com.movieshell.domain.model.Site
 import com.movieshell.domain.model.Vod
 import com.movieshell.domain.model.VodDetail
@@ -590,7 +588,7 @@ class SiteRepository(
 
     /**
      * type=4 播放：GET {api}?ac=play&flag={flag}&id={id}，返回 (直链, parse 标记, header)。
-     * parse=1 的站走 [type4PlayWithParses] 分流进订阅 parses 解析链路；
+     * parse=1 的站走订阅 parses 解析链路；
      * 本函数是"无 parses 上下文"时的直链版本（parse=1 时按 v0.6 老行为原样返回）。
      * header 由调用方（DetailScreen）经 SniffPlayHeaders.put 透传给播放器。
      * 任何失败返回空结果，不抛异常。
@@ -610,51 +608,6 @@ class SiteRepository(
         }
         return result
     }
-
-    /**
-     * type=4 的 parse=1 分流（v0.7）：Type4Api 返回 parse=1 时，用该订阅的 parses
-     * 数组走 ParseApi 按顺序自动解析拿直链；全部失败返回空结果
-     * （调用方 UI 层 Toast "解析失败"）。
-     * parse=0 / 无 parses 时行为与 [type4Play] 一致（直链直接返回）。不抛异常。
-     */
-    suspend fun type4PlayWithParses(
-        site: Site,
-        flag: String,
-        id: String,
-        parses: List<ParseConfig>,
-        context: Context,
-    ): Type4PlayResult = runCatching {
-        val r = type4Api.play(site, flag, id)
-        if (r.parse != 1 || r.url.isBlank() || parses.isEmpty()) return@runCatching r
-        val direct = ParseApi().parse(parses, r.url, context)
-        if (direct.isBlank()) r.copy(url = "") else r.copy(url = direct)
-    }.getOrDefault(Type4PlayResult())
-
-    /**
-     * spider 播放：playerContent(flag, id) 拿播放 JSON {parse,url,header}。
-     * 任何失败返回空结果，不抛异常。
-     */
-    suspend fun spiderPlay(site: Site, flag: String, id: String): SpiderPlayResult =
-        runCatching { SpiderEngine.play(site, flag, id) }.getOrDefault(SpiderPlayResult())
-
-    /**
-     * spider 的 parse=1 分流（v0.8.0）：playerContent 返回 parse=1 时，用该订阅的
-     * parses 数组走 ParseApi 按顺序自动解析拿直链；全部失败返回空结果
-     * （调用方 UI 层 Toast "解析失败"）。parse=0 时行为与 [spiderPlay] 一致。
-     * header 由调用方（DetailScreen）经 SniffPlayHeaders.put 透传给播放器。不抛异常。
-     */
-    suspend fun spiderPlayWithParses(
-        site: Site,
-        flag: String,
-        id: String,
-        parses: List<ParseConfig>,
-        context: Context,
-    ): SpiderPlayResult = runCatching {
-        val r = SpiderEngine.play(site, flag, id)
-        if (r.parse != 1 || r.url.isBlank() || parses.isEmpty()) return@runCatching r
-        val direct = ParseApi().parse(parses, r.url, context)
-        if (direct.isBlank()) r.copy(url = "") else r.copy(url = direct)
-    }.getOrDefault(SpiderPlayResult())
 
     /**
      * 订阅子站点优先用其专属引擎（SubSiteEngines 按 key 前缀 "sub:" 识别），

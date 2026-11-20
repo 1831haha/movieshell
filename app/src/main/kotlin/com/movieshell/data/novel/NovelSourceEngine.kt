@@ -1289,10 +1289,6 @@ object NovelSourceEngine {
      * v1.1.10：构造带 Context——段评 sidecar 缓存要落 filesDir。 */
     fun novelEngineFor(context: Context, source: BookSource): NovelEngine = JsonNovelEngine(context, source)
 
-    /** v1.1.6 分层第 2 批：PY 书源的 NovelEngine（绑规则适配器）。 */
-    fun novelEngineForPy(context: Context, rule: PyBookSourceManager.PyBookRule): NovelEngine =
-        PyNovelEngine(context, rule)
-
     /**
      * v1.1.6 分层第 2 批：凭 sourceKey 拿引擎（"pybook:" 前缀走 PY 规则，
      * 否则走 JSON 书源）；两边注册表里都找不到回 null。
@@ -1366,7 +1362,7 @@ object NovelSourceEngine {
 
     /**
      * v0.109.0：统一搜索限流入口。searchAll/searchAllPy 之外的搜索路径
-     * （如追更检查 checkAll）也走这个，避免直调 search/searchPy 绕过 Semaphore(4)
+     * （如追更检查）也走这个，避免直调 search/searchPy 绕过 Semaphore(4)
      * 被反爬封 IP。
      */
     suspend fun <T> withSearchThrottle(block: suspend () -> T): T =

@@ -343,13 +343,27 @@ object MusicApi {
             val text = ln.substring(matches.last().range.last + 1).trim()
             if (text.isBlank()) continue
             for (m in matches) {
-                val min = m.groupValues[1].toLong()
-                val sec = m.groupValues[2].toLong()
+                // v1.3.33 B-P2-1：min/sec 同样可失败解析——一行坏时间戳只跳过
+                // 该时间戳，不再整首无歌词；sec 钳 0–59；溢出换算直接丢弃该行。
+                val min = m.groupValues[1].toLongOrNull() ?: continue
+                val sec = m.groupValues[2].toLongOrNull() ?: continue
+                if (sec !in 0..59) continue
                 val cs = m.groupValues[3].padEnd(3, '0').take(3).toLongOrNull() ?: 0L
-                lines += LyricLine(min * 60000 + sec * 1000 + cs, text)
+                val timeMs = lrcTimeMs(min, sec, cs) ?: continue
+                lines += LyricLine(timeMs, text)
             }
         }
         return lines.sortedBy { it.timeMs }
+    }
+
+    /**
+     * v1.3.33 B-P2-1：LRC 时间戳换算（分:秒.毫秒 → ms），溢出返回 null。
+     * 只换 toLongOrNull 不够——合法 Long 也可能在 min*60000 时回绕，
+     * 先判 min 上限再乘（sec ≤ 59、cs ≤ 999，余量已留足）。纯函数，供单测。
+     */
+    internal fun lrcTimeMs(min: Long, sec: Long, cs: Long): Long? {
+        if (min < 0 || min > (Long.MAX_VALUE - 60_000L) / 60_000L) return null
+        return min * 60_000L + sec * 1_000L + cs
     }
 
     /** 取可播放地址（url_id → 直链）。v0.126.0：按平台（LX code）取链。 */

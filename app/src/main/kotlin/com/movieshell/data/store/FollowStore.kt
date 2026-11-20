@@ -63,7 +63,7 @@ object FollowStore {
     /**
      * v0.186.0：读改写同一把锁——follow/unfollow/mark 系列的读表加写盘全程串行，
      * UI 与 FollowCheckWorker 并发写同一 prefs 时后写者不再覆盖先写者的改动。
-     * 纯读（readSync/isFollowing/getWatchedEpisode）不动：SharedPreferences 单值读是原子的，
+     * 纯读（readSync/getWatchedEpisode）不动：SharedPreferences 单值读是原子的，
      * commit 写盘同步可见；init 的 Synchronized 守门与开关单值读写也不重复加锁。
      */
     private val mutex = Mutex()
@@ -76,9 +76,6 @@ object FollowStore {
     }
 
     fun idOf(sourceKey: String, vodId: String) = "$sourceKey|$vodId"
-
-    suspend fun isFollowing(context: Context, id: String): Boolean =
-        withContext(Dispatchers.IO) { readAll(context).any { it.id == id } }
 
     /** v0.71.0：读"看到第几集"（-1=没看过），供详情页选集已看标记。 */
     suspend fun getWatchedEpisode(context: Context, id: String): Int =

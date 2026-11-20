@@ -128,10 +128,6 @@ object BookRuleEngine {
             .getOrElse { FetchOutcome(null, null, it) }
     }
 
-    /** v0.197.0：按 SearchRequest 抓搜索页；POST 发表单，body 按 charset 编字节。 */
-    suspend fun fetchSearchHtml(request: SearchRequest, options: FetchOptions = FetchOptions()): String? =
-        fetchSearchPage(request, options = options)?.body
-
     /** v0.199.0：按 SearchRequest 抓搜索页，返回正文与落地 URL。 */
     suspend fun fetchSearchPage(
         request: SearchRequest,

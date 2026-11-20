@@ -57,7 +57,7 @@ object ParseStore {
 
     // ---------------- v0.294.7（M4）：线路成绩（成功率排序） ----------------
 
-    private data class Stat(val ok: Int, val fail: Int, val avgMs: Long)
+    internal data class Stat(val ok: Int, val fail: Int, val avgMs: Long)
     private val stats = java.util.concurrent.ConcurrentHashMap<String, Stat>()
     private val softFails = java.util.concurrent.ConcurrentHashMap<String, Int>()
     private const val SOFT_TRIP_COUNT = 3
@@ -99,16 +99,34 @@ object ParseStore {
     @Volatile private var appCtx: Context? = null
     @Volatile private var statsLoaded = false
 
+    /**
+     * v1.3.33 B-P2-6：单行解析（纯函数，供单测）：格式 key\tok\tfail\tavgMs，
+     * 任一字段非法返回 null，调用方跳过该行并记日志，不再整段丢掉。
+     */
+    internal fun parseStatsLine(line: String): Pair<String, Stat>? {
+        val parts = line.split('\t')
+        if (parts.size != 4) return null
+        val ok = parts[1].toIntOrNull() ?: return null
+        val fail = parts[2].toIntOrNull() ?: return null
+        val avg = parts[3].toLongOrNull() ?: return null
+        return parts[0] to Stat(ok, fail, avg)
+    }
+
     private fun loadStats(context: Context) {
         if (statsLoaded) return
-        statsLoaded = true
-        runCatching {
-            val raw = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString(KEY_STATS, null) ?: return
-            raw.split('\n').forEach { line ->
-                val parts = line.split('\t')
-                if (parts.size == 4) stats[parts[0]] = Stat(parts[1].toInt(), parts[2].toInt(), parts[3].toLong())
+        val loadedOk = runCatching {
+            val raw = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString(KEY_STATS, null)
+            if (raw != null) {
+                raw.split('\n').forEach { line ->
+                    parseStatsLine(line)?.let { (k, st) -> stats[k] = st }
+                        ?: LogBus.w("ParseStore", "解析统计坏行已跳过：${line.take(80)}")
+                }
             }
-        }
+        }.isSuccess
+        // v1.3.33 B-P2-6：statsLoaded 原来在解析前就置 true，prefs 读异常后
+        // 不再重加载；现在逐行隔离、解析本身不再整体失败，跑完才置位，
+        // 读异常时下次调用重试。
+        if (loadedOk) statsLoaded = true
     }
 
     private fun persistStatsLater() {

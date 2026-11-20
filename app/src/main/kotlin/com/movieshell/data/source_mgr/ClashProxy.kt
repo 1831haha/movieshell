@@ -52,6 +52,15 @@ object ClashProxy {
     private lateinit var appContext: Context
     private lateinit var prefs: SharedPreferences
 
+    /**
+     * v1.3.33 B-P2-8：集中式初始化检查。init() 由 XiaYingApp.onCreate 调，
+     * 正常启动路径安全；但单元测试或早于 Application.onCreate 的调用点
+     * （如 ContentProvider）会撞上 lateinit 未初始化。各方法按语义处理，
+     * 不返回同一个假默认值——subscriptionDir() 尤其不能随便返当前目录或
+     * 空路径（会误写文件），未初始化时明确抛错。
+     */
+    private fun isReady(): Boolean = ::appContext.isInitialized && ::prefs.isInitialized
+
     /** 源 key → 该源贡献的 host 集（内存镜像，随改随存）。 */
     private val hostsBySource = ConcurrentHashMap<String, MutableSet<String>>()
 
@@ -101,20 +110,30 @@ object ClashProxy {
     fun mixedPort(): Int? = controllerPort()?.plus(1)
 
     /** 订阅文件目录（私有目录，服务启动时 TMPDIR 指向的 service_tmp 下）。 */
-    fun subscriptionDir(): File = File(File(appContext.filesDir, "service_tmp"), "clash")
+    fun subscriptionDir(): File {
+        check(isReady()) { "ClashProxy 未初始化：先调 init(context)" }
+        return File(File(appContext.filesDir, "service_tmp"), "clash")
+    }
 
     /** mihomo file 型 provider 读的订阅文件。 */
     fun subFile(): File = File(subscriptionDir(), "sub.yaml")
 
     /** 订阅文件是否已拉取过。 */
-    fun hasSubscription(): Boolean = runCatching { subFile().let { it.isFile && it.length() > 0 } }.getOrDefault(false)
+    fun hasSubscription(): Boolean {
+        if (!isReady()) return false
+        return runCatching { subFile().let { it.isFile && it.length() > 0 } }.getOrDefault(false)
+    }
 
     // ---------------- 订阅 ----------------
 
-    fun subscriptionUrl(): String = prefs.getString(KEY_SUB_URL, "").orEmpty()
+    fun subscriptionUrl(): String {
+        if (!isReady()) return ""
+        return prefs.getString(KEY_SUB_URL, "").orEmpty()
+    }
 
     /** 存订阅链接（只做格式校验：须是 http(s) 地址）。 */
     fun setSubscriptionUrl(url: String): Boolean {
+        if (!isReady()) return false
         val u = url.trim()
         if (!u.startsWith("http://") && !u.startsWith("https://")) return false
         prefs.edit().putString(KEY_SUB_URL, u).apply()
@@ -188,7 +207,10 @@ object ClashProxy {
 
     fun isSourceProxied(key: String): Boolean = enabledKeys().contains(key)
 
-    fun enabledKeys(): Set<String> = prefs.getStringSet(KEY_SOURCE_PROXY, emptySet()).orEmpty().toSet()
+    fun enabledKeys(): Set<String> {
+        if (!isReady()) return emptySet()
+        return prefs.getStringSet(KEY_SOURCE_PROXY, emptySet()).orEmpty().toSet()
+    }
 
     /**
      * 开/关某源的代理。开时把该源的 base host（调用方传，如规则 homeUrl / CMS 接口地址
@@ -196,6 +218,10 @@ object ClashProxy {
      * 生效集只算已开 key 的并集，关了就不生效）。
      */
     fun setSourceProxied(key: String, on: Boolean, baseUrls: Collection<String> = emptyList()) {
+        if (!isReady()) {
+            LogBus.w(TAG, "ClashProxy 未初始化，忽略代理开关写入：$key")
+            return
+        }
         val keys = enabledKeys().toMutableSet()
         if (on) keys.add(key) else keys.remove(key)
         prefs.edit().putStringSet(KEY_SOURCE_PROXY, keys).apply()
@@ -241,6 +267,7 @@ object ClashProxy {
 
     private fun loadHostsBySource() {
         hostsBySource.clear()
+        if (!isReady()) return
         runCatching {
             val root = JSONObject(prefs.getString(KEY_HOSTS_BY_SOURCE, "{}").orEmpty())
             root.keys().forEach { key ->
@@ -255,6 +282,7 @@ object ClashProxy {
     }
 
     private fun persistHostsBySource() {
+        if (!isReady()) return
         runCatching {
             val root = JSONObject()
             hostsBySource.forEach { (k, v) ->

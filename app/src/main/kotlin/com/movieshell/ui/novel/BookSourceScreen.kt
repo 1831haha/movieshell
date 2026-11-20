@@ -522,8 +522,13 @@ fun BookSourceScreen(
                         AppSwitch(
                             checked = r.name in pyEnabled,
                             onCheckedChange = {
-                                if (!PyBookSourceManager.setEnabled(context, r.name, it)) {
-                                    AppToast.show(context, "保存失败", long = false)
+                                scope.launch {
+                                    // v1.3.33 B-P2-7：写盘改 IO 线程（suspend），失败提示；
+                                    // 管理器已回滚内存表，开关随 StateFlow 旧值自动弹回，
+                                    // 不用手动复位（同款见下行 JSON 书源）。
+                                    if (!PyBookSourceManager.setEnabled(context, r.name, it)) {
+                                        AppToast.show(context, "保存失败", long = false)
+                                    }
                                 }
                             },
                         )

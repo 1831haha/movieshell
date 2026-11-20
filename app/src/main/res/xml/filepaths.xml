@@ -9,8 +9,7 @@
     <external-path name="xiaying_web" path="xiaying/web/" />
     <external-path name="xiaying_php" path="xiaying/php/" />
     <!-- v0.25.0：崩溃日志 zip（cacheDir）分享用 -->
-    <!-- v0.188.0 注：此处暂未收窄——CrashHandler.exportZip 把 zip 直接写在 -->
-    <!-- cacheDir 根目录，cache-path 一旦改成子目录就会断崩溃分享；要收窄须先把 -->
-    <!-- zip 移到 cacheDir 下的专用子目录（CrashHandler 侧改动，不在本版 M31 文件内）。 -->
+    <!-- v1.3.33 B-P2-11：CrashHandler.exportZip 已删（设置页导出崩溃日志入口早已 -->
+    <!-- 撤掉，生产+单测零调用）；cache-path 暂留原样，不收窄、不动。 -->
     <cache-path name="cache" path="." />
 </paths>

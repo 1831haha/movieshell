@@ -47,26 +47,33 @@ class AdFilteringDataSource(
             return length
         }
 
+        // v1.3.33 B-P1-1：Content-Length 是服务端可控的 Long，先判上限再分配——
+        // >8MB 直接透传不进过滤（还没读过上游，一字不丢）；未知长度读满 8MB 即
+        // 明确失败（前 8MB 已被消费，假装透传会丢播放列表开头）。
+        if (decideFilter(length) == LengthDecision.PASSTHROUGH) return length
+
         // 把播放列表全文读出来（读本身失败直接抛给 Media3，不假装透传）
-        val buf = if (length == C.LENGTH_UNSET.toLong()) {
-            // 未知长度：读到 EOF
-            val baos = java.io.ByteArrayOutputStream()
-            val tmp = ByteArray(8192)
-            while (true) {
-                val n = upstream.read(tmp, 0, tmp.size)
-                if (n == C.RESULT_END_OF_INPUT) break
-                baos.write(tmp, 0, n)
+        val buf = try {
+            if (length == C.LENGTH_UNSET.toLong()) {
+                // 未知长度：有界读到 EOF，超 8MB 即抛（readCapped 内判）。
+                readCapped(MAX_PLAYLIST_BYTES) { b, off, len -> upstream.read(b, off, len) }
+            } else {
+                val data = ByteArray(length.toInt())
+                var off = 0
+                while (off < data.size) {
+                    val n = upstream.read(data, off, data.size - off)
+                    if (n == C.RESULT_END_OF_INPUT) break
+                    off += n
+                }
+                data.copyOf(off)
             }
-            baos.toByteArray()
-        } else {
-            val data = ByteArray(length.toInt())
-            var off = 0
-            while (off < data.size) {
-                val n = upstream.read(data, off, data.size - off)
-                if (n == C.RESULT_END_OF_INPUT) break
-                off += n
-            }
-            data.copyOf(off)
+        } catch (e: Exception) {
+            // v1.3.33 B-P1-1：读取异常时关上游、清过滤状态，再把异常交给 Media3。
+            runCatching { upstream.close() }
+            filteredStream = null
+            filteredBytes = null
+            isFiltered = false
+            throw e
         }
 
         val text = buf.toString(Charsets.UTF_8)
@@ -106,6 +113,44 @@ class AdFilteringDataSource(
     override fun getResponseHeaders(): Map<String, List<String>> = upstream.responseHeaders
 
     companion object {
+        /** 播放列表过滤上限 8MB（正常 m3u8 只有几 KB 到几十 KB）。 */
+        const val MAX_PLAYLIST_BYTES = 8 * 1024 * 1024
+
+        /** 已知/未知长度是否进过滤：进过滤才分配、才读全文。 */
+        enum class LengthDecision { FILTER, PASSTHROUGH }
+
+        /**
+         * v1.3.33 B-P1-1：长度决策（纯函数，供单测）。
+         * 未知长度进过滤（有界读）；已知长度 ≤0 或 >8MB 直接透传——
+         * 3,000,000,000 的 toInt() 是负数（会 NegativeArraySizeException），
+         * 5,000,000,000 的 toInt() 约 705MB（一次分配易 OOM）。
+         */
+        internal fun decideFilter(length: Long): LengthDecision {
+            if (length == C.LENGTH_UNSET.toLong()) return LengthDecision.FILTER
+            if (length <= 0L || length > MAX_PLAYLIST_BYTES) return LengthDecision.PASSTHROUGH
+            return LengthDecision.FILTER
+        }
+
+        /**
+         * v1.3.33 B-P1-1：有界读满——读到 EOF 返回已读字节；累计超 limit 即抛
+         * IOException。readChunk 返回单次读到的字节数（C.RESULT_END_OF_INPUT
+         * 表示 EOF；返回 0/负数时停读，防异常实现死循环）。纯函数，供单测。
+         */
+        internal fun readCapped(limit: Int, readChunk: (ByteArray, Int, Int) -> Int): ByteArray {
+            val baos = java.io.ByteArrayOutputStream()
+            val tmp = ByteArray(8192)
+            var total = 0
+            while (true) {
+                val n = readChunk(tmp, 0, tmp.size)
+                if (n == C.RESULT_END_OF_INPUT) break
+                if (n <= 0) break
+                total += n
+                if (total > limit) throw java.io.IOException("播放列表超过 ${limit / 1024 / 1024}MB 上限，拒绝过滤")
+                baos.write(tmp, 0, n)
+            }
+            return baos.toByteArray()
+        }
+
         /** 纯函数：是否当作播放列表处理（后缀 / Content-Type / 识别提示）。 */
         fun isPlaylistRequest(url: String, responseHeaders: Map<String, List<String>>?): Boolean {
             val path = url.substringBefore("?").substringBefore("#").lowercase()

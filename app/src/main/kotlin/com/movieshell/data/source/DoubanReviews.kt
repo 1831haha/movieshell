@@ -42,8 +42,41 @@ object DoubanReviews {
     private const val SUGGEST_URL = "https://movie.douban.com/j/subject_suggest?q="
     private const val INTERESTS_URL = "https://m.douban.com/rexxar/api/v2/movie/"
 
-    private val idCache = ConcurrentHashMap<String, String>()
-    private val reviewsCache = ConcurrentHashMap<String, List<DoubanReview>>()
+    private val idCache = ConcurrentHashMap<String, IdEntry>()
+    private val reviewsCache = ConcurrentHashMap<String, ReviewsEntry>()
+
+    /**
+     * v1.3.33 B-P2-5：缓存上限——片名→豆瓣 id 变化不频繁，TTL 24 小时/上限 500；
+     * 短评会更新，TTL 10 分钟/上限 300。TTL 与条目数一起做：只有 TTL 不够，
+     * 过期条目没人再访问就永远留在 Map 里。
+     */
+    private const val ID_TTL_MS = 24L * 60 * 60 * 1000
+    private const val ID_MAX_ENTRIES = 500
+    private const val REVIEWS_TTL_MS = 10L * 60 * 1000
+    private const val REVIEWS_MAX_ENTRIES = 300
+
+    private data class IdEntry(val id: String, val savedAt: Long)
+    private data class ReviewsEntry(val list: List<DoubanReview>, val savedAt: Long)
+
+    /** 是否过期（savedAt 距 now 超过 ttl）。纯函数，供单测。 */
+    internal fun isExpired(savedAt: Long, now: Long, ttlMs: Long): Boolean = now - savedAt > ttlMs
+
+    /**
+     * 有界淘汰：超上限时返回最旧一条的 key（按 savedAt），否则 null。
+     * 纯函数，供单测。
+     */
+    internal fun <T> oldestKeyIfOver(map: Map<String, T>, max: Int, savedAt: (T) -> Long): String? {
+        if (map.size <= max) return null
+        return map.entries.minByOrNull { savedAt(it.value) }?.key
+    }
+
+    /** 有界写入——超上限时删最旧一条；写入是低频操作（每新片一次），单次淘汰足够。 */
+    private fun <T> putBounded(
+        map: ConcurrentHashMap<String, T>, key: String, value: T, max: Int, savedAt: (T) -> Long,
+    ) {
+        map[key] = value
+        oldestKeyIfOver(map, max, savedAt)?.let { map.remove(it) }
+    }
 
     private val seasonSuffix = Regex(
         """\s*(第[一二三四五六七八九十0-9]+季|第[一二三四五六七八九十0-9]+部|S[0-9]+|Season\s*[0-9]+)\s*$""",
@@ -67,7 +100,10 @@ object DoubanReviews {
     suspend fun suggest(title: String): String? {
         val query = title.trim()
         if (query.isBlank()) return null
-        idCache[query]?.let { return it }
+        idCache[query]?.let { e ->
+            if (!isExpired(e.savedAt, System.currentTimeMillis(), ID_TTL_MS)) return e.id
+            idCache.remove(query, e)
+        }
         val id = try {
             withTimeoutOrNull(TIMEOUT_MS) {
                 parseSuggest(getText(SUGGEST_URL + URLEncoder.encode(query, "UTF-8")), query)
@@ -77,14 +113,17 @@ object DoubanReviews {
         } catch (e: Exception) {
             null
         }
-        if (id != null) idCache[query] = id
+        if (id != null) putBounded(idCache, query, IdEntry(id, System.currentTimeMillis()), ID_MAX_ENTRIES) { it.savedAt }
         return id
     }
 
     /** 按条目 id 取短评（第一页，最多 10 条）；失败回空列表。 */
     suspend fun interests(id: String): List<DoubanReview> {
         if (id.isBlank()) return emptyList()
-        reviewsCache[id]?.let { return it }
+        reviewsCache[id]?.let { e ->
+            if (!isExpired(e.savedAt, System.currentTimeMillis(), REVIEWS_TTL_MS)) return e.list
+            reviewsCache.remove(id, e)
+        }
         val list = try {
             withTimeoutOrNull(TIMEOUT_MS) {
                 parseInterests(getText(INTERESTS_URL + id + "/interests?count=$MAX_COUNT&status=P"))
@@ -94,7 +133,7 @@ object DoubanReviews {
         } catch (e: Exception) {
             emptyList()
         }
-        if (list.isNotEmpty()) reviewsCache[id] = list
+        if (list.isNotEmpty()) putBounded(reviewsCache, id, ReviewsEntry(list, System.currentTimeMillis()), REVIEWS_MAX_ENTRIES) { it.savedAt }
         return list
     }
 

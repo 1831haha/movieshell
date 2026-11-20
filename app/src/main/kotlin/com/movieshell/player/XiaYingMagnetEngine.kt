@@ -3,6 +3,7 @@ package com.movieshell.player
 import android.content.Context
 import com.movieshell.core.log.LogBus
 import fi.iki.elonen.NanoHTTPD
+import fi.iki.elonen.NanoHTTPD.Response
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
@@ -314,10 +315,6 @@ object XiaYingMagnetEngine {
         // 在元数据阶段反复调用 torrentFile()/remove()，疑似原生崩溃根源）。
         // 本引擎跑在独立 :magnet 进程，取消=杀进程，不再需要可取消的 handle。
         fun dht(): Long = runCatching { sm.dhtNodes() }.getOrDefault(-1L)
-        fun metaPeers(): Int = runCatching {
-            val h = hintHash?.let { sm.find(org.libtorrent4j.Sha1Hash.parseHex(it)) }
-            if (h != null && h.isValid) h.status().numPeers() else -1
-        }.getOrDefault(-1)
         status(MagnetStreamLogic.statusFetching(0, dht()))
         // v0.294.30：先用 8 秒并行尝试公共种子缓存（按 infohash 取 .torrent），
         // 同时让 DHT 暖机；缓存没命中再走 DHT/tracker 取元数据。

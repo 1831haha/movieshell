@@ -9,14 +9,17 @@ import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import coil.imageLoader
 import com.movieshell.core.log.LogBus
+import com.movieshell.player.danmaku.DanmakuSource
 import java.io.File
 import java.util.concurrent.TimeUnit
 
 /**
  * v0.162.0：图片缓存自动清理（修正版）。
  *
- * 只碰 image_cache，不碰 video_cache——视频是 SimpleCache，
+ * 只碰 image_cache 与 danmaku_cache，不碰 video_cache——视频是 SimpleCache，
  * 播放中删文件会坏索引，视频只走设置页手动清理（已做 release 再删）。
+ * 弹幕缓存是按片存的普通 json 文件（v1.3.33 B-P2-4 起也归这里定期清理），
+ * 外部直接删文件安全，不像 Coil DiskLruCache 有 journal。
  * 触发后不做 LRU 逐文件删除：Coil 磁盘缓存是 DiskLruCache，
  * 外部直接删文件会坏 journal；超阈值时走 Coil 官方 clear() 一次清掉，
  * 图片下次用时重下，安全优先于“留 70%”。
@@ -51,6 +54,10 @@ object CacheAutoClean {
                 }
                 LogBus.i("CacheAutoClean", "图片缓存超 1GB（${total / 1024 / 1024}MB），已清理")
             }
+            // v1.3.33 B-P2-4：弹幕缓存定期清理（过期全删 + 1000 个/256MB 上限删最旧），
+            // 失败不重试、不影响图片清理的结果（清理本身是尽力而为的 janitor）。
+            runCatching { DanmakuSource.cleanCache(applicationContext) }
+                .onFailure { LogBus.w("CacheAutoClean", "弹幕缓存清理失败：${it.message}") }
             return Result.success()
         }
     }
