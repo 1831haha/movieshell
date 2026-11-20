@@ -78,6 +78,7 @@ import com.movieshell.ui.components.TechDialog
 import com.movieshell.ui.components.V5Divider
 import com.movieshell.ui.components.dockClearance
 import com.movieshell.ui.theme.V5
+import com.movieshell.ui.theme.StaticGlowBackground
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -496,328 +497,331 @@ fun AiScreen() {
         if (target >= 0) listState.animateScrollToItem(target)
     }
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(v.background),
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(46.dp)
-                .padding(horizontal = V5.Gutter),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text("AI 助手", style = MaterialTheme.typography.titleLarge, color = v.onSurface)
-            Spacer(Modifier.width(8.dp))
-            Text(
-                text = subtitle,
-                style = MaterialTheme.typography.bodySmall,
-                color = v.outline,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f),
-            )
-            TextButton(onClick = { showClearConfirm = true }) {
-                Text("新对话")
-            }
-        }
-        // v1.1.12：新对话确认——点确认才清空整轮对话（含待发的图片和文件），取消什么都不做。
-        if (showClearConfirm) {
-            TechDialog(
-                onDismissRequest = { showClearConfirm = false },
-                title = "开始新对话？",
-                subtitle = "会清空整轮对话，包括待发的图片和文件，清空后找不回来。",
-                confirmText = "清空",
-                onConfirm = {
-                    showClearConfirm = false
-                    // v1.1.12：新对话清落盘时，待发的图与文件也一并清掉，别留着悬空的待发位。
-                    pendingImage = null
-                    pendingFile = null
-                    AiChatStore.clear(context)
-                },
-            ) {}
-        }
-        V5Divider()
-        if (messages.isEmpty() && !thinking) {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .weight(1f),
-                contentAlignment = Alignment.Center,
-            ) {
-                Column(
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    modifier = Modifier.padding(horizontal = 32.dp),
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .size(64.dp)
-                            .background(v.primary.copy(alpha = 0.10f), RoundedCornerShape(V5.CornerLg))
-                            .border(1.dp, v.primary.copy(alpha = 0.22f), RoundedCornerShape(V5.CornerLg)),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Icon(
-                            Icons.Outlined.SmartToy,
-                            contentDescription = null,
-                            tint = v.primary,
-                            modifier = Modifier.size(26.dp),
-                        )
-                    }
-                    Spacer(Modifier.height(18.dp))
-                    Text("和 AI 聊写源、修源", fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = v.onSurface)
-                    Spacer(Modifier.height(6.dp))
-                    Text(
-                        "粘贴报错、日志，或者让 AI 按网址写新源；截图可以直接发，文本文件（.py/.js/.txt 这类）也能发，换模型后追问还会把最近的图和文件带上；看图要支持视觉的模型（设置里换模型；豆包方舟接入点在设置里打开「我的模型支持看图」）。",
-                        fontSize = 12.sp,
-                        color = v.outline,
-                    )
-                    if (AiRepairSettings.apiKey(context).isBlank()) {
-                        Spacer(Modifier.height(6.dp))
-                        Text(
-                            "先去设置 - AI 助手里填 API Key",
-                            fontSize = 12.sp,
-                            color = v.onSurfaceVariant,
-                        )
-                    }
-                }
-            }
-        } else {
-            LazyColumn(
-                state = listState,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .weight(1f),
-                contentPadding = PaddingValues(horizontal = V5.Gutter, vertical = 8.dp),
-            ) {
-                itemsIndexed(messages, key = { index, _ -> index }) { _, msg ->
-                    MessageRow(msg, onAskAi = { text -> sendMessage(text) })
-                }
-                if (thinking) {
-                    item {
-                        Text(
-                            text = "AI 思考中…",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = v.onSurfaceVariant,
-                            modifier = Modifier.padding(vertical = 4.dp),
-                        )
-                    }
-                }
-            }
-        }
-        // 输入行精致化：附件 chip 在上、输入卡片在下；只改外观，发送条件与禁用口径一字不改。
+    // v1.3.33：二级页静态渐变底。
+    Box(Modifier.fillMaxSize()) {
+        StaticGlowBackground(Modifier.fillMaxSize())
         Column(
             modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = V5.Gutter)
-                .padding(top = 8.dp, bottom = dockClearance()),
+                .fillMaxSize()
         ) {
-            // 待发附件 chip（图 / 文件各一枚，右上角 × 移除，落盘副本一并删掉）。
-            if (pendingImage != null || pendingFile != null) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    if (pendingImage != null) {
-                        Box(
-                            modifier = Modifier
-                                .weight(1f, fill = false)
-                                .background(v.surfaceContainerHighest, RoundedCornerShape(V5.CornerMd))
-                                // v1.2.14 E片：描边 outlineVariant 0.6 只有约 1.3:1，改 outline（4.27/5.86）
-                                .border(1.dp, v.outline, RoundedCornerShape(V5.CornerMd))
-                                .padding(6.dp),
-                        ) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                AsyncImage(
-                                    model = AiChatStore.imageFile(context, pendingImage!!),
-                                    contentDescription = "待发图片",
-                                    contentScale = ContentScale.Crop,
-                                    modifier = Modifier
-                                        .size(40.dp)
-                                        .clip(RoundedCornerShape(8.dp)),
-                                )
-                                Spacer(Modifier.width(8.dp))
-                                Text(
-                                    text = "已选一张图",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = v.onSurfaceVariant,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                )
-                                // 给右上角 × 留位，别让文字顶到它。
-                                Spacer(Modifier.width(20.dp))
-                            }
-                            Box(
-                                modifier = Modifier
-                                    .align(Alignment.TopEnd)
-                                    .size(20.dp)
-                                    .background(v.surfaceContainer, CircleShape)
-                                    // v1.2.14 E片：描边 outlineVariant 0.6 只有约 1.3:1，改 outline（4.27/5.86）
-                                    .border(1.dp, v.outline, CircleShape)
-                                    .clickable {
-                                        pendingImage?.let { AiChatStore.deleteImage(context, it) }
-                                        pendingImage = null
-                                    },
-                                contentAlignment = Alignment.Center,
-                            ) {
-                                Icon(
-                                    Icons.Filled.Close,
-                                    contentDescription = "移除图片",
-                                    tint = v.onSurfaceVariant,
-                                    modifier = Modifier.size(12.dp),
-                                )
-                            }
-                        }
-                    }
-                    pendingFile?.let { pf ->
-                        Box(
-                            modifier = Modifier
-                                .weight(1f)
-                                .background(v.surfaceContainerHighest, RoundedCornerShape(V5.CornerMd))
-                                // v1.2.14 E片：描边 outlineVariant 0.6 只有约 1.3:1，改 outline（4.27/5.86）
-                                .border(1.dp, v.outline, RoundedCornerShape(V5.CornerMd))
-                                .padding(6.dp),
-                        ) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(
-                                    Icons.Outlined.UploadFile,
-                                    contentDescription = null,
-                                    tint = v.primary,
-                                    modifier = Modifier.size(18.dp),
-                                )
-                                Spacer(Modifier.width(8.dp))
-                                Text(
-                                    text = buildString {
-                                        append(pf.displayName)
-                                        append(" · ")
-                                        append(formatFileSize(pf.sizeBytes))
-                                        append(" · ")
-                                        append(pf.lineCount)
-                                        append(" 行")
-                                        if (pf.truncated) append("（内容过长，只发前 8000 字）")
-                                    },
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = v.onSurfaceVariant,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                    modifier = Modifier.weight(1f),
-                                )
-                                Spacer(Modifier.width(20.dp))
-                            }
-                            Box(
-                                modifier = Modifier
-                                    .align(Alignment.TopEnd)
-                                    .size(20.dp)
-                                    .background(v.surfaceContainer, CircleShape)
-                                    // v1.2.14 E片：描边 outlineVariant 0.6 只有约 1.3:1，改 outline（4.27/5.86）
-                                    .border(1.dp, v.outline, CircleShape)
-                                    .clickable {
-                                        pendingFile?.let { AiChatStore.deleteStagedFile(context, it.storedName) }
-                                        pendingFile = null
-                                    },
-                                contentAlignment = Alignment.Center,
-                            ) {
-                                Icon(
-                                    Icons.Filled.Close,
-                                    contentDescription = "移除文件",
-                                    tint = v.onSurfaceVariant,
-                                    modifier = Modifier.size(12.dp),
-                                )
-                            }
-                        }
-                    }
-                }
-                Spacer(Modifier.height(8.dp))
-            }
-            // v1.3.25 合并 3：AI 操作开关——开着时“暂停/切集/搜片/换源”
-            // 这类话由 AI 直接操作 App，执行结果写进对话；关了只聊天。
-            // v1.3.25 UI 优化：开关放右侧（与设置页习惯一致），标题与说明分两行，
-            // 关掉时说明同步变灰。
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = "允许 AI 操作 App",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = v.onSurface,
-                    )
-                    Text(
-                        text = "暂停、切集、搜片、换源，执行结果写进对话",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = v.onSurfaceVariant.copy(alpha = if (agentMode) 1f else 0.55f),
-                    )
-                }
-                Switch(
-                    checked = agentMode,
-                    onCheckedChange = { agentMode = it },
-                    enabled = !thinking,
-                )
-            }
-            Spacer(Modifier.height(8.dp))
-            // 输入卡片：surfaceContainer 底 + outlineVariant 微光描边 + CornerLg。
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .background(v.surfaceContainer, RoundedCornerShape(V5.CornerLg))
-                    // v1.2.14 E片：描边 outlineVariant 0.6 只有约 1.3:1，改 outline（4.27/5.86）
-                    .border(1.dp, v.outline, RoundedCornerShape(V5.CornerLg))
-                    .padding(horizontal = 8.dp, vertical = 8.dp),
+                    .height(46.dp)
+                    .padding(horizontal = V5.Gutter),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                // 选文件按钮（系统文件选择器，只认文本文件）；思考中不可再选，避免待发文件被中途换掉。
-                FilledTonalIconButton(
-                    onClick = { pickFile.launch("*/*") },
-                    enabled = !thinking,
-                    modifier = Modifier.size(40.dp),
-                    shape = CircleShape,
-                ) {
-                    Icon(
-                        Icons.Outlined.UploadFile,
-                        contentDescription = "选文件",
-                    )
-                }
-                // 选图按钮（系统图片选择器）；思考中不可再选，避免待发图被中途换掉。
-                FilledTonalIconButton(
-                    onClick = { pickImage.launch("image/*") },
-                    enabled = !thinking,
-                    modifier = Modifier.size(40.dp),
-                    shape = CircleShape,
-                ) {
-                    Icon(
-                        Icons.Outlined.Image,
-                        contentDescription = "选图",
-                    )
-                }
-                TechTextField(
-                    value = input,
-                    onValueChange = { input = it },
-                    placeholder = "发消息给 AI…（可粘贴日志）",
-                    singleLine = false,
-                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
-                    keyboardActions = KeyboardActions(onSend = { if (sendMessage(input)) input = "" }),
-                    modifier = Modifier
-                        .weight(1f)
-                        .heightIn(max = 120.dp),
+                Text("AI 助手", style = MaterialTheme.typography.titleLarge.copy(fontSize = 18.sp), color = v.onSurface)
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    text = subtitle,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = v.outline,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f),
                 )
-                FilledIconButton(
-                    onClick = { if (sendMessage(input)) input = "" },
-                    enabled = !thinking && (input.isNotBlank() || pendingImage != null || pendingFile != null),
-                    modifier = Modifier.size(40.dp),
-                    shape = CircleShape,
-                    colors = IconButtonDefaults.filledIconButtonColors(
-                        containerColor = v.primary,
-                        contentColor = v.onPrimary,
-                    ),
+                TextButton(onClick = { showClearConfirm = true }) {
+                    Text("新对话")
+                }
+            }
+            // v1.1.12：新对话确认——点确认才清空整轮对话（含待发的图片和文件），取消什么都不做。
+            if (showClearConfirm) {
+                TechDialog(
+                    onDismissRequest = { showClearConfirm = false },
+                    title = "开始新对话？",
+                    subtitle = "会清空整轮对话，包括待发的图片和文件，清空后找不回来。",
+                    confirmText = "清空",
+                    onConfirm = {
+                        showClearConfirm = false
+                        // v1.1.12：新对话清落盘时，待发的图与文件也一并清掉，别留着悬空的待发位。
+                        pendingImage = null
+                        pendingFile = null
+                        AiChatStore.clear(context)
+                    },
+                ) {}
+            }
+            V5Divider()
+            if (messages.isEmpty() && !thinking) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f),
+                    contentAlignment = Alignment.Center,
                 ) {
-                    Icon(
-                        Icons.Filled.ArrowUpward,
-                        contentDescription = "发送",
-                        modifier = Modifier.size(20.dp),
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        modifier = Modifier.padding(horizontal = 32.dp),
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(64.dp)
+                                .background(v.primary.copy(alpha = 0.10f), RoundedCornerShape(V5.CornerLg))
+                                .border(1.dp, v.primary.copy(alpha = 0.22f), RoundedCornerShape(V5.CornerLg)),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Icon(
+                                Icons.Outlined.SmartToy,
+                                contentDescription = null,
+                                tint = v.primary,
+                                modifier = Modifier.size(26.dp),
+                            )
+                        }
+                        Spacer(Modifier.height(18.dp))
+                        Text("和 AI 聊写源、修源", fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = v.onSurface)
+                        Spacer(Modifier.height(6.dp))
+                        Text(
+                            "粘贴报错、日志，或者让 AI 按网址写新源；截图可以直接发，文本文件（.py/.js/.txt 这类）也能发，换模型后追问还会把最近的图和文件带上；看图要支持视觉的模型（设置里换模型；豆包方舟接入点在设置里打开「我的模型支持看图」）。",
+                            fontSize = 12.sp,
+                            color = v.outline,
+                        )
+                        if (AiRepairSettings.apiKey(context).isBlank()) {
+                            Spacer(Modifier.height(6.dp))
+                            Text(
+                                "先去设置 - AI 助手里填 API Key",
+                                fontSize = 12.sp,
+                                color = v.onSurfaceVariant,
+                            )
+                        }
+                    }
+                }
+            } else {
+                LazyColumn(
+                    state = listState,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f),
+                    contentPadding = PaddingValues(horizontal = V5.Gutter, vertical = 8.dp),
+                ) {
+                    itemsIndexed(messages, key = { index, _ -> index }) { _, msg ->
+                        MessageRow(msg, onAskAi = { text -> sendMessage(text) })
+                    }
+                    if (thinking) {
+                        item {
+                            Text(
+                                text = "AI 思考中…",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = v.onSurfaceVariant,
+                                modifier = Modifier.padding(vertical = 4.dp),
+                            )
+                        }
+                    }
+                }
+            }
+            // 输入行精致化：附件 chip 在上、输入卡片在下；只改外观，发送条件与禁用口径一字不改。
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = V5.Gutter)
+                    .padding(top = 8.dp, bottom = dockClearance()),
+            ) {
+                // 待发附件 chip（图 / 文件各一枚，右上角 × 移除，落盘副本一并删掉）。
+                if (pendingImage != null || pendingFile != null) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        if (pendingImage != null) {
+                            Box(
+                                modifier = Modifier
+                                    .weight(1f, fill = false)
+                                    .background(v.surfaceContainerHighest, RoundedCornerShape(V5.CornerMd))
+                                    // v1.2.14 E片：描边 outlineVariant 0.6 只有约 1.3:1，改 outline（4.27/5.86）
+                                    .border(1.dp, v.outline, RoundedCornerShape(V5.CornerMd))
+                                    .padding(6.dp),
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    AsyncImage(
+                                        model = AiChatStore.imageFile(context, pendingImage!!),
+                                        contentDescription = "待发图片",
+                                        contentScale = ContentScale.Crop,
+                                        modifier = Modifier
+                                            .size(40.dp)
+                                            .clip(RoundedCornerShape(8.dp)),
+                                    )
+                                    Spacer(Modifier.width(8.dp))
+                                    Text(
+                                        text = "已选一张图",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = v.onSurfaceVariant,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
+                                    // 给右上角 × 留位，别让文字顶到它。
+                                    Spacer(Modifier.width(20.dp))
+                                }
+                                Box(
+                                    modifier = Modifier
+                                        .align(Alignment.TopEnd)
+                                        .size(20.dp)
+                                        .background(v.surfaceContainer, CircleShape)
+                                        // v1.2.14 E片：描边 outlineVariant 0.6 只有约 1.3:1，改 outline（4.27/5.86）
+                                        .border(1.dp, v.outline, CircleShape)
+                                        .clickable {
+                                            pendingImage?.let { AiChatStore.deleteImage(context, it) }
+                                            pendingImage = null
+                                        },
+                                    contentAlignment = Alignment.Center,
+                                ) {
+                                    Icon(
+                                        Icons.Filled.Close,
+                                        contentDescription = "移除图片",
+                                        tint = v.onSurfaceVariant,
+                                        modifier = Modifier.size(12.dp),
+                                    )
+                                }
+                            }
+                        }
+                        pendingFile?.let { pf ->
+                            Box(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .background(v.surfaceContainerHighest, RoundedCornerShape(V5.CornerMd))
+                                    // v1.2.14 E片：描边 outlineVariant 0.6 只有约 1.3:1，改 outline（4.27/5.86）
+                                    .border(1.dp, v.outline, RoundedCornerShape(V5.CornerMd))
+                                    .padding(6.dp),
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(
+                                        Icons.Outlined.UploadFile,
+                                        contentDescription = null,
+                                        tint = v.primary,
+                                        modifier = Modifier.size(18.dp),
+                                    )
+                                    Spacer(Modifier.width(8.dp))
+                                    Text(
+                                        text = buildString {
+                                            append(pf.displayName)
+                                            append(" · ")
+                                            append(formatFileSize(pf.sizeBytes))
+                                            append(" · ")
+                                            append(pf.lineCount)
+                                            append(" 行")
+                                            if (pf.truncated) append("（内容过长，只发前 8000 字）")
+                                        },
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = v.onSurfaceVariant,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                        modifier = Modifier.weight(1f),
+                                    )
+                                    Spacer(Modifier.width(20.dp))
+                                }
+                                Box(
+                                    modifier = Modifier
+                                        .align(Alignment.TopEnd)
+                                        .size(20.dp)
+                                        .background(v.surfaceContainer, CircleShape)
+                                        // v1.2.14 E片：描边 outlineVariant 0.6 只有约 1.3:1，改 outline（4.27/5.86）
+                                        .border(1.dp, v.outline, CircleShape)
+                                        .clickable {
+                                            pendingFile?.let { AiChatStore.deleteStagedFile(context, it.storedName) }
+                                            pendingFile = null
+                                        },
+                                    contentAlignment = Alignment.Center,
+                                ) {
+                                    Icon(
+                                        Icons.Filled.Close,
+                                        contentDescription = "移除文件",
+                                        tint = v.onSurfaceVariant,
+                                        modifier = Modifier.size(12.dp),
+                                    )
+                                }
+                            }
+                        }
+                    }
+                    Spacer(Modifier.height(8.dp))
+                }
+                // v1.3.25 合并 3：AI 操作开关——开着时“暂停/切集/搜片/换源”
+                // 这类话由 AI 直接操作 App，执行结果写进对话；关了只聊天。
+                // v1.3.25 UI 优化：开关放右侧（与设置页习惯一致），标题与说明分两行，
+                // 关掉时说明同步变灰。
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "允许 AI 操作 App",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = v.onSurface,
+                        )
+                        Text(
+                            text = "暂停、切集、搜片、换源，执行结果写进对话",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = v.onSurfaceVariant.copy(alpha = if (agentMode) 1f else 0.55f),
+                        )
+                    }
+                    Switch(
+                        checked = agentMode,
+                        onCheckedChange = { agentMode = it },
+                        enabled = !thinking,
                     )
+                }
+                Spacer(Modifier.height(8.dp))
+                // 输入卡片：surfaceContainer 底 + outlineVariant 微光描边 + CornerLg。
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(v.surfaceContainer, RoundedCornerShape(V5.CornerLg))
+                        // v1.2.14 E片：描边 outlineVariant 0.6 只有约 1.3:1，改 outline（4.27/5.86）
+                        .border(1.dp, v.outline, RoundedCornerShape(V5.CornerLg))
+                        .padding(horizontal = 8.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    // 选文件按钮（系统文件选择器，只认文本文件）；思考中不可再选，避免待发文件被中途换掉。
+                    FilledTonalIconButton(
+                        onClick = { pickFile.launch("*/*") },
+                        enabled = !thinking,
+                        modifier = Modifier.size(40.dp),
+                        shape = CircleShape,
+                    ) {
+                        Icon(
+                            Icons.Outlined.UploadFile,
+                            contentDescription = "选文件",
+                        )
+                    }
+                    // 选图按钮（系统图片选择器）；思考中不可再选，避免待发图被中途换掉。
+                    FilledTonalIconButton(
+                        onClick = { pickImage.launch("image/*") },
+                        enabled = !thinking,
+                        modifier = Modifier.size(40.dp),
+                        shape = CircleShape,
+                    ) {
+                        Icon(
+                            Icons.Outlined.Image,
+                            contentDescription = "选图",
+                        )
+                    }
+                    TechTextField(
+                        value = input,
+                        onValueChange = { input = it },
+                        placeholder = "发消息给 AI…（可粘贴日志）",
+                        singleLine = false,
+                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
+                        keyboardActions = KeyboardActions(onSend = { if (sendMessage(input)) input = "" }),
+                        modifier = Modifier
+                            .weight(1f)
+                            .heightIn(max = 120.dp),
+                    )
+                    FilledIconButton(
+                        onClick = { if (sendMessage(input)) input = "" },
+                        enabled = !thinking && (input.isNotBlank() || pendingImage != null || pendingFile != null),
+                        modifier = Modifier.size(40.dp),
+                        shape = CircleShape,
+                        colors = IconButtonDefaults.filledIconButtonColors(
+                            containerColor = v.primary,
+                            contentColor = v.onPrimary,
+                        ),
+                    ) {
+                        Icon(
+                            Icons.Filled.ArrowUpward,
+                            contentDescription = "发送",
+                            modifier = Modifier.size(20.dp),
+                        )
+                    }
                 }
             }
         }

@@ -65,7 +65,7 @@ fun VerifyGateDialog() {
         var pageUrl by remember(cur.url) { mutableStateOf(cur.url) }
         Surface(
             Modifier.fillMaxWidth(0.88f).fillMaxHeight(0.60f),
-            shape = RoundedCornerShape(20.dp),
+            shape = RoundedCornerShape(16.dp),
             tonalElevation = 6.dp,
         ) {
             Column(Modifier.fillMaxSize()) {

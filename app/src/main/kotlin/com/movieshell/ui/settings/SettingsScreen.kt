@@ -5,17 +5,16 @@ import androidx.compose.foundation.Image
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.Icon
 import com.movieshell.ui.components.V5RingGauge
-import com.movieshell.ui.components.V5Dot
 import com.movieshell.ui.components.V5Tile
 import com.movieshell.ui.theme.ok
 
 import com.movieshell.ui.theme.V5
+import com.movieshell.ui.theme.StaticGlowBackground
 import androidx.compose.ui.text.font.FontFamily
 import com.movieshell.ui.theme.ok
 
 import com.movieshell.ui.components.V5Tile
 import com.movieshell.ui.components.V5Row
-import com.movieshell.ui.components.V5Dot
 import com.movieshell.ui.components.V5RingGauge
 import com.movieshell.ui.components.dockClearance
 import androidx.compose.foundation.layout.PaddingValues
@@ -336,10 +335,11 @@ fun SettingsScreen(
     }
     // v1.2.7：设置页活布局——LazyColumn 与拖拽悬浮层同处一个 Box，悬浮副本才能跟手走。
     Box(Modifier.fillMaxSize()) {
+        // v1.3.33：二级页静态渐变底（LazyColumn 原来的 surfaceContainer 平底去掉）。
+        StaticGlowBackground(Modifier.fillMaxSize())
         LazyColumn(
             modifier = Modifier
-                .fillMaxSize()
-                .background(cs.surfaceContainer),
+                .fillMaxSize(),
             contentPadding = PaddingValues(
                 start = V5.Gutter,
                 end = V5.Gutter,
@@ -392,7 +392,7 @@ fun SettingsScreen(
                         .fillMaxWidth()
                         .clip(RoundedCornerShape(V5.CornerCard))
                         .background(cs.surfaceContainerLowest)
-                        .padding(horizontal = 8.dp, vertical = 16.dp),
+                        .padding(horizontal = 8.dp, vertical = 12.dp),
                 ) {
                     // v0.168.0：我的追剧与统计重复已去掉；289 去重：站源管理只留统计环“源”。
                     QuickEntry("嗅探正则", Icons.Outlined.ManageSearch, onSniffPatternsClick, Modifier.weight(1f))
@@ -716,7 +716,7 @@ private fun SettingsCaption(text: String) {
         text = text,
         style = MaterialTheme.typography.labelLarge,
         color = MaterialTheme.colorScheme.primary,
-        modifier = Modifier.padding(start = 16.dp, top = 22.dp, bottom = 8.dp),
+        modifier = Modifier.padding(start = 16.dp, top = 16.dp, bottom = 8.dp),
     )
 }
 
@@ -912,7 +912,7 @@ internal fun SegItem(
             .background(cs.surfaceContainerLowest)
             .then(if (onClick != null && enabled) Modifier.clickable(onClick = onClick) else Modifier)
             .then(if (!enabled) Modifier.alpha(0.45f) else Modifier)
-            .padding(horizontal = 16.dp, vertical = 14.dp),
+            .padding(horizontal = 16.dp, vertical = 10.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             if (leading != null) {
@@ -926,9 +926,9 @@ internal fun SegItem(
             ) {
                 Icon(icon, null, tint = cs.onPrimaryContainer, modifier = Modifier.size(22.dp))
             }
-            Spacer(Modifier.width(16.dp))
+            Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
-                Text(title, style = MaterialTheme.typography.bodyLarge, color = cs.onSurface, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(title, style = MaterialTheme.typography.bodyMedium, color = cs.onSurface, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 if (!subtitle.isNullOrBlank()) {
                     Text(
                         subtitle,

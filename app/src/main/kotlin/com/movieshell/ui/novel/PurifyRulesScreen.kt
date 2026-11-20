@@ -1,8 +1,10 @@
 package com.movieshell.ui.novel
 
 import androidx.compose.foundation.border
+import com.movieshell.ui.theme.StaticGlowBackground
 import com.movieshell.ui.components.AppSwitch
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -70,107 +72,118 @@ fun PurifyRulesScreen(
     }
     LaunchedEffect(Unit) { reload() }
 
-    Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            IconButton(onClick = onBack) {
-                Icon(Icons.AutoMirrored.Filled.ArrowBack, "返回", tint = accent)
-            }
-            Text("净化规则", style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.onSurface)
-            Spacer(Modifier.weight(1f))
-            IconButton(onClick = { showAdd = true }) {
-                Icon(Icons.Filled.Add, "新增规则", tint = accent)
-            }
-        }
-        Spacer(Modifier.height(4.dp))
-        Text(
-            "正文拉取后按顺序执行已启用的规则；正则写错会被跳过不影响其他规则",
-            fontSize = 12.sp,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        // v0.215.0：规则改动后已缓存章节不会自己变新——这里手动清缓存正文
-        // （目录保留，下次打开重拉并走新规则），不清则旧章节一直是旧样子。
-        var showClearCache by remember { mutableStateOf(false) }
-        Spacer(Modifier.height(8.dp))
-        OutlinedButton(onClick = { showClearCache = true }) {
-            Text("清除已缓存正文（规则改动后点这里）", fontSize = 13.sp)
-        }
-        if (showClearCache) {
-            TechDialog(
-                onDismissRequest = { showClearCache = false },
-                title = "清除已缓存正文？",
-                confirmText = "清除",
-                onConfirm = {
-                    showClearCache = false
-                    scope.launch {
-                        val n = NovelStore.clearCachedContents(context)
-                        AppToast.show(context, if (n > 0) "已清除 $n 本书的缓存正文，下次打开重拉" else "没有已缓存的正文可清", long = false)
-                    }
-                },
+    // v1.3.33：二级页静态渐变底。
+    Box(Modifier.fillMaxSize()) {
+        StaticGlowBackground(Modifier.fillMaxSize())
+        Column(modifier = Modifier.fillMaxSize().padding(horizontal = 8.dp, vertical = 16.dp)) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.padding(horizontal = 8.dp),
             ) {
-                Text("只清正文缓存，目录和进度不动；清掉的章节下次打开时会重新拉取并按新规则净化。")
+                IconButton(onClick = onBack) {
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack, "返回", tint = accent)
+                }
+                Text("净化规则", style = MaterialTheme.typography.titleLarge.copy(fontSize = 18.sp), color = MaterialTheme.colorScheme.onSurface)
+                Spacer(Modifier.weight(1f))
+                IconButton(onClick = { showAdd = true }) {
+                    Icon(Icons.Filled.Add, "新增规则", tint = accent)
+                }
             }
-        }
-        Spacer(Modifier.height(12.dp))
-        LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            itemsIndexed(rules, key = { i, r -> "$i-${r.name}-${r.regex}" }) { i, r ->
-                AppCard(modifier = Modifier.fillMaxWidth()) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth().padding(12.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                // v1.1.3：规则名一行截断——行尾多了编辑钮，列变窄了，
-                                // 长名字原来会换行顶高卡片。
+            Spacer(Modifier.height(4.dp))
+            Text(
+                "正文拉取后按顺序执行已启用的规则；正则写错会被跳过不影响其他规则",
+                fontSize = 12.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = 8.dp),
+            )
+            // v0.215.0：规则改动后已缓存章节不会自己变新——这里手动清缓存正文
+            // （目录保留，下次打开重拉并走新规则），不清则旧章节一直是旧样子。
+            var showClearCache by remember { mutableStateOf(false) }
+            Spacer(Modifier.height(8.dp))
+            OutlinedButton(
+                onClick = { showClearCache = true },
+                modifier = Modifier.padding(horizontal = 8.dp),
+            ) {
+                Text("清除已缓存正文（规则改动后点这里）", fontSize = 13.sp)
+            }
+            if (showClearCache) {
+                TechDialog(
+                    onDismissRequest = { showClearCache = false },
+                    title = "清除已缓存正文？",
+                    confirmText = "清除",
+                    onConfirm = {
+                        showClearCache = false
+                        scope.launch {
+                            val n = NovelStore.clearCachedContents(context)
+                            AppToast.show(context, if (n > 0) "已清除 $n 本书的缓存正文，下次打开重拉" else "没有已缓存的正文可清", long = false)
+                        }
+                    },
+                ) {
+                    Text("只清正文缓存，目录和进度不动；清掉的章节下次打开时会重新拉取并按新规则净化。")
+                }
+            }
+            Spacer(Modifier.height(12.dp))
+            LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                itemsIndexed(rules, key = { i, r -> "$i-${r.name}-${r.regex}" }) { i, r ->
+                    AppCard(modifier = Modifier.fillMaxWidth()) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    // v1.1.3：规则名一行截断——行尾多了编辑钮，列变窄了，
+                                    // 长名字原来会换行顶高卡片。
+                                    Text(
+                                        r.name.ifBlank { "未命名规则" },
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 15.sp,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
+                                    // v0.102.0 P2-3：内置规则标识；开关/删除走现有逻辑
+                                    if (r.builtin) {
+                                        Spacer(Modifier.width(6.dp))
+                                        Text(
+                                            "内置",
+                                            fontSize = 11.sp,
+                                            color = accent,
+                                            modifier = Modifier
+                                                .border(1.dp, accent, RoundedCornerShape(4.dp))
+                                                .padding(horizontal = 6.dp, vertical = 2.dp),
+                                        )
+                                    }
+                                }
+                                // v1.1.3：说明行最多两行截断——正则 take(40) 原来不限行，
+                                // 列变窄后会把卡片撑得很高。
                                 Text(
-                                    r.name.ifBlank { "未命名规则" },
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 15.sp,
-                                    maxLines = 1,
+                                    "${r.group.ifBlank { "未分组" }} · ${scopeLabel(r.scope)} · ${r.regex.take(40)}",
+                                    fontSize = 12.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 2,
                                     overflow = TextOverflow.Ellipsis,
                                 )
-                                // v0.102.0 P2-3：内置规则标识；开关/删除走现有逻辑
-                                if (r.builtin) {
-                                    Spacer(Modifier.width(6.dp))
-                                    Text(
-                                        "内置",
-                                        fontSize = 11.sp,
-                                        color = accent,
-                                        modifier = Modifier
-                                            .border(1.dp, accent, RoundedCornerShape(4.dp))
-                                            .padding(horizontal = 6.dp, vertical = 2.dp),
-                                    )
-                                }
                             }
-                            // v1.1.3：说明行最多两行截断——正则 take(40) 原来不限行，
-                            // 列变窄后会把卡片撑得很高。
-                            Text(
-                                "${r.group.ifBlank { "未分组" }} · ${scopeLabel(r.scope)} · ${r.regex.take(40)}",
-                                fontSize = 12.sp,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                maxLines = 2,
-                                overflow = TextOverflow.Ellipsis,
+                            AppSwitch(
+                                checked = r.enable,
+                                onCheckedChange = { en ->
+                                    scope.launch {
+                                        PurifyRuleStore.toggle(context, i, en)
+                                        reload()
+                                    }
+                                },
                             )
-                        }
-                        AppSwitch(
-                            checked = r.enable,
-                            onCheckedChange = { en ->
+                            IconButton(onClick = { editIndex = i }) {
+                                Icon(Icons.Filled.Edit, "编辑", tint = accent)
+                            }
+                            IconButton(onClick = {
                                 scope.launch {
-                                    PurifyRuleStore.toggle(context, i, en)
+                                    PurifyRuleStore.removeAt(context, i)
                                     reload()
                                 }
-                            },
-                        )
-                        IconButton(onClick = { editIndex = i }) {
-                            Icon(Icons.Filled.Edit, "编辑", tint = accent)
-                        }
-                        IconButton(onClick = {
-                            scope.launch {
-                                PurifyRuleStore.removeAt(context, i)
-                                reload()
+                            }) {
+                                Icon(Icons.Filled.Delete, "删除", tint = MaterialTheme.colorScheme.error)
                             }
-                        }) {
-                            Icon(Icons.Filled.Delete, "删除", tint = MaterialTheme.colorScheme.error)
                         }
                     }
                 }

@@ -68,6 +68,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import com.movieshell.ui.components.TechDialog
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.mutableIntStateOf
@@ -112,6 +113,7 @@ import com.movieshell.data.source.SourceRiskScanner
 import com.movieshell.data.source_mgr.PySourceManager
 import com.movieshell.core.util.SourceDeleteCleanup
 import com.movieshell.data.source_mgr.SourceProbe
+import com.movieshell.data.source_mgr.needsCheerioEngine
 import com.movieshell.data.store.toResult
 import com.movieshell.data.store.SourceProbeStore
 import com.movieshell.data.store.SourceStateStore
@@ -199,7 +201,13 @@ private val IMPORT_WEB = ImportTarget("web", listOf(".html", ".htm"), "网页源
 
 /** 导入结果 */
 internal sealed interface ImportResult {
-    data class Ok(val fileName: String) : ImportResult
+    /**
+     * v1.3.33：unsupportedCheerio=true 时文件已写入（保留），但它是 cheerio
+     * 类 drpy 规则、当前引擎不支持，调用方只提示、不自动设为当前源。
+     * 用标志位而不用新变体——MainActivity 分享导入的 when 是穷尽匹配，
+     * 加变体会逼改非本组文件。
+     */
+    data class Ok(val fileName: String, val unsupportedCheerio: Boolean = false) : ImportResult
     object WrongExt : ImportResult
     data class Failed(val reason: String) : ImportResult
     /** v1.3.25 合并 2：扫出高危风险——未写入，等用户在弹窗里确认后重调（skipRiskScan=true）。 */
@@ -238,6 +246,10 @@ internal fun importRuleFile(context: Context, uri: Uri, target: ImportTarget, sk
             LogBus.w("SourceRisk", "导入 $displayName 中危：" + finding.title)
         }
     }
+    // v1.3.33：cheerio 类 drpy 规则先记下来——文件照常写入（保留），但 Ok
+    // 里带 unsupportedCheerio 标志，调用方只提示、不自动设为当前源。
+    val cheerio = target.dirName == "drpy" &&
+        needsCheerioEngine(bytes.toString(Charsets.UTF_8))
     return try {
         val dir = targetDir(context, target.dirName)
         var dst = SafeFileName.childInside(dir, displayName)
@@ -248,7 +260,7 @@ internal fun importRuleFile(context: Context, uri: Uri, target: ImportTarget, sk
                 ?: return ImportResult.Failed("文件名非法")
         }
         dst.writeBytes(bytes)
-        ImportResult.Ok(dst.name)
+        ImportResult.Ok(dst.name, cheerio)
     } catch (e: Exception) {
         ImportResult.Failed(e.message ?: "未知错误")
     }
@@ -513,6 +525,8 @@ fun SourcesScreen(
     onGoHome: () -> Unit = {},
     // v1.1.3：检测页“去对话里改”跳 AI TAB
     onAiChatClick: () -> Unit = {},
+    // v1.3.33：小说/漫画类子站分流“去书源页”直达导航
+    onOpenBookSource: () -> Unit = {},
 ) {
     val context = LocalContext.current
     // v0.246.0：refresh 内部协程用——读盘放 IO，列表更新回主线程
@@ -789,6 +803,16 @@ fun SourcesScreen(
         // v0.271.0（T25）：Drpy 切源走 suspend 版，整个切换序列放 refreshScope.launch。
         switchJob?.cancel()
         switchJob = refreshScope.launch {
+        // v1.3.33：cheerio 类规则不许误设为当前源——先读文件判一次，命中
+        // 直接提示并返回，之前激活的源一个不动。
+        val isCheerio = runCatching {
+            needsCheerioEngine(File(StoragePaths.jsDir(context), name).readText())
+        }.getOrDefault(false)
+        if (isCheerio) {
+            LogBus.w("Cheerio", "激活 $name 被拦：cheerio 类规则，当前引擎不支持")
+            AppToast.show(context, "当前引擎不支持 cheerio 类规则（缺少 HTML 解析能力），未切换", long = true)
+            return@launch
+        }
         val prevDrpy = DrpySourceManager.activeRuleName()
         val prevPy = PySourceManager.activeRuleName()
         val prevPhp = PhpSourceManager.activeRuleName()
@@ -1096,10 +1120,18 @@ fun SourcesScreen(
                 when (target.dirName) {
                     "drpy" -> {
                         refreshDrpyRules()
-                        if (DrpySourceManager.activeRuleName() == null) {
-                            activateDrpy(r.fileName)
+                        // v1.3.33：cheerio 类规则不自动设为当前源（当前引擎不
+                        // 支持，缺少 HTML 解析能力），只提示；用户点它激活时
+                        // activateDrpy 里同样会被拦下来。
+                        if (r.unsupportedCheerio) {
+                            LogBus.w("Cheerio", "导入 ${r.fileName}：cheerio 类规则，当前引擎不支持，未设为当前源")
+                            AppToast.show(context, "已导入 ${r.fileName}，但当前引擎不支持 cheerio 类规则（缺少 HTML 解析能力），未设为当前源", long = true)
+                        } else {
+                            if (DrpySourceManager.activeRuleName() == null) {
+                                activateDrpy(r.fileName)
+                            }
+                            AppToast.show(context, "已导入 ${r.fileName}", long = false)
                         }
-                        AppToast.show(context, "已导入 ${r.fileName}", long = false)
                     }
                     "py" -> {
                         refreshPyRules()
@@ -1117,8 +1149,13 @@ fun SourcesScreen(
                         AppToast.show(context, "已导入 ${r.fileName}，可直接打开嗅探", long = false)
                     }
                     else -> {
-                        refreshTab(target.dirName)
-                        AppToast.show(context, "已保存到${target.label}，该类型执行引擎开发中", long = true)
+                        // v1.3.33：防御分支——当前导入目标只有 drpy/py/php/web
+                        // 四种，走到这里说明以后加了新目标但没接处理；不再谎报
+                        // “已保存”，记日志并明确告诉用户导入失败。
+                        // target.dirName 是字符串、不是可穷尽 sealed 类型，
+                        // 直接抛 IllegalStateException 会把以后加目标的路堵死。
+                        LogBus.w("Import", "未知导入目标 ${target.dirName}，文件未保存")
+                        AppToast.show(context, "导入失败：未知的导入目标 ${target.dirName}，文件未保存", long = true)
                     }
                 }
             }
@@ -2991,6 +3028,7 @@ private fun SubscriptionSiteRows(
     onSetCurrent: (subUrl: String, siteKey: String, siteName: String) -> Unit,
 ) {
     val context = LocalContext.current
+    val clipboard = LocalClipboardManager.current
     // v0.112.0：分组 chips 筛选（只有站点被标过分组才出现）
     val groups = remember(cache) {
         cache.sites.map { it.group.trim() }.filter { it.isNotBlank() }.distinct()
@@ -3082,6 +3120,26 @@ private fun SubscriptionSiteRows(
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
+                }
+                // v1.3.33：小说/漫画类子站分流——完整引擎不接，但不能只让用户
+                // 干看着：显示站点原始类型（订阅声明的 typeLabel），给“复制
+                // 地址”和“去书源页”直达导航；本站地址不能直接当 Legado 书源
+                // 导入，到书源页按书源格式导入。
+                if (!supported && rec.reason == SubSiteStore.REASON_NOVEL_COMIC) {
+                    Text(
+                        text = "原始类型：${rec.typeLabel.ifBlank { "小说/漫画" }}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    Row {
+                        TextButton(onClick = {
+                            clipboard.setText(AnnotatedString(rec.origApi.ifBlank { rec.api }))
+                            AppToast.show(context, "已复制地址", long = false)
+                        }) { Text("复制地址") }
+                        TextButton(onClick = { onOpenBookSource() }) { Text("去书源页") }
+                    }
                 }
             }
             Spacer(Modifier.width(8.dp))

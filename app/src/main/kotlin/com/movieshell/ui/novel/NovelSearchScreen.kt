@@ -1,6 +1,7 @@
 package com.movieshell.ui.novel
 
 import com.movieshell.ui.components.AppSearchBar
+import com.movieshell.ui.theme.StaticGlowBackground
 import com.movieshell.ui.components.AppHistoryChip
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
@@ -222,7 +223,7 @@ fun NovelSearchScreen(
                     Text(
                         item.title,
                         fontWeight = FontWeight.Bold,
-                        fontSize = 15.sp,
+                        fontSize = 14.sp,
                         maxLines = 2,
                         overflow = TextOverflow.Ellipsis,
                     )
@@ -272,330 +273,337 @@ fun NovelSearchScreen(
     }
     LaunchedEffect(pySourceName) { vm.setLockPyName(pySourceName) }
 
-    Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
-        if (!embedded) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            IconButton(onClick = onBack) {
-                Icon(Icons.AutoMirrored.Filled.ArrowBack, "返回", tint = accent)
-            }
-            Text(
-                // v0.66.0：锁定单源时标题显示源名
-                if (lockedPyRule != null) lockedPyRule.title else "找书",
-                style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.onSurface,
-                maxLines = 1,
-            )
-            Spacer(Modifier.weight(1f))
-            // v0.66.0：锁定单源时不显示书源管理入口
-            if (lockedPyRule == null) {
-                TextButton(onClick = onManageSources) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Filled.Source, "书源管理", tint = accent, modifier = Modifier.padding(end = 4.dp))
-                        Text("书源($totalEnabled)", color = accent, fontSize = 13.sp)
+    // v1.3.33：二级页静态渐变底。
+    Box(Modifier.fillMaxSize()) {
+        if (!embedded) StaticGlowBackground(Modifier.fillMaxSize())
+        Column(modifier = Modifier.fillMaxSize().padding(horizontal = 8.dp, vertical = 16.dp)) {
+            if (!embedded) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.padding(horizontal = 8.dp),
+            ) {
+                IconButton(onClick = onBack) {
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack, "返回", tint = accent)
+                }
+                Text(
+                    // v0.66.0：锁定单源时标题显示源名
+                    if (lockedPyRule != null) lockedPyRule.title else "找书",
+                    style = MaterialTheme.typography.titleLarge.copy(fontSize = 18.sp), color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 1,
+                )
+                Spacer(Modifier.weight(1f))
+                // v0.66.0：锁定单源时不显示书源管理入口
+                if (lockedPyRule == null) {
+                    TextButton(onClick = onManageSources) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Filled.Source, "书源管理", tint = accent, modifier = Modifier.padding(end = 4.dp))
+                            Text("书源($totalEnabled)", color = accent, fontSize = 13.sp)
+                        }
                     }
                 }
             }
-        }
-        Spacer(Modifier.height(12.dp))
-        }
-        // v0.195.0：自动聚焦（书架点搜索即输，不用再点一次框；框已外移到标题行时由外层聚焦）
-        val searchFocus = remember { FocusRequester() }
-        LaunchedEffect(autoFocus) {
-            if (autoFocus && !hideSearchField) searchFocus.requestFocus()
-        }
-        if (!hideSearchField) {
-        // v0.223.0：找书搜索框重设计——整条一体：左搜索图标 + 无框输入 +
-        // 右清除/搜索，不再是胶囊描边框 + 外挂搜索钮；填充底 + 聚焦青色描边。
-        // v0.294.6：统一 AppSearchBar（回车/放大镜/尾部「搜索」都触发并收键盘）
-        val kbNovel = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
-        AppSearchBar(
-            value = keyword,
-            onValueChange = { vm.setKeyword(it) },
-            placeholder = "书名 / 作者",
-            onSearch = { vm.doSearch() },
-            focusRequester = searchFocus,
-            modifier = Modifier.fillMaxWidth(),
-            trailing = {
-                TextButton(
-                    onClick = { kbNovel?.hide(); vm.doSearch() },
-                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
-                ) {
-                    Text("搜索", color = accent, fontSize = 14.sp)
+            Spacer(Modifier.height(12.dp))
+            }
+            // v0.195.0：自动聚焦（书架点搜索即输，不用再点一次框；框已外移到标题行时由外层聚焦）
+            val searchFocus = remember { FocusRequester() }
+            LaunchedEffect(autoFocus) {
+                if (autoFocus && !hideSearchField) searchFocus.requestFocus()
+            }
+            if (!hideSearchField) {
+            // v0.223.0：找书搜索框重设计——整条一体：左搜索图标 + 无框输入 +
+            // 右清除/搜索，不再是胶囊描边框 + 外挂搜索钮；填充底 + 聚焦青色描边。
+            // v0.294.6：统一 AppSearchBar（回车/放大镜/尾部「搜索」都触发并收键盘）
+            val kbNovel = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
+            AppSearchBar(
+                value = keyword,
+                onValueChange = { vm.setKeyword(it) },
+                placeholder = "书名 / 作者",
+                onSearch = { vm.doSearch() },
+                focusRequester = searchFocus,
+                modifier = Modifier.fillMaxWidth(),
+                trailing = {
+                    TextButton(
+                        onClick = { kbNovel?.hide(); vm.doSearch() },
+                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
+                    ) {
+                        Text("搜索", color = accent, fontSize = 14.sp)
+                    }
+                },
+            )
+            Spacer(Modifier.height(12.dp))
+            }
+            when {
+                // v1.2.24：搜完且 0 条才进空态——之前 loading 时整屏转圈，流式回来的
+                // 结果要等全轮跑完才看得见，1.2.23 的流式白做了；加载中改走结果区的顶行细状态。
+                // searched 守门：没搜过时走历史臂，不进空态。
+                searched && !loading && results.isEmpty() -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        modifier = Modifier.padding(horizontal = 32.dp),
+                    ) {
+                        // v1.1.12：失败和“真没书”分开说——失败不叫“没找到”。
+                        if (failedLabel != null) {
+                            Text(
+                                "这次搜索失败了，书源没有返回结果",
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                            Spacer(Modifier.height(4.dp))
+                            Text(
+                                "换个关键词或稍后再试（$failedLabel）",
+                                fontSize = 13.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                            Spacer(Modifier.height(8.dp))
+                            TextButton(onClick = { vm.doSearch() }) {
+                                Text("重新搜索")
+                            }
+                        } else {
+                            Text(
+                                "没找到，换个关键词或换个书源试试",
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                            // v1.2.24：精准开着搜不到，先给一键关精准再搜（阅读空结果确认同款）。
+                            if (precisionSearch) {
+                                Spacer(Modifier.height(8.dp))
+                                TextButton(onClick = { vm.setPrecision(false) }) {
+                                    Text("关闭精准搜索再试一次")
+                                }
+                            }
+                        }
+                        TextButton(onClick = onManageSources) {
+                            Text("去书源管理")
+                        }
+                    }
                 }
-            },
-        )
-        Spacer(Modifier.height(12.dp))
-        }
-        when {
-            // v1.2.24：搜完且 0 条才进空态——之前 loading 时整屏转圈，流式回来的
-            // 结果要等全轮跑完才看得见，1.2.23 的流式白做了；加载中改走结果区的顶行细状态。
-            // searched 守门：没搜过时走历史臂，不进空态。
-            searched && !loading && results.isEmpty() -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Column(
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    modifier = Modifier.padding(horizontal = 32.dp),
-                ) {
-                    // v1.1.12：失败和“真没书”分开说——失败不叫“没找到”。
-                    if (failedLabel != null) {
-                        Text(
-                            "这次搜索失败了，书源没有返回结果",
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                        Spacer(Modifier.height(4.dp))
-                        Text(
-                            "换个关键词或稍后再试（$failedLabel）",
-                            fontSize = 13.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                        Spacer(Modifier.height(8.dp))
-                        TextButton(onClick = { vm.doSearch() }) {
-                            Text("重新搜索")
+                !searched -> {
+                    // v0.67.0：搜索历史（一点即搜，X 单删）
+                    if (history.isEmpty()) {
+                        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                            Text(
+                                if (totalEnabled == 0) "还没有启用的书源，点右上角去添加"
+                                else "输入书名或作者开始搜索",
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
                         }
                     } else {
-                        Text(
-                            "没找到，换个关键词或换个书源试试",
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                        // v1.2.24：精准开着搜不到，先给一键关精准再搜（阅读空结果确认同款）。
-                        if (precisionSearch) {
-                            Spacer(Modifier.height(8.dp))
-                            TextButton(onClick = { vm.setPrecision(false) }) {
-                                Text("关闭精准搜索再试一次")
-                            }
-                        }
-                    }
-                    TextButton(onClick = onManageSources) {
-                        Text("去书源管理")
-                    }
-                }
-            }
-            !searched -> {
-                // v0.67.0：搜索历史（一点即搜，X 单删）
-                if (history.isEmpty()) {
-                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        Text(
-                            if (totalEnabled == 0) "还没有启用的书源，点右上角去添加"
-                            else "输入书名或作者开始搜索",
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                } else {
-                    LazyColumn(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        item(key = "history_header") {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                modifier = Modifier.fillMaxWidth(),
-                            ) {
-                                Text(
-                                    "搜索历史",
-                                    fontSize = 14.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = accent,
-                                    modifier = Modifier.weight(1f),
-                                )
-                                TextButton(onClick = {
-                                    vm.clearHistory()
-                                }) { Text("清空", fontSize = 13.sp) }
-                            }
-                        }
-                        // v0.294.6：历史改紧凑 InputChip 流式排布
-                        item(key = "history_chips") {
-                            FlowRow(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                verticalArrangement = Arrangement.spacedBy(4.dp),
-                            ) {
-                                history.distinct().forEach { h ->
-                                    AppHistoryChip(
-                                        text = h,
-                                        onClick = {
-                                            vm.setKeyword(h)
-                                            vm.doSearch()
-                                        },
-                                        onRemove = { vm.removeHistory(h) },
+                        LazyColumn(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            item(key = "history_header") {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier.fillMaxWidth(),
+                                ) {
+                                    Text(
+                                        "搜索历史",
+                                        fontSize = 14.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = accent,
+                                        modifier = Modifier.weight(1f),
                                     )
+                                    TextButton(onClick = {
+                                        vm.clearHistory()
+                                    }) { Text("清空", fontSize = 13.sp) }
+                                }
+                            }
+                            // v0.294.6：历史改紧凑 InputChip 流式排布
+                            item(key = "history_chips") {
+                                FlowRow(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                                ) {
+                                    history.distinct().forEach { h ->
+                                        AppHistoryChip(
+                                            text = h,
+                                            onClick = {
+                                                vm.setKeyword(h)
+                                                vm.doSearch()
+                                            },
+                                            onRemove = { vm.removeHistory(h) },
+                                        )
+                                    }
                                 }
                             }
                         }
                     }
                 }
-            }
-            // v0.211.0：底部留 96dp，最后一行不再被底部 dock / 精致提示盖住。
-            // v1.2.1：两种视图切换行固定在列表上方——按源分组（可折叠）/ 全部合并按书名排序。
-            else -> Column(modifier = Modifier.fillMaxSize()) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.fillMaxWidth().padding(bottom = 4.dp),
-                ) {
-                    Text(
-                        // v1.2.1：总数按去重后算——跟列表实际画出的行数一致，不虚报。
-                        "共 ${results.sumOf { it.books.distinctBy { book -> book.remoteId }.size }} 本",
-                        fontSize = 13.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.weight(1f),
-                    )
-                    // v1.2.22：分段按钮换双胶囊——Material3 分段按钮带勾、跟 App 胶囊风不搭。
-                    // v1.2.24：加“精准”胶囊（阅读 precisionSearch 同款开关，默认关）。
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        SearchViewCapsule(
-                            text = "精准",
-                            selected = precisionSearch,
-                            onClick = { vm.setPrecision(!precisionSearch) },
-                        )
-                        SearchViewCapsule(
-                            text = "按源分组",
-                            selected = !mergeMode,
-                            onClick = { mergeMode = false },
-                        )
-                        SearchViewCapsule(
-                            text = "合并排序",
-                            selected = mergeMode,
-                            onClick = { mergeMode = true },
-                        )
-                    }
-                }
-                // v1.2.24：加载中顶行细状态——细圈 + 已出源数 + 停止（阅读 FAB 停止同款），
-                // 结果列表全程可见，不再整屏转圈。
-                if (loading) {
+                // v0.211.0：底部留 96dp，最后一行不再被底部 dock / 精致提示盖住。
+                // v1.2.1：两种视图切换行固定在列表上方——按源分组（可折叠）/ 全部合并按书名排序。
+                else -> Column(modifier = Modifier.fillMaxSize()) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         modifier = Modifier.fillMaxWidth().padding(bottom = 4.dp),
                     ) {
-                        StatusRing(
-                            state = StatusRingState.Loading,
-                            diameter = 16.dp,
-                            showDot = false,
-                            strokeWidth = 2.dp,
-                        )
-                        Spacer(Modifier.width(8.dp))
                         Text(
-                            "正在搜索… 已出 ${results.size} 个源",
+                            // v1.2.1：总数按去重后算——跟列表实际画出的行数一致，不虚报。
+                            "共 ${results.sumOf { it.books.distinctBy { book -> book.remoteId }.size }} 本",
                             fontSize = 13.sp,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.weight(1f),
                         )
-                        TextButton(onClick = { vm.stopSearch() }) {
-                            Text("停止", fontSize = 13.sp)
+                        // v1.2.22：分段按钮换双胶囊——Material3 分段按钮带勾、跟 App 胶囊风不搭。
+                        // v1.2.24：加“精准”胶囊（阅读 precisionSearch 同款开关，默认关）。
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            SearchViewCapsule(
+                                text = "精准",
+                                selected = precisionSearch,
+                                onClick = { vm.setPrecision(!precisionSearch) },
+                            )
+                            SearchViewCapsule(
+                                text = "按源分组",
+                                selected = !mergeMode,
+                                onClick = { mergeMode = false },
+                            )
+                            SearchViewCapsule(
+                                text = "合并排序",
+                                selected = mergeMode,
+                                onClick = { mergeMode = true },
+                            )
                         }
                     }
-                }
-                // v1.2.24：精准过滤掉的条数（阅读完成时 Toast 同款口径，改顶行常驻）。
-                if (filteredCount > 0) {
-                    Text(
-                        "精准搜索已过滤掉 $filteredCount 条不相关结果",
-                        fontSize = 12.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(bottom = 4.dp),
-                    )
-                }
-                LazyColumn(
-                    modifier = Modifier.weight(1f),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                    contentPadding = PaddingValues(bottom = 96.dp),
-                ) {
-                // v1.1.12：这次搜失败了，顶行明说、下面显示的是上次的结果。
-                failedLabel?.let { label ->
-                    item(key = "search_failed_banner") {
+                    // v1.2.24：加载中顶行细状态——细圈 + 已出源数 + 停止（阅读 FAB 停止同款），
+                    // 结果列表全程可见，不再整屏转圈。
+                    if (loading) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.fillMaxWidth().padding(bottom = 4.dp),
+                        ) {
+                            StatusRing(
+                                state = StatusRingState.Loading,
+                                diameter = 16.dp,
+                                showDot = false,
+                                strokeWidth = 2.dp,
+                            )
+                            Spacer(Modifier.width(8.dp))
+                            Text(
+                                "正在搜索… 已出 ${results.size} 个源",
+                                fontSize = 13.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.weight(1f),
+                            )
+                            TextButton(onClick = { vm.stopSearch() }) {
+                                Text("停止", fontSize = 13.sp)
+                            }
+                        }
+                    }
+                    // v1.2.24：精准过滤掉的条数（阅读完成时 Toast 同款口径，改顶行常驻）。
+                    if (filteredCount > 0) {
                         Text(
-                            text = "刚才那次搜索失败，显示的是上次的结果（$label）",
-                            fontSize = 13.sp,
+                            "精准搜索已过滤掉 $filteredCount 条不相关结果",
+                            fontSize = 12.sp,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(top = 4.dp),
+                            modifier = Modifier.padding(bottom = 4.dp),
                         )
                     }
-                }
-                if (!mergeMode) {
-                    results.forEach { group ->
-                        // v1.2.1：组头可点折叠——整行点一下收起/展开该源的全部结果，
-                        // 图标跟更新日志同款（ExpandLess/ExpandMore），默认全展开。
-                        val collapsed = group.key in collapsedGroups
-                        item(key = "header_${group.key}") {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                modifier = Modifier.fillMaxWidth()
-                                    .clickable {
-                                        collapsedGroups = if (collapsed) collapsedGroups - group.key
-                                        else collapsedGroups + group.key
-                                    }
-                                    // v1.2.1：组头上下各留 6dp——整行点按面积够大，不止一行字高。
-                                    .padding(vertical = 6.dp),
-                            ) {
-                                Text(
-                                    "来自 ${group.name}（${group.books.size} 本）",
-                                    fontSize = 13.sp,
-                                    color = accent,
-                                    fontWeight = FontWeight.Bold,
-                                    modifier = Modifier.weight(1f),
-                                )
-                                Icon(
-                                    imageVector = if (collapsed) Icons.Filled.ExpandMore else Icons.Filled.ExpandLess,
-                                    contentDescription = if (collapsed) "展开" else "收起",
-                                    tint = accent,
-                                    modifier = Modifier.size(20.dp),
-                                )
-                            }
+                    LazyColumn(
+                        modifier = Modifier.weight(1f),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                        contentPadding = PaddingValues(bottom = 96.dp),
+                    ) {
+                    // v1.1.12：这次搜失败了，顶行明说、下面显示的是上次的结果。
+                    failedLabel?.let { label ->
+                        item(key = "search_failed_banner") {
+                            Text(
+                                text = "刚才那次搜索失败，显示的是上次的结果（$label）",
+                                fontSize = 13.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(top = 4.dp),
+                            )
                         }
-                        if (!collapsed) {
-                            items(group.books.distinctBy { it.remoteId }, key = { "${group.key}_${it.remoteId}" }) { item ->
-                                BookCard(group, item, showSource = false)
+                    }
+                    if (!mergeMode) {
+                        results.forEach { group ->
+                            // v1.2.1：组头可点折叠——整行点一下收起/展开该源的全部结果，
+                            // 图标跟更新日志同款（ExpandLess/ExpandMore），默认全展开。
+                            val collapsed = group.key in collapsedGroups
+                            item(key = "header_${group.key}") {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier.fillMaxWidth()
+                                        .clickable {
+                                            collapsedGroups = if (collapsed) collapsedGroups - group.key
+                                            else collapsedGroups + group.key
+                                        }
+                                        // v1.2.1：组头上下各留 6dp——整行点按面积够大，不止一行字高。
+                                        .padding(vertical = 6.dp),
+                                ) {
+                                    Text(
+                                        "来自 ${group.name}（${group.books.size} 本）",
+                                        fontSize = 13.sp,
+                                        color = accent,
+                                        fontWeight = FontWeight.Bold,
+                                        modifier = Modifier.weight(1f),
+                                    )
+                                    Icon(
+                                        imageVector = if (collapsed) Icons.Filled.ExpandMore else Icons.Filled.ExpandLess,
+                                        contentDescription = if (collapsed) "展开" else "收起",
+                                        tint = accent,
+                                        modifier = Modifier.size(20.dp),
+                                    )
+                                }
                             }
-                            // v1.2.24：组底加载更多（阅读触底续搜的单源版）——取该源下一页
-                            // 追加到组尾；已到底的源不显示，正在加载时显示细文案。
-                            if (vm.canLoadMore(group.key)) {
-                                item(key = "more_${group.key}") {
-                                    Row(
-                                        Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.Center,
-                                    ) {
-                                        if (group.key in loadingMore) {
-                                            Text(
-                                                "正在加载更多…",
-                                                fontSize = 13.sp,
-                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                                modifier = Modifier.padding(vertical = 8.dp),
-                                            )
-                                        } else {
-                                            TextButton(onClick = { vm.loadMore(group.key) }) {
-                                                Text("加载更多", fontSize = 13.sp)
+                            if (!collapsed) {
+                                items(group.books.distinctBy { it.remoteId }, key = { "${group.key}_${it.remoteId}" }) { item ->
+                                    BookCard(group, item, showSource = false)
+                                }
+                                // v1.2.24：组底加载更多（阅读触底续搜的单源版）——取该源下一页
+                                // 追加到组尾；已到底的源不显示，正在加载时显示细文案。
+                                if (vm.canLoadMore(group.key)) {
+                                    item(key = "more_${group.key}") {
+                                        Row(
+                                            Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.Center,
+                                        ) {
+                                            if (group.key in loadingMore) {
+                                                Text(
+                                                    "正在加载更多…",
+                                                    fontSize = 13.sp,
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                    modifier = Modifier.padding(vertical = 8.dp),
+                                                )
+                                            } else {
+                                                TextButton(onClick = { vm.loadMore(group.key) }) {
+                                                    Text("加载更多", fontSize = 13.sp)
+                                                }
                                             }
                                         }
                                     }
                                 }
                             }
                         }
-                    }
-                } else {
-                    // v1.2.24：合并视图——同名同作者只留一行，标它来自几个源；点行进第一个源。
-                    items(mergedBooks, key = { it.title + "|" + (it.author ?: "") }) { merged ->
-                        val (group, book) = merged.origins.first()
-                        val label = if (merged.origins.size > 1) {
-                            "来自 ${group.name} 等 ${merged.origins.size} 个源"
-                        } else {
-                            "来自 ${group.name}"
+                    } else {
+                        // v1.2.24：合并视图——同名同作者只留一行，标它来自几个源；点行进第一个源。
+                        items(mergedBooks, key = { it.title + "|" + (it.author ?: "") }) { merged ->
+                            val (group, book) = merged.origins.first()
+                            val label = if (merged.origins.size > 1) {
+                                "来自 ${group.name} 等 ${merged.origins.size} 个源"
+                            } else {
+                                "来自 ${group.name}"
+                            }
+                            BookCard(group, book, showSource = true, sourceLabel = label)
                         }
-                        BookCard(group, book, showSource = true, sourceLabel = label)
                     }
                 }
+                }
             }
-            }
-        }
-        // v0.108.0 B4：已在书架点按钮 → 二次确认移出（影图风 TechDialog，文案走主题色）
-        removeTarget?.let { (g, it) ->
-            TechDialog(
-                onDismissRequest = { removeTarget = null },
-                title = "移出《${it.title}》？",
-                confirmText = "移出",
-                onConfirm = {
-                    removeTarget = null
-                    scope.launch {
-                        val rid = shelfNovelIds(g, it).firstOrNull { id -> id in shelfIds }
-                            ?: shelfNovelId(g, it)
-                        val ok = NovelStore.deleteNovelCascade(appCtx, rid)
-                        if (ok) shelfIds = shelfIds - rid
-                        AppToast.show(appCtx, if (ok) "已移出书架" else "移出失败", long = false)
-                    }
-                },
-            ) {
-                Text("将从书架移除，阅读进度、书签与追更标记也会清除，本书已缓存的章节正文与段评缓存也会一并清除。")
+            // v0.108.0 B4：已在书架点按钮 → 二次确认移出（影图风 TechDialog，文案走主题色）
+            removeTarget?.let { (g, it) ->
+                TechDialog(
+                    onDismissRequest = { removeTarget = null },
+                    title = "移出《${it.title}》？",
+                    confirmText = "移出",
+                    onConfirm = {
+                        removeTarget = null
+                        scope.launch {
+                            val rid = shelfNovelIds(g, it).firstOrNull { id -> id in shelfIds }
+                                ?: shelfNovelId(g, it)
+                            val ok = NovelStore.deleteNovelCascade(appCtx, rid)
+                            if (ok) shelfIds = shelfIds - rid
+                            AppToast.show(appCtx, if (ok) "已移出书架" else "移出失败", long = false)
+                        }
+                    },
+                ) {
+                    Text("将从书架移除，阅读进度、书签与追更标记也会清除，本书已缓存的章节正文与段评缓存也会一并清除。")
+                }
             }
         }
     }

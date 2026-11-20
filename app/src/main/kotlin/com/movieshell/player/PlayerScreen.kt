@@ -82,7 +82,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.CameraAlt
-import androidx.compose.material.icons.filled.Cast
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Download
@@ -2678,12 +2677,9 @@ fun PlayerScreen(
                             style = MaterialTheme.typography.bodySmall.copy(fontSize = 10.sp),
                             maxLines = 1,
                         )
-                        RoundControlButton(
-                            icon = Icons.Filled.Cast,
-                            desc = "投屏",
-                            onClick = { AppToast.show(context, "投屏开发中", long = false) },
-                            size = 44.dp,
-                        )
+                        // v1.3.33：投屏未实现，底栏投屏按钮隐藏（顶栏已按“未实现前
+                        // 隐藏”处理，底栏保持一致）；DLNA/Cast 真接好后再加回。
+                        // 投屏相关代码本身不动，只是不渲染这个按钮。
                         RoundControlButton(
                             icon = Icons.Filled.Fullscreen,
                             desc = "全屏",

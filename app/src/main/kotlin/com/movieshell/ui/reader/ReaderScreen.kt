@@ -1085,7 +1085,7 @@ fun ReaderScreen(
                     Text(
                         novel?.title ?: "",
                         color = fg,
-                        fontSize = 16.sp,
+                        fontSize = 14.sp,
                         maxLines = 1,
                     )
                     Text(
@@ -1233,6 +1233,8 @@ fun ReaderScreen(
             TechDialog(
                 onDismissRequest = { showChapterSearch = false },
                 title = "章内搜索",
+                // v1.3.33：搜索结果长列表走宽松模式。
+                compact = false,
                 subtitle = chapter?.title.orEmpty(),
                 forceDark = isReaderDark,
             ) {
@@ -1326,7 +1328,7 @@ fun ReaderScreen(
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Text(
                             contentLoadReason?.let { failText(it) } ?: "正文拉取失败",
-                            color = fg, fontSize = 15.sp, fontWeight = FontWeight.Bold,
+                            color = fg, fontSize = 14.sp, fontWeight = FontWeight.Bold,
                         )
                         Spacer(Modifier.height(8.dp))
                         if (contentLoadReason == ContentFail.PURIFY_EMPTY &&
@@ -1871,6 +1873,8 @@ fun ReaderScreen(
             subtitle = novel?.title,
             dismissText = "关闭",
             forceDark = isReaderDark,
+            // v1.3.33：书签列表是长列表，走宽松模式。
+            compact = false,
             // v1.2.15：内容含 LazyColumn 自己滚，TechDialog 内容区不套滚动。
             scrollable = false,
         ) {

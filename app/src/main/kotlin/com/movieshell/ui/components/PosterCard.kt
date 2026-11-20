@@ -83,7 +83,7 @@ fun PosterCard(
                     modifier = Modifier.align(Alignment.Center),
                     // v1.2.14 E片：无图占位首字 onSurface 0.28 只有约 2.0:1，改 0.8（8.78:1）。
                     color = cs.onSurface.copy(alpha = 0.8f),
-                    fontSize = 28.sp,
+                    fontSize = 24.sp,
                     fontWeight = FontWeight.SemiBold,
                 )
             }

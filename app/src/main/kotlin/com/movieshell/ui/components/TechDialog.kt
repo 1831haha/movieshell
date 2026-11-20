@@ -78,10 +78,11 @@ fun TechDialog(
     /** v0.245.0：强制深浅；null=跟系统主题（其他页面默认），阅读页传
      * 阅读背景的实际深浅，系统浅色时夜间黑阅读页的弹窗也不再发白。 */
     forceDark: Boolean? = null,
-    // v1.1.20：紧凑模式（默认关，其他 90 多处弹窗不受影响）——内容超长的
-    // 弹窗（如 AI 助手设置）在小屏上放不下时用：内外边距与标题字号收紧，
-    // 底部按钮降到 36dp；仍不带滚动，内容必须靠调用处精简到一屏内。
-    compact: Boolean = false,
+    // v1.1.20：紧凑模式（v1.3.33 起默认开：内边距 16×12dp、标题 titleMedium 16sp、
+    // 底部按钮 36dp；90 多处弹窗默认走紧凑口径）。
+    // 长内容弹窗（日志、条款、长列表、长错误详情等）显式传 compact = false 走宽松模式，
+    // 避免文字拥挤、按钮贴边、滚动区域不足。
+    compact: Boolean = true,
     // v1.2.15：内容区默认可滚动 + 底部按钮常驻——长表单（如 Emby 添加服务器）
     // 再也不会把按钮截在屏外。内含 LazyColumn 的弹窗传 false，让 LazyColumn
     // 自己滚（滚动容器里再放 LazyColumn 会量出无限高而崩）：BookDetailDialog、
@@ -126,7 +127,8 @@ fun TechDialog(
                 // v1.2.15：弹窗限高 85% 屏高，超长内容走内容区滚动，标题与按钮常驻。
                 .heightIn(max = (cfg.screenHeightDp * 0.85f).dp)
                 // v0.279.0 旧版：平面弹窗——s1 底 + 1px 分隔线描边 + 12dp 圆角，去掉渐变描边。
-                .clip(RoundedCornerShape(28.dp))
+                // v1.3.33：弹窗圆角定档 16dp（紧凑/宽松同档）。
+                .clip(RoundedCornerShape(16.dp))
                 .background(dialogBg)
                 .padding(
                     horizontal = if (compact) 16.dp else if (landscape) 20.dp else 24.dp,

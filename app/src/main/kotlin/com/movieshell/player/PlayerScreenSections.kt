@@ -589,7 +589,8 @@ internal fun PlayerDialogCard(
     maxWidth: Dp = 360.dp,
     content: @Composable ColumnScope.() -> Unit,
 ) {
-    val cardShape = RoundedCornerShape(V5.CornerLgI)
+    // v1.3.33：弹窗圆角定档 16dp（U-P0-5）。
+    val cardShape = RoundedCornerShape(16.dp)
     // AlertDialog 时代按返回先关面板：内联卡片后补回同样的返回拦截
     BackHandler(onBack = onDismiss)
     // v0.155.0：横屏全屏时屏高只有约 360dp，旧卡片（标题+400dp 内容+按钮）要 520dp+，

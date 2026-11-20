@@ -6,13 +6,8 @@ import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Slider
-import androidx.compose.material3.SliderDefaults
-import androidx.compose.material3.Switch
-import androidx.compose.material3.SwitchDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 
 /**
@@ -36,30 +31,6 @@ fun AppSwitch(
     enabled: Boolean = true,
 ) {
     V5Switch(checked = checked, onCheckedChange = onCheckedChange, modifier = modifier, enabled = enabled)
-}
-
-/** 滑杆（v0.292.0 V5：M3 primary 轨道 + primary 拇指，未走轨道 secondaryContainer）。 */
-@Composable
-fun AppSlider(
-    value: Float,
-    onValueChange: (Float) -> Unit,
-    modifier: Modifier = Modifier,
-    onValueChangeFinished: (() -> Unit)? = null,
-    valueRange: ClosedFloatingPointRange<Float> = 0f..1f,
-) {
-    val v = MaterialTheme.colorScheme
-    Slider(
-        value = value,
-        onValueChange = onValueChange,
-        modifier = modifier,
-        onValueChangeFinished = onValueChangeFinished,
-        valueRange = valueRange,
-        colors = SliderDefaults.colors(
-            thumbColor = v.primary,
-            activeTrackColor = v.primary,
-            inactiveTrackColor = v.secondaryContainer,
-        ),
-    )
 }
 
 /** 下拉菜单（v0.292.0 V5：M3 Menu——surfaceContainer 底、16dp 圆角、3dp 阴影、无描边）。 */

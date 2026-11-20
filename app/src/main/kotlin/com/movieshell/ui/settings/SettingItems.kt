@@ -1582,7 +1582,7 @@ internal fun BackupExpandBlock(style: SettingRowStyle, isLastRow: Boolean) {
                     position = SegPos.Middle,
                     icon = Icons.Outlined.Info,
                     title = "说明",
-                    subtitle = "导出 / 导入 JSON 备份文件：订阅、追剧、书架、音乐、直播（不含插件、下载、播放历史与设置）",
+                    subtitle = "导出 / 导入 JSON 备份文件：包含订阅配置、当前部分规则选择状态、追剧、书架/阅读进度/书签、音乐本地数据/收藏/歌单、直播订阅/手动频道/相关配置、播放历史、完整书源、音乐源注册表及本地脚本、必要规则文件；不包含插件安装包、下载文件、系统设置",
                 )
                 SegItem(
                     position = SegPos.Middle,
@@ -1645,7 +1645,7 @@ internal fun BackupExpandBlock(style: SettingRowStyle, isLastRow: Boolean) {
                 SettingsRow(
                     icon = Icons.Outlined.Info,
                     title = "说明",
-                    subtitle = "导出 / 导入 JSON 备份文件：订阅、追剧、书架、音乐、直播（不含插件、下载、播放历史与设置）",
+                    subtitle = "导出 / 导入 JSON 备份文件：包含订阅配置、当前部分规则选择状态、追剧、书架/阅读进度/书签、音乐本地数据/收藏/歌单、直播订阅/手动频道/相关配置、播放历史、完整书源、音乐源注册表及本地脚本、必要规则文件；不包含插件安装包、下载文件、系统设置",
                     onClick = {},
                     clickable = false,
                     divider = true,

@@ -57,6 +57,8 @@ internal fun ThemePanelDialog(onDismiss: () -> Unit) {
     TechDialog(
         onDismissRequest = onDismiss,
         title = "主题",
+        // v1.3.33：多分区长面板走宽松模式。
+        compact = false,
         dismissText = "完成",
     ) {
         Column(Modifier.verticalScroll(rememberScrollState())) {

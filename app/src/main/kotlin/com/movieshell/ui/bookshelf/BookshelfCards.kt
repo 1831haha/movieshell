@@ -319,7 +319,7 @@ fun NovelGridCard(
             } else {
                 Text(
                     text = novel.title.firstOrNull()?.toString() ?: "书",
-                    fontSize = 28.sp,
+                    fontSize = 24.sp,
                     fontWeight = FontWeight.Bold,
                     color = cs.onSurfaceVariant.copy(alpha = 0.8f), // v1.2.14 E片：占位首字 0.5 只有 2.50:1，改 0.8（5.14:1）
                 )

@@ -22,7 +22,6 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.ErrorOutline
-import androidx.compose.material3.AssistChip
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -142,23 +141,26 @@ fun PluginDetailScreen(pluginId: String, market: String = "", onBack: () -> Unit
                 }
             }
             Spacer(Modifier.height(12.dp))
+            // v1.3.33：类型/分类/大小/平台/标签是纯展示信息，不做筛选跳转——
+            // 原来 5 处 AssistChip(onClick = {}) 点按无任何反馈，改成不可点的
+            // 静态标签（StaticTag），不要为“有动作”强行引入新筛选状态。
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                AssistChip(onClick = {}, label = { Text(plugin.type) })
+                StaticTag(plugin.type)
                 if (plugin.category.isNotBlank()) {
-                    AssistChip(onClick = {}, label = { Text(PluginUi.categoryLabel(plugin.category)) })
+                    StaticTag(PluginUi.categoryLabel(plugin.category))
                 }
                 PluginMarket.formatSize(plugin.size).takeIf { it.isNotBlank() }?.let {
-                    AssistChip(onClick = {}, label = { Text(it) })
+                    StaticTag(it)
                 }
                 if (plugin.platforms.isNotEmpty()) {
-                    AssistChip(onClick = {}, label = { Text(plugin.platforms.joinToString("/")) })
+                    StaticTag(plugin.platforms.joinToString("/"))
                 }
             }
             if (plugin.tags.isNotEmpty()) {
                 Spacer(Modifier.height(8.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     plugin.tags.forEach { tag ->
-                        AssistChip(onClick = {}, label = { Text(tag) })
+                        StaticTag(tag)
                     }
                 }
             }
@@ -280,4 +282,24 @@ fun PluginDetailScreen(pluginId: String, market: String = "", onBack: () -> Unit
     }
     // v0.27.2：一键安装进度弹窗
     InstallProgressDialog(installProgress)
+}
+
+/** v1.3.33：纯展示标签（不可点、无涟漪）——插件详情的类型/分类/大小/平台/标签用它，不用 AssistChip 冒充可操作控件。 */
+@Composable
+private fun StaticTag(text: String) {
+    Box(
+        modifier = Modifier
+            .clip(RoundedCornerShape(8.dp))
+            .background(MaterialTheme.colorScheme.surfaceContainerHigh)
+            .border(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.3f), RoundedCornerShape(8.dp))
+            .padding(horizontal = 8.dp, vertical = 4.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            text = text,
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1,
+        )
+    }
 }

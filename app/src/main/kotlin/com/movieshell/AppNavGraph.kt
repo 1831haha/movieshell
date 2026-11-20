@@ -284,6 +284,8 @@ fun NavGraphBuilder.appDestinations(
                                 onGoHome = { navController.navigateTab("home") },
                                 // v1.1.3：检测页“去对话里改”跳 AI TAB
                                 onAiChatClick = { navController.navigateTab("ai") },
+                                // v1.3.33：小说/漫画类子站分流“去书源页”直达书源管理
+                                onOpenBookSource = { navController.navigate("book_source") },
                             )
                         }
                         // v0.24.0：直播 Tab（v0.79.0：顶部嵌入播放器+下方选台；全屏跳独立播放页）

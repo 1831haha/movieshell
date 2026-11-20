@@ -97,6 +97,7 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.movieshell.domain.model.Chapter
 import com.movieshell.domain.model.Novel
 import com.movieshell.domain.model.ReadingProgress
 import com.movieshell.data.novel.BookSourceManager
@@ -119,6 +120,7 @@ import com.movieshell.ui.components.TabTopBar
 import com.movieshell.ui.components.TechDialog
 import com.movieshell.ui.market.PluginUi
 import com.movieshell.ui.theme.LocalBrandGradient
+import com.movieshell.ui.preview.shareFile
 import java.io.File
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
@@ -269,6 +271,26 @@ fun BookshelfScreen(
             }
         }
         reload()
+    }
+
+    // v1.3.33：单本 TXT 导出——选中恰好 1 本时可用；章节拼成 TXT 写缓存文件
+    // 后走系统分享（FilePreviewScreen.shareFile 同款写法）。EPUB 不做。
+    fun exportSelectedTxt() {
+        val novel = books.firstOrNull { it.id == selectedIds.firstOrNull() } ?: return
+        scope.launch {
+            val ok = withContext(Dispatchers.IO) {
+                runCatching {
+                    val chapters = NovelStore.chapters(context, novel.id)
+                    if (chapters.isEmpty()) return@runCatching false
+                    val safe = novel.title.ifBlank { "小说" }
+                        .replace(Regex("[\\\\/:*?\"<>|]"), "_")
+                    val file = File(context.cacheDir, "$safe.txt")
+                    file.writeText(buildTxtExport(novel, chapters))
+                    shareFile(context, file)
+                }.getOrDefault(false)
+            }
+            PluginUi.toast(context, if (ok) "已导出 TXT" else "导出失败：没有可导出的章节")
+        }
     }
 
     // v0.215.0：批量换源执行——本地 TXT 跳过（没有源可换），逐本走限流，
@@ -503,12 +525,19 @@ fun BookshelfScreen(
         scope.launch {
             val result = withContext(Dispatchers.IO) {
                 runCatching {
+                    // v1.3.33：只认 .txt——选择器已是 text/plain，但部分文件管理器
+                    // 不按 MIME 过滤，EPUB 混进来读不到有效文本才报错太晚；这里按
+                    // 文件名后缀再拦一次，非 .txt 直接拒收（EPUB 支持以后再做）。
+                    val displayName = context.contentResolver.query(uri, null, null, null, null)?.use { c ->
+                        val i = c.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                        if (i >= 0 && c.moveToFirst()) c.getString(i) else null
+                    }
+                    if (displayName != null && !displayName.endsWith(".txt", ignoreCase = true)) {
+                        return@runCatching "not_txt"
+                    }
                     // v0.294.5：文件名清洗 + 规范路径校验，防路径穿越写出缓存目录
                     val name = SafeFileName.importName(
-                        context.contentResolver.query(uri, null, null, null, null)?.use { c ->
-                            val i = c.getColumnIndex(OpenableColumns.DISPLAY_NAME)
-                            if (i >= 0 && c.moveToFirst()) c.getString(i) else null
-                        },
+                        displayName,
                         "导入小说.txt",
                     )
                     val tmp = File(context.cacheDir, "import_${System.currentTimeMillis()}.txt")
@@ -555,6 +584,7 @@ fun BookshelfScreen(
             PluginUi.toast(context, when (result) {
                 "added" -> "已加入书架"
                 "exists" -> "已在书架，跳过重复导入"
+                "not_txt" -> "只支持 .txt 文件，请重新选择"
                 "invalid" -> "导入失败：读不到有效文本"
                 else -> "导入失败：保存失败"
             })
@@ -602,6 +632,11 @@ fun BookshelfScreen(
                         },
                         enabled = selectedIds.isNotEmpty(),
                     ) { Text("换源") }
+                    // v1.3.33：单本 TXT 导出——只在恰好选中 1 本时可用；EPUB 不做。
+                    TextButton(
+                        onClick = { exportSelectedTxt() },
+                        enabled = selectedIds.size == 1,
+                    ) { Text("导出") }
                     IconButton(onClick = {
                         selectionMode = false
                         selectedIds = emptySet()
@@ -1061,6 +1096,8 @@ fun BookshelfScreen(
         TechDialog(
             onDismissRequest = { if (!batchSwitching) showBatchSource = false },
             title = "批量换源",
+            // v1.3.33：源长列表走宽松模式。
+            compact = false,
             subtitle = "对已选的 ${selectedIds.size} 本逐本在目标源搜书名换目录；搜不到或目录拉取失败的那本不动",
             dismissText = "取消",
         ) {
@@ -1076,7 +1113,7 @@ fun BookshelfScreen(
                     batchJsonSources.filter { it.enabled }.forEach { s ->
                         Text(
                             s.name,
-                            fontSize = 15.sp,
+                            fontSize = 14.sp,
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .clickable {
@@ -1089,7 +1126,7 @@ fun BookshelfScreen(
                     batchPyRules.filter { it.name in batchPyEnabled }.forEach { r ->
                         Text(
                             "${r.title}（本地PY）",
-                            fontSize = 15.sp,
+                            fontSize = 14.sp,
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .clickable {
@@ -1191,7 +1228,7 @@ fun BookshelfScreen(
                         .padding(horizontal = 12.dp, vertical = 12.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Text("重命名", fontSize = 15.sp)
+                    Text("重命名", fontSize = 14.sp)
                 }
                 Row(
                     modifier = Modifier
@@ -1220,7 +1257,7 @@ fun BookshelfScreen(
                         .padding(horizontal = 12.dp, vertical = 12.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Text("删除分组", fontSize = 15.sp, color = MaterialTheme.colorScheme.error)
+                    Text("删除分组", fontSize = 14.sp, color = MaterialTheme.colorScheme.error)
                 }
                 Text(
                     "删除分组不会删除书籍",
@@ -1325,4 +1362,21 @@ private fun CheckingRow() {
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
     }
+}
+
+/**
+ * v1.3.33：单本 TXT 导出拼文本（纯函数，可单测）——书名 + 作者 + 每章
+ * “标题 + 正文”，章与章之间空一行；正文为空的章只留标题。
+ */
+internal fun buildTxtExport(novel: Novel, chapters: List<Chapter>): String {
+    val sb = StringBuilder()
+    sb.append(novel.title.ifBlank { "未知书名" }).append("\n")
+    novel.author?.takeIf { it.isNotBlank() }?.let { sb.append("作者：$it\n") }
+    chapters.forEach { ch ->
+        sb.append("\n")
+        sb.append(ch.title.ifBlank { "未命名章节" }).append("\n")
+        val body = ch.content.trim()
+        if (body.isNotEmpty()) sb.append(body).append("\n")
+    }
+    return sb.toString()
 }

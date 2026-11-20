@@ -149,6 +149,8 @@ fun BookDetailDialog(
         subtitle = null,
         onConfirm = null,
         dismissText = "关闭",
+        // v1.3.33：书籍详情含大封面 + 7 行信息 + 简介 + 可展开目录，是长内容，走宽松模式。
+        compact = false,
         // v1.2.15：内容含 LazyColumn 自己滚，TechDialog 内容区不套滚动。
         scrollable = false,
         // v0.240.0：弹窗真正改小——宽度收进屏幕 80%，239 那版只收了封面和间距，
@@ -493,7 +495,7 @@ fun GroupPickerDialog(
                 ) {
                     Text(
                         g.name,
-                        fontSize = 15.sp,
+                        fontSize = 14.sp,
                         color = MaterialTheme.colorScheme.onSurface,
                         modifier = Modifier.weight(1f),
                     )
@@ -519,7 +521,7 @@ fun GroupPickerDialog(
                     modifier = Modifier.size(20.dp),
                 )
                 Spacer(Modifier.width(12.dp))
-                Text("新建分组", fontSize = 15.sp, color = MaterialTheme.colorScheme.primary)
+                Text("新建分组", fontSize = 14.sp, color = MaterialTheme.colorScheme.primary)
             }
         }
     }

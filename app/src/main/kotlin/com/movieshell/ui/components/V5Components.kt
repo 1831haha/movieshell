@@ -315,17 +315,6 @@ fun V5Tag(text: String, kind: V5TagKind = V5TagKind.Vip, modifier: Modifier = Mo
     }
 }
 
-/** 状态点（默认 6dp）。 */
-@Composable
-fun V5Dot(color: Color, modifier: Modifier = Modifier, size: Dp = 6.dp) {
-    Box(
-        modifier
-            .size(size)
-            .clip(CircleShape)
-            .background(color),
-    )
-}
-
 /** M3 开关（52×32，开 = primary 轨道）。 */
 @Composable
 fun V5Switch(
@@ -367,7 +356,7 @@ fun V5SectionHeader(
         if (title.isNotEmpty()) {
             Text(
                 title,
-                style = MaterialTheme.typography.titleLarge.copy(fontSize = 20.sp, letterSpacing = 0.sp),
+                style = MaterialTheme.typography.titleLarge.copy(fontSize = 16.sp, letterSpacing = 0.sp),
                 color = cs.onSurface,
                 maxLines = 1,
             )
@@ -427,11 +416,11 @@ fun V5Row(
             .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
             .padding(horizontal = V5.Gutter, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(16.dp),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        if (icon != null) Icon(icon, null, tint = cs.onSurfaceVariant, modifier = Modifier.size(24.dp))
+        if (icon != null) Icon(icon, null, tint = cs.onSurfaceVariant, modifier = Modifier.size(20.dp))
         Column(Modifier.weight(1f)) {
-            Text(title, style = MaterialTheme.typography.bodyLarge, color = cs.onSurface, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(title, style = MaterialTheme.typography.bodyMedium, color = cs.onSurface, maxLines = 1, overflow = TextOverflow.Ellipsis)
             if (!subtitle.isNullOrBlank()) {
                 Text(subtitle, style = MaterialTheme.typography.bodyMedium, color = cs.onSurfaceVariant, maxLines = 2, overflow = TextOverflow.Ellipsis)
             }
@@ -803,7 +792,7 @@ fun V5NavigationBar(
             ) {
                 Box(
                     modifier = Modifier
-                        .size(width = 56.dp, height = 28.dp)
+                        .size(width = 48.dp, height = 24.dp)
                         .clip(RoundedCornerShape(50))
                         .background(indicator),
                     contentAlignment = Alignment.Center,
@@ -1286,11 +1275,11 @@ fun EmptyState(
             Icon(
                 imageVector = icon,
                 contentDescription = null,
-                modifier = Modifier.size(32.dp),
+                modifier = Modifier.size(24.dp),
                 tint = if (kind == EmptyKind.Error) cs.onErrorContainer else cs.onSecondaryContainer,
             )
         }
-        Spacer(Modifier.height(16.dp))
+        Spacer(Modifier.height(12.dp))
         Text(title, style = MaterialTheme.typography.titleMedium, color = cs.onSurface)
         if (hint.isNotBlank()) {
             Spacer(Modifier.height(4.dp))
@@ -1302,7 +1291,7 @@ fun EmptyState(
             )
         }
         if (actionText != null && onAction != null) {
-            Spacer(Modifier.height(16.dp))
+            Spacer(Modifier.height(12.dp))
             AppButton(text = actionText, onClick = onAction, variant = AppButtonVariant.Secondary)
         }
     }
@@ -1330,11 +1319,5 @@ fun LoadingSkeleton(
             .background(MaterialTheme.colorScheme.surfaceContainerHigh)
             .alpha(alpha),
     )
-}
-
-/** 让子内容取 onSurfaceVariant 作默认内容色（顶栏操作区等）。 */
-@Composable
-fun V5ActionsColor(content: @Composable () -> Unit) {
-    CompositionLocalProvider(LocalContentColor provides MaterialTheme.colorScheme.onSurfaceVariant, content = content)
 }
 

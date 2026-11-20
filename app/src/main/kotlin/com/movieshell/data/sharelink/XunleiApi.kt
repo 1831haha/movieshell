@@ -227,7 +227,7 @@ object XunleiApi {
         )
     }
 
-    /** 取一集的播放地址：视频优先取 play_url。无游客直链时如实报需登录后转存。 */
+    /** 取一集的播放地址：视频优先取 play_url。无游客直链时如实报须在迅雷 App 内转存（本版不做转存分支）。 */
     fun resolve(
         listing: ShareListing,
         file: ShareFile,
@@ -244,7 +244,7 @@ object XunleiApi {
         val url = playUrl.ifBlank { downloadUrl }.ifBlank { webLink }
         if (url.isBlank()) {
             LogBus.w(TAG, "迅雷无游客直链：须登录后转存，本版不做转存分支")
-            return ShareResult.Err("这个迅雷文件没有游客直链，要登录后转存才能播，本版暂不支持")
+            return ShareResult.Err("这个迅雷文件没有游客直链，须在迅雷 App 内转存后才能播（本版暂不支持登录后转存）")
         }
         return ShareResult.Ok(
             PlayLink(url, mapOf("Referer" to REFERER, "User-Agent" to UA)),

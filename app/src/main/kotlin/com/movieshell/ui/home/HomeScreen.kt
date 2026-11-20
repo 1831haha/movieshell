@@ -138,7 +138,6 @@ import com.movieshell.ui.components.V5Chip
 import com.movieshell.ui.components.EmptyKind
 import com.movieshell.ui.components.EmptyState
 import com.movieshell.data.store.ThemeStore
-import com.movieshell.ui.components.FilterBar
 import com.movieshell.ui.components.PosterCard
 import android.app.Activity
 import android.content.pm.ActivityInfo
@@ -1437,7 +1436,7 @@ fun HomeScreen(
                         Spacer(Modifier.width(10.dp))
                         Text(
                             "侠影",
-                            style = MaterialTheme.typography.titleLarge,
+                            style = MaterialTheme.typography.titleLarge.copy(fontSize = 18.sp),
                             color = cs.onSurface,
                             maxLines = 1,
                         )
@@ -2100,7 +2099,7 @@ private fun HomeCapsule(
     onClick: () -> Unit,
 ) {
     Surface(
-        shape = RoundedCornerShape(20.dp),
+        shape = RoundedCornerShape(18.dp),
         color = MaterialTheme.colorScheme.surfaceVariant,
         onClick = onClick,
     ) {
@@ -2118,7 +2117,7 @@ private fun HomeCapsule(
             Spacer(Modifier.width(6.dp))
             Text(
                 text = text,
-                style = MaterialTheme.typography.bodyLarge,
+                style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurface,
                 maxLines = 1,
                 softWrap = false,
@@ -2256,7 +2255,7 @@ private fun HomeHeroCarousel(
         maxSmallItemWidth = 64.dp,
         modifier = modifier
             .v5Bleed(V5.Gutter)
-            .height(212.dp),
+            .height(190.dp),
         contentPadding = PaddingValues(horizontal = V5.Gutter),
     ) { i ->
         val vod = items[i]
@@ -2321,10 +2320,10 @@ private fun HomeHeroCarousel(
                 Text(
                     vod.vodName,
                     color = Color.White,
-                    fontSize = 30.sp,
-                    lineHeight = 36.sp,
+                    fontSize = 20.sp,
+                    lineHeight = 26.sp,
                     fontWeight = FontWeight.Bold,
-                    letterSpacing = 2.sp,
+                    letterSpacing = 0.5.sp,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )

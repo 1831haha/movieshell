@@ -76,6 +76,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import com.movieshell.core.js.LegadoJsEngine
 import com.movieshell.data.novel.BookProbe
 import com.movieshell.data.novel.BookProbeRecord
 import com.movieshell.data.novel.BookProbeStore
@@ -279,6 +280,12 @@ fun BookSourceScreen(
             // v0.186.0：import 返回 0 有三种含义——没识别、已存在、写盘失败；
             // 先解析一次：有新 key 却返回 0 只可能是写盘失败（失败时内存已回滚）。
             val parsed = BookSource.listFromJson(json)
+            // v1.3.33：jsLib URL 形式明确拒绝——不在这里拦，导进来也是静默失效。
+            val badJsLib = firstJsLibUrlSourceName(parsed)
+            if (badJsLib != null) {
+                AppToast.show(context, "书源「${badJsLib}」的 jsLib 暂不支持 URL，请改成内联代码再导入", long = true)
+                return@launch
+            }
             val hasNew = parsed.any { p -> BookSourceManager.sources.value.none { it.key == p.key } }
             val n = BookSourceManager.import(context, json)
             AppToast.show(context, when {
@@ -353,12 +360,16 @@ fun BookSourceScreen(
         )
     }
 
-    Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
+    // v1.3.33：整页贴边（U-P1-11），标题行保留 16dp。
+    Column(modifier = Modifier.fillMaxSize().padding(horizontal = 8.dp, vertical = 16.dp)) {
         if (!embedded) {
         // v0.86.0：第一行只留返回+标题，清爽
         // v0.227.0：四个导入入口并成一个——标题行末尾一个“导入书源”
         // 钮，点开弹窗再选方式；原来四个均分大钮占的一行省掉。
-        Row(verticalAlignment = Alignment.CenterVertically) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.padding(horizontal = 8.dp),
+        ) {
             IconButton(onClick = onBack) {
                 Icon(Icons.AutoMirrored.Filled.ArrowBack, "返回", tint = accent)
             }
@@ -800,6 +811,12 @@ fun BookSourceScreen(
                     // v0.186.0：import 返回 0 有三种含义——没识别、已存在、写盘失败；
                     // 先解析一次：有新 key 却返回 0 只可能是写盘失败（失败时内存已回滚）。
                     val parsed = BookSource.listFromJson(importText)
+                    // v1.3.33：jsLib URL 形式明确拒绝——不在这里拦，导进来也是静默失效。
+                    val badJsLib = firstJsLibUrlSourceName(parsed)
+                    if (badJsLib != null) {
+                        AppToast.show(context, "书源「${badJsLib}」的 jsLib 暂不支持 URL，请改成内联代码再导入", long = true)
+                        return@launch
+                    }
                     val hasNew = parsed.any { p -> BookSourceManager.sources.value.none { it.key == p.key } }
                     val n = BookSourceManager.import(context, importText)
                     showImport = false
@@ -882,6 +899,8 @@ fun BookSourceScreen(
         TechDialog(
             onDismissRequest = { urlPreview = null },
             title = "订阅预览",
+            // v1.3.33：书源长列表走宽松模式。
+            compact = false,
             // v1.2.15：内容含 LazyColumn 自己滚，TechDialog 内容区不套滚动。
             scrollable = false,
             subtitle = "共 ${preview.size} 个书源，已选 ${urlChecked.size} 个",
@@ -1014,16 +1033,23 @@ fun BookSourceScreen(
         TechDialog(
             onDismissRequest = { editTarget = null },
             title = "编辑书源",
+            // v1.3.33：页签长表单走宽松模式。
+            compact = false,
             subtitle = "按页签改规则；想改整条 JSON 请长按源进文本编辑",
             confirmText = "保存",
             onConfirm = {
-                scope.launch {
-                    val ok = BookSourceManager.updateSourceJson(context, s.key, draft.toJson().toString())
-                    if (!ok) {
-                        AppToast.show(context, "保存失败：名称或地址为空、地址与已有书源重复或写盘失败", long = false)
+                // v1.3.33：jsLib URL 形式明确拒绝——不保存、不关弹窗，让用户当场改掉。
+                if (LegadoJsEngine.isJsLibUrl(draft.jsLib)) {
+                    AppToast.show(context, "jsLib 暂不支持 URL，请贴内联代码", long = true)
+                } else {
+                    scope.launch {
+                        val ok = BookSourceManager.updateSourceJson(context, s.key, draft.toJson().toString())
+                        if (!ok) {
+                            AppToast.show(context, "保存失败：名称或地址为空、地址与已有书源重复或写盘失败", long = false)
+                        }
                     }
+                    editTarget = null
                 }
-                editTarget = null
             },
         ) {
             Row(Modifier.horizontalScroll(rememberScrollState())) {
@@ -1079,7 +1105,7 @@ fun BookSourceScreen(
                         SourceField("正文", draft.ruleContent, hint = "ruleContent.content，空则走通用正文兜底") { draft = draft.copy(ruleContent = it) }
                         SourceField("正文替换", draft.ruleContentReplace, hint = "replaceRegex：每行一条，行内用 ## 分隔正则与替换", multiLine = true) { draft = draft.copy(ruleContentReplace = it) }
                         SourceField("正文下一页", draft.ruleContentNext, hint = "ruleContent.nextContentUrl") { draft = draft.copy(ruleContentNext = it) }
-                        SourceField("共享 JS 库", draft.jsLib, hint = "阅读式 jsLib（内联代码，URL 形式暂不支持）", multiLine = true) { draft = draft.copy(jsLib = it) }
+                        SourceField("共享 JS 库", draft.jsLib, hint = "阅读式 jsLib：只支持内联代码，填 URL 会拒绝保存", multiLine = true) { draft = draft.copy(jsLib = it) }
                     }
                     else -> {
                         SourceField("发现地址", draft.exploreUrl, hint = "阅读式 exploreUrl：分类 JSON 数组或对象") { draft = draft.copy(exploreUrl = it) }
@@ -1106,6 +1132,8 @@ fun BookSourceScreen(
                 val jsonOk = runCatching { JSONObject(text) }.isSuccess
                 if (!jsonOk) {
                     "JSON 格式不对，未保存"
+                } else if (BookSource.fromJson(text)?.jsLib?.let { LegadoJsEngine.isJsLibUrl(it) } == true) {
+                    "jsLib 暂不支持 URL，请贴内联代码，未保存"
                 } else if (BookSourceManager.updateSourceJson(context, s.key, text)) {
                     null
                 } else {
@@ -1302,6 +1330,10 @@ private fun SourceTextEditorDialog(
 }
 
 /** v1.1.3：探测状态点颜色（与发现探测同口径）：通绿、慢黄、不通红、未测灰。 */
+/** v1.3.33：书源列表里有没有 URL 形式的 jsLib（纯函数，可单测）——有则返回第一个命中的书源名，供导入/保存入口明确拒绝。 */
+internal fun firstJsLibUrlSourceName(sources: List<BookSource>): String? =
+    sources.firstOrNull { LegadoJsEngine.isJsLibUrl(it.jsLib) }?.name
+
 private fun bookProbeDotColor(status: String?): Color = when (status) {
     // v1.2.14 E片：探测状态点是 3:1 图形——原色浅色底只有 1.79/1.80/2.91:1；
     // 通改 #15803D（4.78/3.69）、慢改 #9A6B0F（4.46/3.96）、不通改 #D92D20（4.60/3.84），

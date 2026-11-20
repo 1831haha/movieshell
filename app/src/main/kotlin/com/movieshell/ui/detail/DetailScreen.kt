@@ -18,7 +18,6 @@ import androidx.compose.ui.semantics.contentDescription
 
 import androidx.compose.ui.semantics.semantics
 
-import androidx.compose.foundation.layout.widthIn
 
 import androidx.compose.foundation.layout.PaddingValues
 
@@ -207,7 +206,6 @@ import com.movieshell.player.resolvePlayUrl
 import com.movieshell.player.VideoQuality
 import com.movieshell.ui.components.AppButton
 import com.movieshell.ui.components.AppButtonVariant
-import com.movieshell.ui.components.AppCard
 import com.movieshell.ui.components.AppSearchBar
 import com.movieshell.ui.components.EmptyKind
 import com.movieshell.ui.components.EmptyState
@@ -1184,7 +1182,7 @@ fun DetailScreen(
                                     Row(verticalAlignment = Alignment.CenterVertically) {
                                         Text(
                                             text = detailTitle(detail, vodId),
-                                            style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
+                                            style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold, fontSize = 18.sp),
                                             color = v.onSurface,
                                             maxLines = 2,
                                             overflow = TextOverflow.Ellipsis,
@@ -1343,7 +1341,10 @@ fun DetailScreen(
                                     )
                                 }
                                 val lineRowState = rememberLazyListState()
-                                LaunchedEffect(Unit) { if (safeLine > 0) lineRowState.scrollToItem(safeLine) }
+                                // v1.3.33：key 跟选中线路与线路条数——切线（含切回第 0 条）时
+                                // 选中 chip 始终滚回可视区；切换用动画滚动；首次加载只滚一次，
+                                // 不反复滚动。
+                                LaunchedEffect(safeLine, playLines.size) { lineRowState.animateScrollToItem(safeLine) }
                                 LazyRow(
                                     state = lineRowState,
                                     contentPadding = PaddingValues(horizontal = V5.Gutter),
@@ -1565,7 +1566,7 @@ fun DetailScreen(
                                         }
                                     }
                                 }
-                                Spacer(Modifier.height(24.dp))
+                                Spacer(Modifier.height(16.dp))
                             }
                         }
                         episodes.size > 1 -> {
@@ -1700,7 +1701,7 @@ fun DetailScreen(
                                         }
                                     }
                                 }
-                                Spacer(Modifier.height(24.dp))
+                                Spacer(Modifier.height(16.dp))
                             }
                         }
                         else -> {
@@ -1956,8 +1957,8 @@ fun DetailScreen(
 
                     // v0.58：简介已并入主演卡片，独立简介卡删除
                     item {
-                        Spacer(Modifier.height(24.dp))
-                        Spacer(Modifier.height(24.dp))
+                        Spacer(Modifier.height(16.dp))
+                        Spacer(Modifier.height(16.dp))
                     }
                 }
 
@@ -2266,28 +2267,94 @@ fun DetailScreen(
                 mutableStateOf(lineEpisodes.indices.toSet())
             }
             var resolving by remember { mutableStateOf(false) }
-            Dialog(onDismissRequest = { if (!resolving) showDownloadDialog = false }) {
-                // v0.294.3：封顶 420dp；选集由整宽勾选行（一屏只见几集）改为多列紧凑方格，点格即选/取消，标题行加全选
-                AppCard(modifier = Modifier.widthIn(max = 420.dp)) {
-                    Column(modifier = Modifier.padding(horizontal = 20.dp, vertical = 16.dp)) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(
-                                text = "选择要下载的剧集",
-                                style = MaterialTheme.typography.titleMedium,
-                                color = MaterialTheme.colorScheme.onSurface,
-                                modifier = Modifier.weight(1f),
-                            )
-                            val allSelected = selected.size == lineEpisodes.size && lineEpisodes.isNotEmpty()
-                            TextButton(
-                                onClick = {
-                                    selected = if (allSelected) emptySet() else lineEpisodes.indices.toSet()
-                                },
-                                enabled = !resolving,
-                            ) {
-                                Text(if (allSelected) "全不选" else "全选", style = MaterialTheme.typography.labelLarge)
+            // v1.3.33：下载选集改走 TechDialog；选集是长列表，走宽松模式；
+            // 内容含 LazyVerticalGrid 自己滚，TechDialog 内容区不套滚动。
+            TechDialog(
+                onDismissRequest = { if (!resolving) showDownloadDialog = false },
+                title = "选择要下载的剧集",
+                confirmText = "下载选中（${selected.size}）",
+                confirmEnabled = !resolving && selected.isNotEmpty(),
+                onConfirm = {
+                    // v0.217.0（F11）：下载入口同样过禁用检查，不再绕过禁用。
+                    if (!isCurrentRuleEnabled()) {
+                        AppToast.show(context, "该源已禁用，启用后才能下载", long = false)
+                    } else {
+                        resolving = true
+                        // v0.106.0：批量解析走应用级 scope，关弹窗/切页不中断
+                        PlayResolveScope.launch {
+                            val tasks = mutableListOf<DownloadTask>()
+                            var skippedMagnet = 0
+                            var failedResolve = 0
+                            selected.sorted().forEach { i ->
+                                val ep = lineEpisodes.getOrNull(i) ?: return@forEach
+                                if (MagnetPlayer.isMagnet(ep.url)) { skippedMagnet++; return@forEach }
+                                val url = resolvePlayUrl(context, subSite, ep)
+                                if (url.isBlank()) { failedResolve++; return@forEach }
+                                tasks.add(
+                                    DownloadTask(
+                                        title = "${detailTitle(detail, vodId)} ${ep.name.ifBlank { "第${i + 1}集" }}",
+                                        pic = detail?.vodPic.orEmpty(),
+                                        url = url,
+                                        kind = if (DownloadManager.isM3u8(url)) "m3u8" else "file",
+                                    ),
+                                )
+                            }
+                            resolving = false
+                            showDownloadDialog = false
+                            if (tasks.isEmpty()) {
+                                AppToast.show(
+                                    context,
+                                    if (skippedMagnet > 0 || failedResolve > 0) "已跳过 $skippedMagnet 集磁力（磁力不支持下载，请直接播放），成功解析 0 集，失败 $failedResolve 集" else "没有可下载的剧集",
+                                    long = false,
+                                )
+                            } else {
+                                // v0.63.0：空间不足提醒
+                                if (DownloadSettings.lowSpaceWarn(context)) {
+                                    val free = StoragePaths.downloadDir(context).usableSpace
+                                    if (free < DownloadSettings.LOW_SPACE_BYTES) {
+                                        AppToast.show(context, "存储空间不足（剩余 ${free / 1024 / 1024}MB），可能下不完", long = true)
+                                    }
+                                }
+                                DownloadManager.enqueue(context, tasks)
+                                AppToast.show(
+                                    context,
+                                    if (skippedMagnet > 0 || failedResolve > 0) "已加入下载队列（${tasks.size}），跳过 $skippedMagnet 集磁力，失败 $failedResolve 集" else "已加入下载队列（${tasks.size}）",
+                                    long = false,
+                                )
                             }
                         }
-                        Spacer(Modifier.height(8.dp))
+                    }
+                },
+                // 解析中隐藏取消按钮（点外部/返回同样被 onDismissRequest 拦住）。
+                dismissText = if (resolving) null else "取消",
+                // v1.3.33：选集是长列表，走宽松模式；内容含 LazyVerticalGrid 自己滚。
+                compact = false,
+                scrollable = false,
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    val allSelected = selected.size == lineEpisodes.size && lineEpisodes.isNotEmpty()
+                    TextButton(
+                        onClick = {
+                            selected = if (allSelected) emptySet() else lineEpisodes.indices.toSet()
+                        },
+                        enabled = !resolving,
+                    ) {
+                        Text(if (allSelected) "全不选" else "全选", style = MaterialTheme.typography.labelLarge)
+                    }
+                }
+                // v1.3.33：磁力不支持下载——灰格已标“·磁力”，这里再明说一句。
+                if (lineEpisodes.any { MagnetPlayer.isMagnet(it.url) }) {
+                    Text(
+                        "磁力剧集不支持下载，请直接播放",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Spacer(Modifier.height(8.dp))
                         val dlLabels = lineEpisodes.mapIndexed { i, ep -> ep.name.ifBlank { "第${i + 1}集" } }
                         val dlLong = dlLabels.any { it.length > 5 }
                         LazyVerticalGrid(
@@ -2329,75 +2396,21 @@ fun DetailScreen(
                                 }
                             }
                         }
-                        Spacer(Modifier.height(12.dp))
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.End,
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            // 解析中指示：AppButton 无内容插槽，指示条放按钮左侧（功能不变）
-                            if (resolving) {
+                        if (resolving) {
+                            Spacer(Modifier.height(12.dp))
+                            Row(verticalAlignment = Alignment.CenterVertically) {
                                 CircularProgressIndicator(
                                     modifier = Modifier.size(24.dp),
                                     strokeWidth = 2.dp,
                                 )
                                 Spacer(Modifier.width(8.dp))
+                                Text(
+                                    "正在解析…",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
                             }
-                            AppButton(
-                                text = "取消",
-                                onClick = { showDownloadDialog = false },
-                                variant = AppButtonVariant.Ghost,
-                                enabled = !resolving,
-                            )
-                            Spacer(Modifier.width(8.dp))
-                            AppButton(
-                                text = "下载选中（${selected.size}）",
-                                onClick = {
-                                    // v0.217.0（F11）：下载入口同样过禁用检查，不再绕过禁用。
-                                    if (!isCurrentRuleEnabled()) {
-                                        AppToast.show(context, "该源已禁用，启用后才能下载", long = false)
-                                    } else {
-                                    resolving = true
-                                    // v0.106.0：批量解析走应用级 scope，关弹窗/切页不中断
-                                    PlayResolveScope.launch {
-                                        val tasks = mutableListOf<DownloadTask>()
-                                        selected.sorted().forEach { i ->
-                                            val ep = lineEpisodes.getOrNull(i) ?: return@forEach
-                                            if (MagnetPlayer.isMagnet(ep.url)) return@forEach
-                                            val url = resolvePlayUrl(context, subSite, ep)
-                                            if (url.isBlank()) return@forEach
-                                            tasks.add(
-                                                DownloadTask(
-                                                    title = "${detailTitle(detail, vodId)} ${ep.name.ifBlank { "第${i + 1}集" }}",
-                                                    pic = detail?.vodPic.orEmpty(),
-                                                    url = url,
-                                                    kind = if (DownloadManager.isM3u8(url)) "m3u8" else "file",
-                                                ),
-                                            )
-                                        }
-                                        resolving = false
-                                        showDownloadDialog = false
-                                        if (tasks.isEmpty()) {
-                                            AppToast.show(context, "没有可下载的剧集", long = false)
-                                        } else {
-                                            // v0.63.0：空间不足提醒
-                                            if (DownloadSettings.lowSpaceWarn(context)) {
-                                                val free = StoragePaths.downloadDir(context).usableSpace
-                                                if (free < DownloadSettings.LOW_SPACE_BYTES) {
-                                                    AppToast.show(context, "存储空间不足（剩余 ${free / 1024 / 1024}MB），可能下不完", long = true)
-                                                }
-                                            }
-                                            DownloadManager.enqueue(context, tasks)
-                                            AppToast.show(context, "已加入下载队列（${tasks.size}）", long = false)
-                                        }
-                                    }
-                                }
-                                },
-                                enabled = !resolving && selected.isNotEmpty(),
-                            )
                         }
-                    }
-                }
             }
         } // vod?.let
     }
@@ -2833,9 +2846,9 @@ private fun FollowPanel(
         Column(
             Modifier
                 .fillMaxWidth()
-                .shadow(10.dp, RoundedCornerShape(V5.CornerLg))
+                .shadow(4.dp, RoundedCornerShape(V5.CornerLg))
                 .detailGlass(RoundedCornerShape(V5.CornerLg))
-                .padding(16.dp),
+                .padding(12.dp),
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 // v1.2.3：追更卡加海报小图（无图时不占位）。
@@ -3032,7 +3045,7 @@ private fun FollowPanel(
                 .fillMaxWidth()
                 .padding(top = 12.dp)
                 .detailGlass(RoundedCornerShape(V5.CornerLg))
-                .padding(horizontal = 16.dp, vertical = 14.dp),
+                .padding(horizontal = 16.dp, vertical = 10.dp),
         ) {
             Icon(
                 Icons.Filled.Notifications,

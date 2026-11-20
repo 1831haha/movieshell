@@ -128,7 +128,6 @@ import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.ModalBottomSheet
 import com.movieshell.ui.components.sheetListScrollGuard
-import com.movieshell.ui.theme.V5
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -794,10 +793,11 @@ fun MusicPlayerScreen(
                 Spacer(Modifier.height(6.dp))
                 // 主控制：上一首 / 主题色播放键 / 下一首（居中，图标无底圈）
                 // v0.294.8：播放键 72→62dp、图标 40→32dp，上/下一首 56→48dp（用户嫌播放键太大）
+                // v1.3.33：播放键 62→56dp、图标 32→28dp、间距 32→24dp；上/下一首仍 48dp 点按区。
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(32.dp, Alignment.CenterHorizontally),
+                    horizontalArrangement = Arrangement.spacedBy(24.dp, Alignment.CenterHorizontally),
                 ) {
                     IconButton(
                         onClick = { MusicPlayer.prev(context) },
@@ -806,13 +806,13 @@ fun MusicPlayerScreen(
                         Icon(
                             Icons.Filled.SkipPrevious,
                             contentDescription = "上一首",
-                            modifier = Modifier.size(32.dp),
+                            modifier = Modifier.size(28.dp),
                             tint = Color.White,
                         )
                     }
                     FilledIconButton(
                         onClick = { MusicPlayer.toggle() },
-                        modifier = Modifier.size(62.dp),
+                        modifier = Modifier.size(56.dp),
                         shape = CircleShape,
                         colors = IconButtonDefaults.filledIconButtonColors(
                             containerColor = MaterialTheme.colorScheme.primary,
@@ -831,7 +831,7 @@ fun MusicPlayerScreen(
                                 else Icons.Filled.PlayArrow,
                                 contentDescription = if (playState.playing) "暂停" else "播放",
                                 modifier = Modifier
-                                    .size(32.dp)
+                                    .size(28.dp)
                                     .graphicsLayer {
                                         scaleX = playIconScale.value
                                         scaleY = playIconScale.value
@@ -846,7 +846,7 @@ fun MusicPlayerScreen(
                         Icon(
                             Icons.Filled.SkipNext,
                             contentDescription = "下一首",
-                            modifier = Modifier.size(32.dp),
+                            modifier = Modifier.size(28.dp),
                             tint = Color.White,
                         )
                     }
@@ -1346,7 +1346,7 @@ private fun MusicQueueDialog(
     // 列表不在顶时下滑只滚列表，到顶再下滑才收起面板。
     ModalBottomSheet(
         onDismissRequest = onDismiss,
-        shape = RoundedCornerShape(topStart = V5.CornerXl, topEnd = V5.CornerXl),
+        shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp),
         containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
     ) {
       Column(modifier = Modifier.padding(start = 16.dp, end = 8.dp, bottom = 12.dp)) {
@@ -1488,6 +1488,8 @@ internal fun MusicSourcePickerDialog(
     TechDialog(
         onDismissRequest = onDismiss,
         title = "切换音源",
+        // v1.3.33：音源列表是长列表，走宽松模式。
+        compact = false,
     ) {
         Column(modifier = Modifier.fillMaxWidth()) {
             if (showAutoOption) {

@@ -104,7 +104,8 @@ fun copyTextForLink(input: String): String? = input.takeIf { it.isNotBlank() }
  *
  * 流程：粘贴链接 → 解析列目录（文件夹可下钻）→ 点一集取直链 → 交播放器。
  * 有登录态拿全长直链；没登录时夸克/UC 大文件只给 2 分钟预览（先弹窗明说），
- * 百度没登录基本播不了（取直链要 SVIP），阿里/光鸭/迅雷游客直通。
+ * 百度没登录基本播不了（取直链要 SVIP），阿里/光鸭游客直通；迅雷只有带
+ * 游客直链的文件能播，没有直链的须在迅雷 App 内转存（本版不做转存分支）。
  * 登录入口在顶栏“登录网盘”，每盘登一次、只存本机。
  * 空态/加载中/失败态都有可见反馈，不静默空白。
  * v1.3.7：框内 × 一键清空，长按输入框复制整段链接，长按文件/文件夹行复制名字。
@@ -828,7 +829,13 @@ private fun ShareLoginDialog(
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         Spacer(Modifier.height(8.dp))
-        SharePlatform.values().forEach { platform ->
+        // v1.3.33：光鸭/迅雷的手动 Token 入口已撤——贴了 token 也没人读
+        // （光鸭 resolve 只用分享会话自带的 accessToken，迅雷全程只走游客
+        // 验证码流程），留着就是“存了却没用”的死输入；阿里 token 仍保留，
+        // 阿里 resolve 真读 ShareAuth。已保存的旧 Token 不再被读取。
+        SharePlatform.values().filter {
+            it != SharePlatform.GUANGYA && it != SharePlatform.XUNLEI
+        }.forEach { platform ->
             val loggedIn = remember(tick) { ShareAuth.hasLogin(platform) }
             val expired = remember(tick) { ShareAuth.isExpired(platform) }
             Row(
@@ -872,7 +879,13 @@ private fun ShareLoginDialog(
         }
         Spacer(Modifier.height(8.dp))
         Text(
-            text = "阿里、光鸭、迅雷不用登录也能播分享；登录只备用。夸克扫码换取偶尔失败，失败时点手动输入 Cookie。",
+            text = "阿里、光鸭不用登录也能播分享；迅雷只有带游客直链的文件能播，没有直链的须在迅雷 App 内转存。登录只备用。夸克扫码换取偶尔失败，失败时点手动输入 Cookie。",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Spacer(Modifier.height(4.dp))
+        Text(
+            text = "光鸭、迅雷的手动 Token 登录暂未接入（只走游客直链），这里不提供入口。",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -984,7 +997,9 @@ private fun ShareQrLoginDialog(
     }
 }
 
-/** 手动登录弹窗：扫码盘贴 Cookie，阿里贴 access_token（或含它的 JSON），光鸭/迅雷贴 token。 */
+/** 手动登录弹窗：扫码盘贴 Cookie，阿里贴 access_token（或含它的 JSON）。
+ * v1.3.33：光鸭/迅雷的手动 Token 入口已撤（登录列表不再提供），这里再守
+ * 一道——万一从别处调进来也不保存，只显示“暂未接入”。 */
 @Composable
 private fun ShareManualLoginDialog(
     platform: SharePlatform,
@@ -995,6 +1010,7 @@ private fun ShareManualLoginDialog(
     var text by remember { mutableStateOf("") }
     val isCookie = platform == SharePlatform.QUARK ||
         platform == SharePlatform.UC || platform == SharePlatform.BAIDU
+    val tokenUnsupported = platform == SharePlatform.GUANGYA || platform == SharePlatform.XUNLEI
     val label = when (platform) {
         SharePlatform.ALIYUN -> "粘贴 access_token，或含 access_token 的 JSON"
         else -> if (isCookie) "粘贴 Cookie（一整串）" else "粘贴 Token"
@@ -1003,7 +1019,12 @@ private fun ShareManualLoginDialog(
         onDismissRequest = onDismiss,
         title = "手动登录 · ${platform.displayName}",
         confirmText = "保存",
+        confirmEnabled = !tokenUnsupported,
         onConfirm = {
+            if (tokenUnsupported) {
+                onDismiss()
+                return@TechDialog
+            }
             val ok = when {
                 isCookie -> ShareAuth.saveCookie(platform, text)
                 platform == SharePlatform.ALIYUN -> {
@@ -1025,6 +1046,14 @@ private fun ShareManualLoginDialog(
             }
         },
     ) {
+        if (tokenUnsupported) {
+            Text(
+                text = "${platform.displayName}手动 Token 暂未接入：解析只走游客直链，贴了 Token 也不会被读取。",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            return@TechDialog
+        }
         Text(
             text = label,
             style = MaterialTheme.typography.bodySmall,

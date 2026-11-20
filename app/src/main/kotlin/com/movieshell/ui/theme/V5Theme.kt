@@ -34,16 +34,16 @@ object V5 {
     val CornerLg: Dp = 16.dp
     /** largeIncreased：卡片（简介、统计、设置分组、直播播放器 24）。 */
     val CornerLgI: Dp = 20.dp
-    val CornerCard: Dp = 24.dp
+    val CornerCard: Dp = 20.dp
     /** extraLarge：Hero、搜索栏、侧边面板、中央播放键。 */
     val CornerXl: Dp = 28.dp
 
     // ---- 高度（第 4 节） ----
-    val TopBar: Dp = 64.dp
-    val SearchBar: Dp = 56.dp
+    val TopBar: Dp = 52.dp
+    val SearchBar: Dp = 48.dp
     val Tabs: Dp = 48.dp
     val FilterStrip: Dp = 48.dp
-    val SectionHeader: Dp = 48.dp
+    val SectionHeader: Dp = 40.dp
     val Chip: Dp = 32.dp
     val Button: Dp = 40.dp
     val ButtonProminent: Dp = 56.dp
@@ -52,10 +52,10 @@ object V5 {
     val ListItemTwoLine: Dp = 72.dp
     val RowChannel: Dp = 72.dp
     val RowTrack: Dp = 56.dp
-    val NavBar: Dp = 64.dp
+    val NavBar: Dp = 56.dp
 
     /** tab 页滚动内容的底部留白 = NavigationBar 高度（底栏不再浮动，不需要淡出区）。 */
-    val DockClearance: Dp = 64.dp
+    val DockClearance: Dp = 56.dp
 
     /** 状态栏下方留白（设置 / 直播 无顶栏，内容从状态栏 + 8dp 开始）。 */
     val StatusGap: Dp = 8.dp

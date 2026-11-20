@@ -45,6 +45,13 @@ import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Share
+import com.movieshell.ui.preview.shareFile
+import kotlinx.serialization.builtins.ListSerializer
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
+import java.io.File
 import androidx.compose.material.icons.filled.SwapHoriz
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -164,6 +171,8 @@ fun MusicScreen(
     // v0.294.17：进播放页再返回不丢歌单标题（与页签同用 rememberSaveable）
     var playlistName by rememberSaveable { mutableStateOf<String?>(null) }
     var importingPlaylist by remember { mutableStateOf(false) }
+    // v1.3.33：歌单导入只认网易云——当前平台跟 MusicSettings 走（OnlineTab 同款读法）。
+    val musicPlatform by MusicSettings.musicPlatform.collectAsState()
     // v0.180.0：音源条显示当前音源名（首选源名，无首选=自动），
     // 切换音源弹窗关上后重新读一次，名字跟着新选择走。
     var musicSources by remember { mutableStateOf<List<MusicSource>>(emptyList()) }
@@ -392,11 +401,15 @@ fun MusicScreen(
     }
 
     // v0.82.0：歌单导入弹窗；v0.84.0：换科技感 TechDialog（v0.128.0：随入口上提到本屏）
+    // v1.3.33：歌单导入第一步只支持网易云——其他平台切过来时明确显示不支持，
+    // 不要让用户误以为导入也随平台切换；确认按钮同时禁用。
     if (showPlaylistDialog) {
+        val playlistSupported = musicPlatform == "wy"
         TechDialog(
             onDismissRequest = { showPlaylistDialog = false },
             title = "歌单导入",
-            subtitle = "粘贴网易云歌单链接或 ID，一键导入整单歌曲",
+            subtitle = if (playlistSupported) "粘贴网易云歌单链接或 ID，一键导入整单歌曲"
+            else "歌单导入目前只支持网易云，当前平台是${MusicApi.platformShortLabel(musicPlatform)}，切回网易云后再导入",
             confirmText = if (importingPlaylist) "导入中…" else "导入",
             onConfirm = {
                 importPlaylist(playlistInput) { ok ->
@@ -406,7 +419,7 @@ fun MusicScreen(
                     }
                 }
             },
-            confirmEnabled = !importingPlaylist,
+            confirmEnabled = !importingPlaylist && playlistSupported,
         ) {
             TechTextField(
                 value = playlistInput,
@@ -1491,6 +1504,23 @@ private fun PlaylistTab(
     }
     LaunchedEffect(Unit) { reload() }
 
+    // v1.3.33：单张歌单导出——应用内部 JSON 格式（备份/迁移用，不承诺跨平台
+    // 导出，别的音乐 App 不认这个格式）；写缓存文件后走系统分享。
+    fun exportPlaylist(pl: MusicPlaylist) {
+        scope.launch {
+            val ok = withContext(Dispatchers.IO) {
+                runCatching {
+                    val safe = pl.name.ifBlank { "歌单" }
+                        .replace(Regex("[\\\\/:*?\"<>|]"), "_")
+                    val file = File(context.cacheDir, "playlist_${safe}.json")
+                    file.writeText(buildPlaylistExportJson(pl))
+                    shareFile(context, file)
+                }.getOrDefault(false)
+            }
+            if (!ok) AppToast.show(context, "导出失败", long = false)
+        }
+    }
+
     Column(modifier = Modifier.fillMaxSize()) {
         Row(
             modifier = Modifier
@@ -1566,6 +1596,13 @@ private fun PlaylistTab(
                                         text = "${pl.tracks.size} 首",
                                         style = MaterialTheme.typography.bodySmall,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                }
+                                IconButton(onClick = { exportPlaylist(pl) }) {
+                                    Icon(
+                                        Icons.Filled.Share,
+                                        contentDescription = "导出歌单",
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
                                     )
                                 }
                                 IconButton(onClick = { renameTarget = pl }) {
@@ -1660,6 +1697,29 @@ private fun PlaylistTab(
     }
 }
 
+/**
+ * v1.3.33：歌单导出用的应用内部 JSON（纯函数，可单测）：只承诺本应用备份/
+ * 迁移，不承诺跨平台导出。tracks 用 MusicApi.Track 的标准序列化，恢复时
+ * 按备份里 playlists 段的同款结构读回。
+ */
+internal fun buildPlaylistExportJson(playlist: MusicPlaylist): String {
+    return buildJsonObject {
+        put("app", "movieshell")
+        put("kind", "playlist")
+        put("version", 1)
+        put("name", playlist.name)
+        put(
+            "tracks",
+            Json.parseToJsonElement(
+                Json.encodeToString(
+                    ListSerializer(MusicApi.Track.serializer()),
+                    playlist.tracks,
+                ),
+            ),
+        )
+    }.toString()
+}
+
 /** v0.84.0：新建/重命名歌单弹窗（共用）；科技感 TechDialog。 */
 @Composable
 private fun NewPlaylistDialog(
@@ -1718,6 +1778,8 @@ internal fun AddToPlaylistDialog(
     TechDialog(
         onDismissRequest = onDismiss,
         title = "加到歌单",
+        // v1.3.33：歌单长列表走宽松模式。
+        compact = false,
         subtitle = "《${track.name}》",
         onConfirm = null,
         content = {

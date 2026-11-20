@@ -30,6 +30,8 @@ import androidx.compose.material.icons.outlined.StarBorder
 import android.content.ContentResolver
 import android.os.SystemClock
 import com.movieshell.ui.components.AppToast
+import android.content.Context
+import android.content.Intent
 import android.content.pm.ActivityInfo
 import android.content.res.Configuration
 import android.net.Uri
@@ -118,6 +120,7 @@ import com.movieshell.data.store.TrashStore
 import com.movieshell.player.EngineHost
 import com.movieshell.player.PlaySession
 import com.movieshell.player.PlayerScreen
+import org.json.JSONObject
 import com.movieshell.ui.components.AppButton
 import com.movieshell.ui.components.AppButtonVariant
 import com.movieshell.ui.components.AppCard
@@ -136,6 +139,10 @@ private val timeFmt = SimpleDateFormat("HH:mm", Locale.getDefault())
 // v0.160.0：直播选中状态放内存单例，不放 remember——切 tab 离页重组、聚合刷新
 // 都不会丢选中频道和按台名选的源；聚合刷新本身只在 selected==null 时才取首台，
 // 所以 TRAE 说的“聚合一刷新就重置”在原代码里并不成立，真正丢状态的是离页重组
+// v1.3.33：四项选中态再落盘（live_prefs 下 live_sel_*），进程被杀重进也能
+// 恢复；恢复时按当前频道列表校验，不存在回落首个有效频道（见 LaunchedEffect
+// (channels) 与 (groupNames) 的兜底）。userStarted 继续只留进程内——持久化
+// 它会绕过“直播自动播放”设置，点过播放的记忆不能跨进程。
 private object LiveSelection {
     var channelId: String? = null
     val sourceByName = mutableMapOf<String, String>()
@@ -144,6 +151,44 @@ private object LiveSelection {
     var selectedLiveSource: String? = null
     // v0.294.5：本次进程里用户是否已主动点过播放（点过就不再受“直播自动播放”设置拦）
     var userStarted = false
+    /** 本进程是否已从磁盘恢复过选中态（只恢复一次，之后以内存为准）。 */
+    var hydrated = false
+}
+
+private const val LIVE_SEL_CHANNEL = "live_sel_channel_id"
+private const val LIVE_SEL_SOURCE_BY_NAME = "live_sel_source_by_name"
+private const val LIVE_SEL_GROUP = "live_sel_group"
+private const val LIVE_SEL_LIVE_SOURCE = "live_sel_live_source"
+
+/** 进程启动后第一次进直播页时，把磁盘上的选中态读进单例（只读一次）。 */
+private fun loadLiveSelection(context: Context) {
+    if (LiveSelection.hydrated) return
+    LiveSelection.hydrated = true
+    val prefs = context.getSharedPreferences("live_prefs", Context.MODE_PRIVATE)
+    LiveSelection.channelId = prefs.getString(LIVE_SEL_CHANNEL, null)
+    LiveSelection.selectedGroup = prefs.getString(LIVE_SEL_GROUP, null)
+    LiveSelection.selectedLiveSource = prefs.getString(LIVE_SEL_LIVE_SOURCE, null)
+    val raw = prefs.getString(LIVE_SEL_SOURCE_BY_NAME, null)
+    if (!raw.isNullOrBlank()) {
+        runCatching {
+            val obj = JSONObject(raw)
+            obj.keys().forEach { k ->
+                obj.optString(k).takeIf { it.isNotBlank() }?.let { LiveSelection.sourceByName[k] = it }
+            }
+        }
+    }
+}
+
+/** 把单例里的四项选中态写盘（apply 异步落盘；userStarted 故意不写）。 */
+private fun saveLiveSelection(context: Context) {
+    val obj = JSONObject()
+    LiveSelection.sourceByName.forEach { (k, v) -> obj.put(k, v) }
+    context.getSharedPreferences("live_prefs", Context.MODE_PRIVATE).edit()
+        .putString(LIVE_SEL_CHANNEL, LiveSelection.channelId)
+        .putString(LIVE_SEL_SOURCE_BY_NAME, obj.toString())
+        .putString(LIVE_SEL_GROUP, LiveSelection.selectedGroup)
+        .putString(LIVE_SEL_LIVE_SOURCE, LiveSelection.selectedLiveSource)
+        .apply()
 }
 
 /** 直播 Tab：DsPlayer 式布局（v0.80.0 重做）——顶部 16:9 播放器 + 节目信息卡 + 两列（分组/频道）+ 播放器下方源行 */
@@ -176,6 +221,9 @@ fun LiveScreen(
     var lastPlayStartMs by remember { mutableLongStateOf(0L) }
     // v0.80.0：左侧分组选中态
     // v0.171.0：初值从单例恢复，切 tab 回来不回首组
+    // v1.3.33：进程首次进页先从磁盘恢复单例（loadLiveSelection 只读一次），
+    // 下面三个初值拿到的就是进程被杀前选的台/分组/源行。
+    loadLiveSelection(context)
     var selectedGroup by remember { mutableStateOf(LiveSelection.selectedGroup) }
     // v0.158.0：直播页内换源（null=全部，DsPlayer 切换直播源对标）；
     // 直播失败已试过的同名源 id（自动切源防循环，手动点频道/源时清空）
@@ -240,13 +288,23 @@ fun LiveScreen(
             }
             if (selected == null) {
                 selected = restored ?: channels.first()
-                restored?.let { LiveSelection.channelId = it.id }
+                LiveSelection.channelId = selected?.id
+                // v1.3.33：磁盘恢复的台已不在列表里时回落首台，并把回落写盘，
+                // 下次不再拿着失效 id 恢复；源行同理，失效的源行清掉。
+                if (restored == null) saveLiveSelection(context)
             } else if (channels.none { it.id == selected?.id }) {
                 selected = restored ?: channels.first()
             } else {
                 // v0.217.0（F19）：选中台还在列表里时，换成刷新后的新对象——
                 // 否则顶部卡拿着旧拷贝，收藏／过期状态刷新后不同步。
                 channels.firstOrNull { it.id == selected?.id }?.let { selected = it }
+            }
+            if (LiveSelection.selectedLiveSource != null &&
+                channels.none { it.sourceKey == LiveSelection.selectedLiveSource }
+            ) {
+                LiveSelection.selectedLiveSource = null
+                selectedLiveSource = null
+                saveLiveSelection(context)
             }
             // 按台名选的源从单例恢复一次（切 tab 回来不丢源2）
             if (liveSourceByName.isEmpty() && LiveSelection.sourceByName.isNotEmpty()) {
@@ -281,6 +339,7 @@ fun LiveScreen(
         liveSourceByName = liveSourceByName + (ch.name to ch.id)
         LiveSelection.sourceByName[ch.name] = ch.id
         LiveSelection.channelId = ch.id
+        saveLiveSelection(context)
         selected = ch
     }
 
@@ -304,6 +363,7 @@ fun LiveScreen(
             if (first != null && selected?.sourceKey != selectedLiveSource) {
                 liveTriedIds = emptySet()
                 LiveSelection.channelId = first.id
+                saveLiveSelection(context)
                 selected = first
             }
         }
@@ -330,6 +390,9 @@ fun LiveScreen(
         if (selectedGroup !in groupNames) {
             selectedGroup = groupNames.firstOrNull { it != "我的收藏" }
                 ?: groupNames.firstOrNull()
+            // v1.3.33：分组回落同样写回单例与磁盘，别下次又拿失效分组恢复。
+            LiveSelection.selectedGroup = selectedGroup
+            saveLiveSelection(context)
         }
     }
     // v0.80.1：selectedGroup 初始为 null（LaunchedEffect 异步才赋值），TreeMap.get(null)
@@ -450,11 +513,13 @@ fun LiveScreen(
                                 liveTriedIds = tried
                                 if (selectedLiveSource != null && next.sourceKey != selectedLiveSource) {
                                     selectedLiveSource = null
+                                    LiveSelection.selectedLiveSource = null
                                 }
                                 AppToast.show(context, "当前源播放失败，已自动切到源${same.indexOf(next) + 1}", long = false)
                                 liveSourceByName = liveSourceByName + (next.name to next.id)
                                 LiveSelection.sourceByName[next.name] = next.id
                                 LiveSelection.channelId = next.id
+                                saveLiveSelection(context)
                                 selected = next
                             }
                         },
@@ -563,6 +628,7 @@ fun LiveScreen(
                         onClick = {
                             selectedGroup = g
                             LiveSelection.selectedGroup = g
+                            saveLiveSelection(context)
                         },
                     )
                 }
@@ -604,6 +670,7 @@ fun LiveScreen(
             onSelectLiveSource = { key ->
                 selectedLiveSource = key
                 LiveSelection.selectedLiveSource = key
+                saveLiveSelection(context)
             },
             onManageClick = {
                 showLiveSettings = false
@@ -1237,6 +1304,31 @@ private fun displayNameOf(resolver: ContentResolver, uri: Uri): String? {
     return null
 }
 
+/**
+ * v1.3.33：把当前频道拼成标准 M3U 文本（纯函数，可单测）。
+ * - 全局 EPG 地址放 #EXTM3U 的 x-tvg-url；
+ * - 每频道一行 #EXTINF：tvg-id（频道稳定 id，供 EPG 按台匹配）/ tvg-name /
+ *   tvg-logo / group-title + 台名，下一行播放地址；
+ * - 应用内收藏状态不进标准字段（不发明自定义字段），需要时调用方另行处理。
+ */
+internal fun buildM3uExport(channels: List<LiveChannel>, globalEpg: String): String {
+    fun attr(v: String): String = v.replace('"', '\'').replace('\n', ' ').replace('\r', ' ').trim()
+    val sb = StringBuilder()
+    val epg = globalEpg.trim()
+    if (epg.isNotEmpty()) sb.append("#EXTM3U x-tvg-url=\"${attr(epg)}\"\n")
+    else sb.append("#EXTM3U\n")
+    channels.filter { it.url.isNotBlank() }.forEach { ch ->
+        sb.append("#EXTINF:-1")
+        if (ch.id.isNotBlank()) sb.append(" tvg-id=\"${attr(ch.id)}\"")
+        if (ch.name.isNotBlank()) sb.append(" tvg-name=\"${attr(ch.name)}\"")
+        if (ch.logo.isNotBlank()) sb.append(" tvg-logo=\"${attr(ch.logo)}\"")
+        if (ch.group.isNotBlank()) sb.append(" group-title=\"${attr(ch.group)}\"")
+        sb.append(",${ch.name.ifBlank { "未知频道" }.replace('\n', ' ').trim()}\n")
+        sb.append("${ch.url.trim()}\n")
+    }
+    return sb.toString()
+}
+
 /** 直播订阅管理：M3U 订阅 URL / 本地 M3U 导入 / 手动添加频道 */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -1249,6 +1341,52 @@ fun LiveManageScreen(onBack: () -> Unit) {
     // v0.158.0：全局节目单兜底地址（用户自填，不内置源）
     var globalEpgText by remember { mutableStateOf(LiveStore.globalEpgUrl(context)) }
     var refreshing by remember { mutableStateOf(false) }
+    // v1.3.33：M3U 导出——点“导出 M3U”时先拼文本，再弹系统创建文件选择器。
+    var pendingM3uText by remember { mutableStateOf<String?>(null) }
+    val exportM3u = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("audio/x-mpegurl"),
+    ) { uri ->
+        val text = pendingM3uText
+        pendingM3uText = null
+        if (uri == null || text == null) return@rememberLauncherForActivityResult
+        val written = runCatching {
+            context.contentResolver.openOutputStream(uri)?.use {
+                it.write(text.toByteArray(Charsets.UTF_8))
+            }
+            true
+        }.getOrDefault(false)
+        if (!written) {
+            AppToast.show(context, "导出失败：写文件失败", long = true)
+            return@rememberLauncherForActivityResult
+        }
+        AppToast.show(context, "已导出 M3U", long = false)
+        // 存好后再调系统分享（照 FilePreviewScreen.shareFile 的 ACTION_SEND 口径）。
+        val send = Intent(Intent.ACTION_SEND).apply {
+            type = "audio/x-mpegurl"
+            putExtra(Intent.EXTRA_STREAM, uri)
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+        runCatching { context.startActivity(Intent.createChooser(send, "分享 M3U")) }
+    }
+
+    fun doExportM3u() {
+        scope.launch {
+            // 管理页进来时频道流可能还是空的（直播页没刷新过），导出前先刷一次订阅；
+            // 已有频道时不重复刷，直接用当前列表。
+            if (LiveStore.channels.value.isEmpty()) {
+                refreshing = true
+                runCatching { LiveStore.refresh(context) }
+                refreshing = false
+            }
+            val list = LiveStore.channels.value
+            if (list.isEmpty()) {
+                AppToast.show(context, "没有可导出的频道，先添加订阅或手动频道", long = true)
+                return@launch
+            }
+            pendingM3uText = buildM3uExport(list, LiveStore.globalEpgUrl(context))
+            exportM3u.launch("movieshell-live.m3u")
+        }
+    }
 
     val filePicker = rememberLauncherForActivityResult(
         ActivityResultContracts.GetContent(),
@@ -1325,6 +1463,21 @@ fun LiveManageScreen(onBack: () -> Unit) {
                     AppButton(
                         text = "手动添加",
                         onClick = { showAddChannel = true },
+                        modifier = Modifier.weight(1f),
+                        variant = AppButtonVariant.Secondary,
+                    )
+                }
+                // v1.3.33：导出 M3U——订阅解析后频道 + 手动频道，系统创建文件
+                // 选择器保存，再调系统分享。
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    AppButton(
+                        text = "导出 M3U",
+                        onClick = { doExportM3u() },
                         modifier = Modifier.weight(1f),
                         variant = AppButtonVariant.Secondary,
                     )

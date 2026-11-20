@@ -445,10 +445,28 @@ object LegadoJsEngine {
         }
     }
 
-    /** v0.200.0：jsLib 前置代码（内联形式；URL 形式暂不支持，返回空）。 */
+    /**
+     * v0.200.0：jsLib 前置代码（内联形式；URL 形式暂不支持，返回空）。
+     * v1.3.33：URL 形式不是在这里静默丢掉就算了——保存/探活入口
+     * （见 [isJsLibUrl]）在写盘前就明确拒绝并提示；这里仍返回空串兜底，
+     * 是最后一道防线（老书源里已有的 URL jsLib 不会悄悄当代码执行，
+     * 只是不生效，保存时再被挡下来改掉）。
+     */
     fun jsLibPrelude(source: JsRuleSource): String {
         val lib = source.jsLib
-        return if (lib.startsWith("http")) "" else lib
+        return if (isJsLibUrl(lib)) "" else lib
+    }
+
+    /**
+     * v1.3.33：jsLib 是不是 URL 形式（纯函数，可单测）。jsLibPrelude() 是
+     * 同步函数，里面不能加网络请求拉 URL；URL 形式的 jsLib 必须在保存/
+     * 探活时由调用方校验并明确拒绝（“jsLib 暂不支持 URL，请贴内联代码”），
+     * 不许静默丢弃——用户照阅读习惯填 URL 后共享库悄悄失效，排障无从下手。
+     */
+    fun isJsLibUrl(lib: String): Boolean {
+        val v = lib.trimStart()
+        return v.startsWith("http://", ignoreCase = true) ||
+            v.startsWith("https://", ignoreCase = true)
     }
 
     /** 内部求值统一入口：自动带 jsLib 前置代码。 */

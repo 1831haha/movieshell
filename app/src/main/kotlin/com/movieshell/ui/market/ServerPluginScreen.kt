@@ -692,6 +692,8 @@ fun ServerPluginScreen(
         TechDialog(
             onDismissRequest = { logFor = null },
             title = "${p.name} · 日志",
+            // v1.3.33：日志长内容走宽松模式。
+            compact = false,
             subtitle = "最近 ${logLines.size} 行（进程未运行时为空）",
             dismissText = "关闭",
         ) {

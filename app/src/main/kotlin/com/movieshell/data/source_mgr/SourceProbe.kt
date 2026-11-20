@@ -120,10 +120,15 @@ object SourceProbe {
 
     /** 注意：阻塞式调用方须包在 withContext(Dispatchers.IO) 里 */
     fun probeJs(context: Context, file: File): Result {
+        // v1.3.33：cheerio 类 drpy 规则垫片跑不起来，探活直接标不支持，不起引擎。
+        val ruleText = runCatching { file.readText() }.getOrNull()
+        if (ruleText != null && needsCheerioEngine(ruleText)) {
+            return Result.Fail("该源暂不支持：cheerio 类规则（缺少 HTML 解析能力）", FailCategory.LOCAL)
+        }
         val engine = V8DrpyEngine(context.applicationContext)
         return try {
             guarded(label = file.name, onTimeout = { runCatching { engine.release() } }) {
-                engine.loadRule(file.readText())
+                engine.loadRule(ruleText ?: file.readText())
                 // v1.0.9：home() 自带两级兜底（重调 + 首分类顶页），兜底后仍空
                 // 才算失效——站还在、规则取不到数，多半是页面结构变了。
                 val list = runBlocking { engine.home() }

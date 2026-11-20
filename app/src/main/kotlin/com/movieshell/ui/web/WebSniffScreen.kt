@@ -1013,6 +1013,8 @@ fun WebSniffScreen(
         TechDialog(
             onDismissRequest = { testResults = null },
             title = "嗅探测试（${results.size} 条）",
+            // v1.3.33：结果长列表走宽松模式。
+            compact = false,
             dismissText = "关闭",
         ) {
                 if (results.isEmpty()) {

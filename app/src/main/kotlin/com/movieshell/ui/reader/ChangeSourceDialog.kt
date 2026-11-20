@@ -178,6 +178,8 @@ fun ChangeSourceDialog(
     TechDialog(
         onDismissRequest = onDismiss,
         title = "换源",
+        // v1.3.33：搜索结果长列表走宽松模式。
+        compact = false,
         forceDark = forceDark,
         // v1.2.15：内容含 LazyColumn 自己滚，TechDialog 内容区不套滚动。
         scrollable = false,

@@ -2,6 +2,7 @@ package com.movieshell.ui.music
 
 import android.net.Uri
 import com.movieshell.ui.theme.ok
+import com.movieshell.ui.theme.StaticGlowBackground
 
 import com.movieshell.ui.components.AppSwitch
 import com.movieshell.ui.components.AppToast
@@ -436,277 +437,282 @@ fun MusicSourceScreen(onBack: () -> Unit = {}) {
         testJob = job
     }
 
-    Scaffold(
-        topBar = { TabTopBar(title = "音乐源管理", onBack = onBack) },
-        floatingActionButton = {
-            FloatingActionButton(onClick = { showAdd = true }) {
-                Icon(Icons.Filled.Add, contentDescription = "添加音乐源")
-            }
-        },
-    ) { inner ->
-        LazyColumn(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(inner),
-            // v1.3.31：卡片改小贴边——横向 padding 0、卡片 fillMaxWidth 真正贴边；
-            // 卡片之间缝收到 4dp，一屏能看六七个源。
-            contentPadding = PaddingValues(horizontal = 0.dp, vertical = 4.dp),
-            verticalArrangement = Arrangement.spacedBy(4.dp),
-        ) {
-            // v0.121.0：Cookie 引导条——用户找不到 Cookie 入口，这里先讲清（每行右侧按钮）
-            item {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.12f))
-                        .padding(horizontal = 12.dp, vertical = 10.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Icon(
-                        Icons.Filled.Info,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(18.dp),
-                    )
-                    Spacer(Modifier.width(8.dp))
-                    Text(
-                        text = "点每行右侧的「Cookie」按钮，可填各平台登录 Cookie，解锁会员 / 无损音质",
-                        fontSize = 13.sp,
-                        color = MaterialTheme.colorScheme.onSurface,
-                    )
+    // v1.3.33：二级页静态渐变底（StaticGlowBackground 在 Scaffold 之下，Scaffold 本体透明）。
+    Box(Modifier.fillMaxSize()) {
+        StaticGlowBackground(Modifier.fillMaxSize())
+        Scaffold(
+            containerColor = Color.Transparent,
+            topBar = { TabTopBar(title = "音乐源管理", onBack = onBack) },
+            floatingActionButton = {
+                FloatingActionButton(onClick = { showAdd = true }) {
+                    Icon(Icons.Filled.Add, contentDescription = "添加音乐源")
                 }
-            }
-            // v0.216.0（C4）：注册表损坏横幅
-            if (showCorruptBanner) {
+            },
+        ) { inner ->
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(inner),
+                // v1.3.31：卡片改小贴边——横向 padding 0、卡片 fillMaxWidth 真正贴边；
+                // 卡片之间缝收到 4dp，一屏能看六七个源。
+                contentPadding = PaddingValues(horizontal = 0.dp, vertical = 4.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                // v0.121.0：Cookie 引导条——用户找不到 Cookie 入口，这里先讲清（每行右侧按钮）
                 item {
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
                             .clip(RoundedCornerShape(12.dp))
-                            .background(MaterialTheme.colorScheme.error.copy(alpha = 0.12f))
+                            .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.12f))
                             .padding(horizontal = 12.dp, vertical = 10.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
+                        Icon(
+                            Icons.Filled.Info,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(18.dp),
+                        )
+                        Spacer(Modifier.width(8.dp))
                         Text(
-                            text = "音源注册表损坏，已保留备份，写盘已暂停",
+                            text = "点每行右侧的「Cookie」按钮，可填各平台登录 Cookie，解锁会员 / 无损音质",
                             fontSize = 13.sp,
                             color = MaterialTheme.colorScheme.onSurface,
-                            modifier = Modifier.weight(1f),
-                        )
-                        TextButton(onClick = {
-                            scope.launch {
-                                MusicSourceStore.clearCorrupt(context)
-                                showCorruptBanner = false
-                                reload()
-                            }
-                        }) { Text("重新开始") }
-                        TextButton(onClick = { showCorruptBanner = false }) { Text("暂不处理") }
-                    }
-                }
-            }
-            // v0.213.0：无源时原来整页只剩引导条 + 悬浮钮，没有空态
-            // 说明；补一句，告诉用户点右下角 + 添加。
-            if (sources.isEmpty()) {
-                item {
-                    Text(
-                        text = "还没有音乐源，点右下角 + 添加",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-                    )
-                }
-            }
-            // v1.3.31：内置音源分组头（效果图 v5b 定稿）——左组名、右计数；有源时才显示。
-            if (sources.isNotEmpty()) {
-                item {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 12.dp, vertical = 2.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Text(
-                            text = "内置音源",
-                            fontSize = 12.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.weight(1f),
-                        )
-                        Text(
-                            text = "共 ${sources.size} 个源",
-                            fontSize = 11.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
                         )
                     }
                 }
-            }
-            items(sources, key = { it.id }) { source ->
-                // v0.103.0：档次 chips——内置 huibq 用自报两档（v0.106.0：走引擎共享声明）；
-                // 自定义源取脚本 inited 自报的 qualitys；加载中"…", 失败/无数据"未知"
-                val labels: List<String>? = when {
-                    source.builtin -> LxMusicSourceEngine.BUILTIN_QUALITIES.map(::qualityLabel)
-                    !source.enabled -> null
-                    else -> {
-                        val ids = qualityOf[source.id]
-                        when {
-                            ids == null -> listOf("…")
-                            ids.isEmpty() -> listOf("未知")
-                            else -> ids.sortedBy { qualityRank(it) }
-                                .map(::qualityLabel)
-                                .distinct()
-                        }
-                    }
-                }
-                // v1.3.31：卡片改小（效果图 v5b 定稿）——一张卡片一个源、卡片内两行：
-                // 一行 小图标+源名+瘦开关；细分隔线；二行 音质小字+测试/Cookie/删除。
-                // 地址行已删（全是同一目录，没信息量）；音质仍走现成的 labels
-                // （脚本自报 qualitys），只改排布不写死。测试/Cookie/开关/删除的逻辑
-                // 与原先完全一致，只重排布局。
-                val qualityText = labels?.joinToString(" · ").orEmpty()
-                AppCard(modifier = Modifier.fillMaxWidth()) {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 12.dp, vertical = 6.dp),
-                    ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            // 小图标：音符 + 柔和绿渐变小圆角（28dp）
-                            Box(
-                                modifier = Modifier
-                                    .size(28.dp)
-                                    .clip(RoundedCornerShape(8.dp))
-                                    .background(
-                                        Brush.verticalGradient(
-                                            listOf(
-                                                MaterialTheme.colorScheme.primary.copy(alpha = 0.85f),
-                                                MaterialTheme.colorScheme.primary.copy(alpha = 0.55f),
-                                            ),
-                                        ),
-                                    ),
-                                contentAlignment = Alignment.Center,
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Filled.MusicNote,
-                                    contentDescription = null,
-                                    tint = Color.White,
-                                    modifier = Modifier.size(16.dp),
-                                )
-                            }
-                            Spacer(Modifier.width(8.dp))
-                            Text(
-                                text = source.name,
-                                fontSize = 14.sp,
-                                fontWeight = FontWeight.SemiBold,
-                                color = MaterialTheme.colorScheme.onSurface,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                                modifier = Modifier.weight(1f),
-                            )
-                            if (source.scriptMissing) {
-                                Spacer(Modifier.width(6.dp))
-                                Text(
-                                    text = "已失效",
-                                    fontSize = 11.sp,
-                                    color = MaterialTheme.colorScheme.error,
-                                    modifier = Modifier
-                                        .clip(RoundedCornerShape(8.dp))
-                                        .background(MaterialTheme.colorScheme.error.copy(alpha = 0.16f))
-                                        .padding(horizontal = 8.dp, vertical = 2.dp),
-                                )
-                            }
-                            if (source.builtin) {
-                                Spacer(Modifier.width(6.dp))
-                                // v0.109.0 A9：内置 chip 青底 16% 透，文字用明度自适应青色
-                                val accentChip = MaterialTheme.colorScheme.onSurface
-                                Text(
-                                    text = "内置",
-                                    fontSize = 11.sp,
-                                    color = accentChip,
-                                    modifier = Modifier
-                                        .clip(RoundedCornerShape(8.dp))
-                                        .background(accentChip.copy(alpha = 0.16f))
-                                        .padding(horizontal = 8.dp, vertical = 2.dp),
-                                )
-                            }
-                            Spacer(Modifier.width(8.dp))
-                            // 瘦开关：标准开关视觉缩到 0.85（只改绘制，布局仍 52×32dp，
-                            // 触摸区不缩水）
-                            AppSwitch(
-                                checked = source.enabled,
-                                onCheckedChange = { enabled ->
-                                    scope.launch {
-                                        MusicSourceStore.setEnabled(context, source.id, enabled)
-                                        // v0.213.0：禁用首选源后原来成悬空 ID；
-                                        // 禁用即清首选，芯片与实际播放不再打架。
-                                        if (!enabled) MusicPlayer.clearPreferredSourceIf(context, source.id)
-                                        reload()
-                                    }
-                                },
-                                modifier = Modifier.graphicsLayer {
-                                    scaleX = 0.85f
-                                    scaleY = 0.85f
-                                },
-                            )
-                        }
-                        HorizontalDivider(
-                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f),
-                            modifier = Modifier.padding(top = 6.dp),
-                        )
+                // v0.216.0（C4）：注册表损坏横幅
+                if (showCorruptBanner) {
+                    item {
                         Row(
-                            modifier = Modifier.fillMaxWidth().padding(top = 2.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(MaterialTheme.colorScheme.error.copy(alpha = 0.12f))
+                                .padding(horizontal = 12.dp, vertical = 10.dp),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
                             Text(
-                                text = qualityText,
-                                fontSize = 11.sp,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    .copy(alpha = 0.8f),
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
+                                text = "音源注册表损坏，已保留备份，写盘已暂停",
+                                fontSize = 13.sp,
+                                color = MaterialTheme.colorScheme.onSurface,
                                 modifier = Modifier.weight(1f),
                             )
-                            // 小字按钮：TextButton 自带 40dp 最小高，改用可点 Text
-                            // 压到一行，功能与原来一致。
+                            TextButton(onClick = {
+                                scope.launch {
+                                    MusicSourceStore.clearCorrupt(context)
+                                    showCorruptBanner = false
+                                    reload()
+                                }
+                            }) { Text("重新开始") }
+                            TextButton(onClick = { showCorruptBanner = false }) { Text("暂不处理") }
+                        }
+                    }
+                }
+                // v0.213.0：无源时原来整页只剩引导条 + 悬浮钮，没有空态
+                // 说明；补一句，告诉用户点右下角 + 添加。
+                if (sources.isEmpty()) {
+                    item {
+                        Text(
+                            text = "还没有音乐源，点右下角 + 添加",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                        )
+                    }
+                }
+                // v1.3.31：内置音源分组头（效果图 v5b 定稿）——左组名、右计数；有源时才显示。
+                if (sources.isNotEmpty()) {
+                    item {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 12.dp, vertical = 2.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
                             Text(
-                                text = "测试",
-                                fontSize = 11.sp,
-                                color = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier
-                                    .padding(horizontal = 6.dp, vertical = 4.dp)
-                                    .clip(RoundedCornerShape(6.dp))
-                                    .clickable { doTest(source) },
+                                text = "内置音源",
+                                fontSize = 12.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.weight(1f),
                             )
-                            // v0.123.0：内置行也给 Cookie 按钮（原先只有非内置行有，用户在
-                            // huibq 行找不到入口直呼"没有 cookie 界面"）；内置点开是免配置说明
                             Text(
-                                text = "Cookie",
+                                text = "共 ${sources.size} 个源",
                                 fontSize = 11.sp,
-                                color = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier
-                                    .padding(horizontal = 6.dp, vertical = 4.dp)
-                                    .clip(RoundedCornerShape(6.dp))
-                                    .clickable {
-                                        if (source.builtin) {
-                                            builtinCookieTip = source
-                                        } else {
-                                            openCookie(source)
-                                        }
-                                    },
+                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
                             )
-                            if (!source.builtin) {
+                        }
+                    }
+                }
+                items(sources, key = { it.id }) { source ->
+                    // v0.103.0：档次 chips——内置 huibq 用自报两档（v0.106.0：走引擎共享声明）；
+                    // 自定义源取脚本 inited 自报的 qualitys；加载中"…", 失败/无数据"未知"
+                    val labels: List<String>? = when {
+                        source.builtin -> LxMusicSourceEngine.BUILTIN_QUALITIES.map(::qualityLabel)
+                        !source.enabled -> null
+                        else -> {
+                            val ids = qualityOf[source.id]
+                            when {
+                                ids == null -> listOf("…")
+                                ids.isEmpty() -> listOf("未知")
+                                else -> ids.sortedBy { qualityRank(it) }
+                                    .map(::qualityLabel)
+                                    .distinct()
+                            }
+                        }
+                    }
+                    // v1.3.31：卡片改小（效果图 v5b 定稿）——一张卡片一个源、卡片内两行：
+                    // 一行 小图标+源名+瘦开关；细分隔线；二行 音质小字+测试/Cookie/删除。
+                    // 地址行已删（全是同一目录，没信息量）；音质仍走现成的 labels
+                    // （脚本自报 qualitys），只改排布不写死。测试/Cookie/开关/删除的逻辑
+                    // 与原先完全一致，只重排布局。
+                    val qualityText = labels?.joinToString(" · ").orEmpty()
+                    AppCard(modifier = Modifier.fillMaxWidth()) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 12.dp, vertical = 6.dp),
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                // 小图标：音符 + 柔和绿渐变小圆角（28dp）
                                 Box(
                                     modifier = Modifier
-                                        .size(24.dp)
-                                        .clip(RoundedCornerShape(6.dp))
-                                        .clickable { deleteSourceTarget = source },
+                                        .size(28.dp)
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .background(
+                                            Brush.verticalGradient(
+                                                listOf(
+                                                    MaterialTheme.colorScheme.primary.copy(alpha = 0.85f),
+                                                    MaterialTheme.colorScheme.primary.copy(alpha = 0.55f),
+                                                ),
+                                            ),
+                                        ),
                                     contentAlignment = Alignment.Center,
                                 ) {
                                     Icon(
-                                        imageVector = Icons.Filled.Delete,
-                                        contentDescription = "删除音乐源",
-                                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        imageVector = Icons.Filled.MusicNote,
+                                        contentDescription = null,
+                                        tint = Color.White,
                                         modifier = Modifier.size(16.dp),
                                     )
+                                }
+                                Spacer(Modifier.width(8.dp))
+                                Text(
+                                    text = source.name,
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier.weight(1f),
+                                )
+                                if (source.scriptMissing) {
+                                    Spacer(Modifier.width(6.dp))
+                                    Text(
+                                        text = "已失效",
+                                        fontSize = 11.sp,
+                                        color = MaterialTheme.colorScheme.error,
+                                        modifier = Modifier
+                                            .clip(RoundedCornerShape(8.dp))
+                                            .background(MaterialTheme.colorScheme.error.copy(alpha = 0.16f))
+                                            .padding(horizontal = 8.dp, vertical = 2.dp),
+                                    )
+                                }
+                                if (source.builtin) {
+                                    Spacer(Modifier.width(6.dp))
+                                    // v0.109.0 A9：内置 chip 青底 16% 透，文字用明度自适应青色
+                                    val accentChip = MaterialTheme.colorScheme.onSurface
+                                    Text(
+                                        text = "内置",
+                                        fontSize = 11.sp,
+                                        color = accentChip,
+                                        modifier = Modifier
+                                            .clip(RoundedCornerShape(8.dp))
+                                            .background(accentChip.copy(alpha = 0.16f))
+                                            .padding(horizontal = 8.dp, vertical = 2.dp),
+                                    )
+                                }
+                                Spacer(Modifier.width(8.dp))
+                                // 瘦开关：标准开关视觉缩到 0.85（只改绘制，布局仍 52×32dp，
+                                // 触摸区不缩水）
+                                AppSwitch(
+                                    checked = source.enabled,
+                                    onCheckedChange = { enabled ->
+                                        scope.launch {
+                                            MusicSourceStore.setEnabled(context, source.id, enabled)
+                                            // v0.213.0：禁用首选源后原来成悬空 ID；
+                                            // 禁用即清首选，芯片与实际播放不再打架。
+                                            if (!enabled) MusicPlayer.clearPreferredSourceIf(context, source.id)
+                                            reload()
+                                        }
+                                    },
+                                    modifier = Modifier.graphicsLayer {
+                                        scaleX = 0.85f
+                                        scaleY = 0.85f
+                                    },
+                                )
+                            }
+                            HorizontalDivider(
+                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f),
+                                modifier = Modifier.padding(top = 6.dp),
+                            )
+                            Row(
+                                modifier = Modifier.fillMaxWidth().padding(top = 2.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Text(
+                                    text = qualityText,
+                                    fontSize = 11.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        .copy(alpha = 0.8f),
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier.weight(1f),
+                                )
+                                // 小字按钮：TextButton 自带 40dp 最小高，改用可点 Text
+                                // 压到一行，功能与原来一致。
+                                Text(
+                                    text = "测试",
+                                    fontSize = 11.sp,
+                                    color = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier
+                                        .padding(horizontal = 6.dp, vertical = 4.dp)
+                                        .clip(RoundedCornerShape(6.dp))
+                                        .clickable { doTest(source) },
+                                )
+                                // v0.123.0：内置行也给 Cookie 按钮（原先只有非内置行有，用户在
+                                // huibq 行找不到入口直呼"没有 cookie 界面"）；内置点开是免配置说明
+                                Text(
+                                    text = "Cookie",
+                                    fontSize = 11.sp,
+                                    color = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier
+                                        .padding(horizontal = 6.dp, vertical = 4.dp)
+                                        .clip(RoundedCornerShape(6.dp))
+                                        .clickable {
+                                            if (source.builtin) {
+                                                builtinCookieTip = source
+                                            } else {
+                                                openCookie(source)
+                                            }
+                                        },
+                                )
+                                if (!source.builtin) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(24.dp)
+                                            .clip(RoundedCornerShape(6.dp))
+                                            .clickable { deleteSourceTarget = source },
+                                        contentAlignment = Alignment.Center,
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Filled.Delete,
+                                            contentDescription = "删除音乐源",
+                                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            modifier = Modifier.size(16.dp),
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -971,9 +977,9 @@ private fun qualityRank(id: String): Int = LxMusicSourceEngine.qualityRank(id)
 @Composable
 private fun cookieCardModifier(): Modifier = Modifier
     .fillMaxWidth()
-    .clip(RoundedCornerShape(14.dp))
+    .clip(RoundedCornerShape(12.dp))
     .background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f))
-    .border(1.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f), RoundedCornerShape(14.dp))
+    .border(1.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f), RoundedCornerShape(12.dp))
     .padding(12.dp)
 
 /** v0.119.0：Cookie 配置状态概览卡——已配 x / n + 作用说明 */
@@ -996,7 +1002,7 @@ private fun CookieStatusCard(filled: Int, total: Int) {
         Column(modifier = Modifier.weight(1f)) {
             Text(
                 text = "已配置 $filled / $total",
-                fontSize = 15.sp,
+                fontSize = 14.sp,
                 fontWeight = FontWeight.SemiBold,
                 color = MaterialTheme.colorScheme.onSurface,
             )
@@ -1018,7 +1024,7 @@ private fun CookieStatusPill(filled: Boolean) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier
-            .clip(RoundedCornerShape(20.dp))
+            .clip(RoundedCornerShape(12.dp))
             .background(c.copy(alpha = 0.14f))
             .padding(horizontal = 8.dp, vertical = 3.dp),
     ) {
@@ -1053,7 +1059,7 @@ private fun CookieSlotCard(
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
                 text = slot.label,
-                fontSize = 15.sp,
+                fontSize = 14.sp,
                 fontWeight = FontWeight.SemiBold,
                 color = MaterialTheme.colorScheme.onSurface,
             )

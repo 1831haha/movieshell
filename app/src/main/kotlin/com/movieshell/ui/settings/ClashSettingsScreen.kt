@@ -514,8 +514,45 @@ fun ClashSettingsScreen(
                                 }
                             }
                         }
+                        // v1.3.33：PHP/网页源列为灰态“不支持”——PHP 走原生 php、
+                        // 网页源走浏览器，本版不走代理；只留一句小字用户无从发现，
+                        // 开关列表里必须有这两行灰态，拨了开关也不会生效。
                         Text(
-                            text = "PHP 走原生 php、网页源走浏览器，暂不支持走代理。",
+                            text = "不支持走代理",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(start = 16.dp, top = 8.dp, bottom = 4.dp),
+                        )
+                        SegItem(
+                            position = SegPos.First,
+                            icon = Icons.Outlined.Code,
+                            title = "PHP 规则",
+                            subtitle = "走原生 php，暂不支持走代理",
+                            enabled = false,
+                            trailing = {
+                                Text(
+                                    text = "不支持",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            },
+                        )
+                        SegItem(
+                            position = SegPos.Last,
+                            icon = Icons.Outlined.Link,
+                            title = "网页源",
+                            subtitle = "走浏览器，暂不支持走代理",
+                            enabled = false,
+                            trailing = {
+                                Text(
+                                    text = "不支持",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            },
+                        )
+                        Text(
+                            text = "PHP 走原生 php、网页源走浏览器，暂不支持走代理；上面两行灰态即不生效的源。",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),

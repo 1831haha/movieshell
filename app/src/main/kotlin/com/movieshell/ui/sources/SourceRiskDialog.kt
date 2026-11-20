@@ -39,6 +39,8 @@ fun SourceRiskDialog(
     TechDialog(
         onDismissRequest = onDismissRequest,
         title = "该源有高危风险",
+        // v1.3.33：风险条目长列表走宽松模式。
+        compact = false,
         subtitle = fileName,
         confirmText = "仍要导入",
         confirmDanger = true,

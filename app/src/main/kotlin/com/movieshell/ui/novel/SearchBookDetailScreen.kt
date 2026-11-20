@@ -1,6 +1,7 @@
 package com.movieshell.ui.novel
 
 import androidx.activity.ComponentActivity
+import com.movieshell.ui.theme.StaticGlowBackground
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -189,183 +190,187 @@ fun SearchBookDetailScreen(
         if (shelfId == null) vm.joinShelf(group, item)
     }
 
-    Column(modifier = Modifier.fillMaxSize()) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            IconButton(onClick = onBack) {
-                Icon(Icons.Filled.ArrowBack, contentDescription = "返回")
+    // v1.3.33：二级页静态渐变底。
+    Box(Modifier.fillMaxSize()) {
+        StaticGlowBackground(Modifier.fillMaxSize())
+        Column(modifier = Modifier.fillMaxSize()) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                IconButton(onClick = onBack) {
+                    Icon(Icons.Filled.ArrowBack, contentDescription = "返回")
+                }
+                Text("书籍信息", style = MaterialTheme.typography.titleLarge.copy(fontSize = 18.sp))
             }
-            Text("书籍信息", style = MaterialTheme.typography.titleLarge)
-        }
-        LazyColumn(modifier = Modifier.weight(1f)) {
-            item {
-                // 图 1 式封面头：封面原图淡化铺底＋一层底色罩，居中放封面卡。
-                Box(
-                    modifier = Modifier.fillMaxWidth().height(210.dp),
-                    contentAlignment = Alignment.BottomCenter,
-                ) {
-                    if (!cover.isNullOrBlank()) {
-                        AsyncImage(
-                            model = cover,
-                            contentDescription = null,
-                            modifier = Modifier.fillMaxSize().alpha(0.35f),
-                            contentScale = ContentScale.Crop,
-                        )
-                    }
+            LazyColumn(modifier = Modifier.weight(1f)) {
+                item {
+                    // 图 1 式封面头：封面原图淡化铺底＋一层底色罩，居中放封面卡。
                     Box(
-                        modifier = Modifier.fillMaxSize()
-                            .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.45f)),
-                    )
-                    Box(
-                        modifier = Modifier
-                            .size(width = 110.dp, height = 148.dp)
-                            .clip(RoundedCornerShape(10.dp))
-                            .background(MaterialTheme.colorScheme.surfaceVariant),
-                        contentAlignment = Alignment.Center,
+                        modifier = Modifier.fillMaxWidth().height(175.dp),
+                        contentAlignment = Alignment.BottomCenter,
                     ) {
                         if (!cover.isNullOrBlank()) {
                             AsyncImage(
                                 model = cover,
                                 contentDescription = null,
-                                modifier = Modifier.fillMaxSize(),
+                                modifier = Modifier.fillMaxSize().alpha(0.35f),
                                 contentScale = ContentScale.Crop,
                             )
-                        } else {
+                        }
+                        Box(
+                            modifier = Modifier.fillMaxSize()
+                                .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.45f)),
+                        )
+                        Box(
+                            modifier = Modifier
+                                .size(width = 110.dp, height = 148.dp)
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(MaterialTheme.colorScheme.surfaceVariant),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            if (!cover.isNullOrBlank()) {
+                                AsyncImage(
+                                    model = cover,
+                                    contentDescription = null,
+                                    modifier = Modifier.fillMaxSize(),
+                                    contentScale = ContentScale.Crop,
+                                )
+                            } else {
+                                Text(
+                                    title.firstOrNull()?.toString() ?: "书",
+                                    fontSize = 36.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f), // v1.2.14 E片：占位首字 0.5 只有 2.50:1，改 0.8（5.14:1）
+                                )
+                            }
+                        }
+                    }
+                    Spacer(Modifier.height(12.dp))
+                    Text(
+                        title,
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+                    )
+                    if (kindTags.isNotEmpty()) {
+                        Spacer(Modifier.height(8.dp))
+                        FlowRow(
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+                            horizontalArrangement = Arrangement.Center,
+                            verticalArrangement = Arrangement.spacedBy(6.dp),
+                        ) {
+                            kindTags.forEach { tag ->
+                                Box(
+                                    modifier = Modifier
+                                        .padding(end = 6.dp)
+                                        .clip(RoundedCornerShape(6.dp))
+                                        .background(MaterialTheme.colorScheme.primary)
+                                        .padding(horizontal = 10.dp, vertical = 4.dp),
+                                ) {
+                                    Text(tag, fontSize = 12.sp, color = MaterialTheme.colorScheme.onPrimary)
+                                }
+                            }
+                        }
+                    }
+                    Spacer(Modifier.height(12.dp))
+                }
+                item {
+                    // 信息行：只列真实有数据的项（状态/人气源没给就不画，见 211 详情同款注释）。
+                    Column(
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
+                        DetailInfoRow(
+                            icon = Icons.Filled.Person,
+                            label = "作者",
+                            value = author?.takeIf { it.isNotBlank() } ?: "未知作者",
+                        )
+                        DetailInfoRow(icon = Icons.Filled.Public, label = "来源", value = group.name)
+                        DetailInfoRow(
+                            icon = Icons.Filled.Explore,
+                            label = "最新",
+                            value = chapterTitles?.lastOrNull()?.takeIf { it.isNotBlank() }
+                                ?: if (loading) "加载中…" else "暂无目录",
+                        )
+                        DetailInfoRow(
+                            icon = Icons.Filled.Folder,
+                            label = "目录",
+                            value = chapterTitles?.let { "共 ${it.size} 章" }
+                                ?: if (loading) "加载中…" else "加载目录失败",
+                            actionText = if (tocExpanded) "收起目录" else "查看目录",
+                            onAction = {
+                                if (chapterTitles == null) {
+                                    AppToast.show(context, "目录获取失败", long = false)
+                                    tocRetry++
+                                } else {
+                                    tocExpanded = !tocExpanded
+                                }
+                            },
+                        )
+                    }
+                    Spacer(Modifier.height(12.dp))
+                }
+                if (intro != null) {
+                    item {
+                        Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
                             Text(
-                                title.firstOrNull()?.toString() ?: "书",
-                                fontSize = 36.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f), // v1.2.14 E片：占位首字 0.5 只有 2.50:1，改 0.8（5.14:1）
+                                intro,
+                                fontSize = 13.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = if (introExpanded) Int.MAX_VALUE else 3,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                            TextButton(onClick = { introExpanded = !introExpanded }) {
+                                Text(if (introExpanded) "[收起]" else "[+展开]", fontSize = 13.sp)
+                            }
+                        }
+                        Spacer(Modifier.height(8.dp))
+                    }
+                }
+                if (tocExpanded && chapterTitles != null) {
+                    itemsIndexed(chapterTitles!!, key = { i, _ -> i }) { index, chTitle ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(8.dp))
+                                .clickable { requestRead(index) }
+                                .padding(horizontal = 24.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(
+                                chTitle.ifBlank { "第 ${index + 1} 章" },
+                                fontSize = 13.sp,
+                                color = MaterialTheme.colorScheme.onSurface,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
                             )
                         }
                     }
                 }
-                Spacer(Modifier.height(12.dp))
-                Text(
-                    title,
-                    fontSize = 18.sp,
-                    fontWeight = FontWeight.Bold,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                    textAlign = TextAlign.Center,
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
-                )
-                if (kindTags.isNotEmpty()) {
-                    Spacer(Modifier.height(8.dp))
-                    FlowRow(
-                        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
-                        horizontalArrangement = Arrangement.Center,
-                        verticalArrangement = Arrangement.spacedBy(6.dp),
-                    ) {
-                        kindTags.forEach { tag ->
-                            Box(
-                                modifier = Modifier
-                                    .padding(end = 6.dp)
-                                    .clip(RoundedCornerShape(6.dp))
-                                    .background(MaterialTheme.colorScheme.primary)
-                                    .padding(horizontal = 10.dp, vertical = 4.dp),
-                            ) {
-                                Text(tag, fontSize = 12.sp, color = MaterialTheme.colorScheme.onPrimary)
-                            }
-                        }
-                    }
-                }
-                Spacer(Modifier.height(12.dp))
             }
-            item {
-                // 信息行：只列真实有数据的项（状态/人气源没给就不画，见 211 详情同款注释）。
-                Column(
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp),
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                TextButton(
+                    enabled = shelfId == null,
+                    onClick = { vm.joinShelf(group, item) },
                 ) {
-                    DetailInfoRow(
-                        icon = Icons.Filled.Person,
-                        label = "作者",
-                        value = author?.takeIf { it.isNotBlank() } ?: "未知作者",
-                    )
-                    DetailInfoRow(icon = Icons.Filled.Public, label = "来源", value = group.name)
-                    DetailInfoRow(
-                        icon = Icons.Filled.Explore,
-                        label = "最新",
-                        value = chapterTitles?.lastOrNull()?.takeIf { it.isNotBlank() }
-                            ?: if (loading) "加载中…" else "暂无目录",
-                    )
-                    DetailInfoRow(
-                        icon = Icons.Filled.Folder,
-                        label = "目录",
-                        value = chapterTitles?.let { "共 ${it.size} 章" }
-                            ?: if (loading) "加载中…" else "加载目录失败",
-                        actionText = if (tocExpanded) "收起目录" else "查看目录",
-                        onAction = {
-                            if (chapterTitles == null) {
-                                AppToast.show(context, "目录获取失败", long = false)
-                                tocRetry++
-                            } else {
-                                tocExpanded = !tocExpanded
-                            }
-                        },
-                    )
+                    Text(if (shelfId == null) "放入书架" else "已在书架", fontSize = 14.sp)
                 }
-                Spacer(Modifier.height(12.dp))
-            }
-            if (intro != null) {
-                item {
-                    Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
-                        Text(
-                            intro,
-                            fontSize = 13.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = if (introExpanded) Int.MAX_VALUE else 3,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                        TextButton(onClick = { introExpanded = !introExpanded }) {
-                            Text(if (introExpanded) "[收起]" else "[+展开]", fontSize = 13.sp)
-                        }
-                    }
-                    Spacer(Modifier.height(8.dp))
+                Spacer(Modifier.width(8.dp))
+                Button(
+                    onClick = { requestRead(-1) },
+                    enabled = !waitingDir,
+                    modifier = Modifier.weight(1f),
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
+                ) {
+                    Text(if (waitingDir) "正在获取目录…" else "阅读", fontSize = 14.sp)
                 }
-            }
-            if (tocExpanded && chapterTitles != null) {
-                itemsIndexed(chapterTitles!!, key = { i, _ -> i }) { index, chTitle ->
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(8.dp))
-                            .clickable { requestRead(index) }
-                            .padding(horizontal = 24.dp, vertical = 8.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Text(
-                            chTitle.ifBlank { "第 ${index + 1} 章" },
-                            fontSize = 13.sp,
-                            color = MaterialTheme.colorScheme.onSurface,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                    }
-                }
-            }
-        }
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            TextButton(
-                enabled = shelfId == null,
-                onClick = { vm.joinShelf(group, item) },
-            ) {
-                Text(if (shelfId == null) "放入书架" else "已在书架", fontSize = 15.sp)
-            }
-            Spacer(Modifier.width(8.dp))
-            Button(
-                onClick = { requestRead(-1) },
-                enabled = !waitingDir,
-                modifier = Modifier.weight(1f),
-                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
-            ) {
-                Text(if (waitingDir) "正在获取目录…" else "阅读", fontSize = 15.sp)
             }
         }
     }

@@ -73,6 +73,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import coil.compose.AsyncImage
@@ -657,7 +658,7 @@ fun SourcePickerSheet(
         }
     }
 
-    // v1.1.25：双形态根容器——悬浮窗是小居中卡片（宽 86%、高 62%，圆角 24dp，
+    // v1.1.25：双形态根容器——悬浮窗是小居中卡片（宽 86%、高 62%，圆角 16dp，
     // 自己铺主题 surface，Dialog 默认居中 + 默认遮罩）；底部弹窗恢复 HEAD 的
     // 85% 高全宽，底色与圆角由 ModalBottomSheet 给。
     Column(
@@ -665,7 +666,7 @@ fun SourcePickerSheet(
             Modifier
                 .fillMaxWidth(0.86f)
                 .fillMaxHeight(0.62f)
-                .clip(RoundedCornerShape(24.dp))
+                .clip(RoundedCornerShape(16.dp))
                 .background(MaterialTheme.colorScheme.surface)
         } else {
             Modifier
@@ -686,7 +687,7 @@ fun SourcePickerSheet(
         ) {
             Text(
                 text = "切换站源",
-                style = MaterialTheme.typography.titleLarge,
+                style = MaterialTheme.typography.titleLarge.copy(fontSize = 18.sp),
                 color = MaterialTheme.colorScheme.onSurface,
             )
             if (mode == HomeSettings.PickerMode.FLOAT) {

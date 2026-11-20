@@ -69,6 +69,7 @@ import com.movieshell.ui.components.AppToast
 import com.movieshell.ui.components.TabTopBar
 import com.movieshell.ui.components.TechDialog
 import com.movieshell.ui.theme.V5
+import com.movieshell.ui.theme.StaticGlowBackground
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -130,166 +131,171 @@ fun ThemeCollectionScreen(onBack: () -> Unit) {
         }
     }
 
-    Scaffold(
-        contentWindowInsets = WindowInsets.safeDrawing.only(WindowInsetsSides.Bottom + WindowInsetsSides.Horizontal),
-        topBar = {
-            TabTopBar(
-                title = "主题收藏夹",
-                onBack = onBack,
-            )
-        },
-    ) { inner ->
-        LazyColumn(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(inner)
-                .padding(V5.Gutter),
-        ) {
-            item {
-                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Button(
-                        onClick = {
-                            val ok = ThemeCollectionStore.saveCurrent(context)
-                            AppToast.show(context, if (ok) "已保存到我的收藏" else "收藏已满 50 个，先删一些")
-                        },
-                        shape = RoundedCornerShape(22.dp),
-                        modifier = Modifier.weight(1f).height(44.dp),
-                    ) { Text("✦ 保存当前观感") }
-                    OutlinedButton(
-                        onClick = { jsonPicker.launch("application/json") },
-                        shape = RoundedCornerShape(22.dp),
-                        modifier = Modifier.weight(1f).height(44.dp),
-                    ) { Text("↓ 导入主题") }
-                }
-            }
-            item {
-                // v1.2.6：配色入口——模式、主题色、炫彩渐变、海报取色都在面板里。
-                SettingsGroup(title = "配色") {
-                    SettingsRow(
-                        icon = Icons.Outlined.Palette,
-                        title = "自定义配色",
-                        subtitle = "模式、主题色、炫彩渐变、海报取色",
-                        onClick = { showThemeDialog = true },
-                        divider = false,
-                    )
-                }
-            }
-            item {
-                CollectionCaption("内置推荐")
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    ThemeCollectionStore.BUILTIN_THEMES.forEach { theme ->
-                        val active = color == theme.seed &&
-                            gradientId == ThemeStore.GRADIENT_CUSTOM &&
-                            brandGradient == theme.gradient &&
-                            bgId == theme.backgroundId
-                        ThemeStripCard(
-                            theme = theme,
-                            active = active,
+    // v1.3.33：二级页静态渐变底（StaticGlowBackground 在 Scaffold 之下，Scaffold 本体透明）。
+    Box(Modifier.fillMaxSize()) {
+        StaticGlowBackground(Modifier.fillMaxSize())
+        Scaffold(
+            containerColor = Color.Transparent,
+            contentWindowInsets = WindowInsets.safeDrawing.only(WindowInsetsSides.Bottom + WindowInsetsSides.Horizontal),
+            topBar = {
+                TabTopBar(
+                    title = "主题收藏夹",
+                    onBack = onBack,
+                )
+            },
+        ) { inner ->
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(inner)
+                    .padding(V5.Gutter),
+            ) {
+                item {
+                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Button(
                             onClick = {
-                                ThemeCollectionStore.applyBuiltin(context, theme)
-                                AppToast.show(context, "已换成「${theme.name}」")
+                                val ok = ThemeCollectionStore.saveCurrent(context)
+                                AppToast.show(context, if (ok) "已保存到我的收藏" else "收藏已满 50 个，先删一些")
                             },
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier.weight(1f).height(40.dp),
+                        ) { Text("✦ 保存当前观感") }
+                        OutlinedButton(
+                            onClick = { jsonPicker.launch("application/json") },
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier.weight(1f).height(40.dp),
+                        ) { Text("↓ 导入主题") }
+                    }
+                }
+                item {
+                    // v1.2.6：配色入口——模式、主题色、炫彩渐变、海报取色都在面板里。
+                    SettingsGroup(title = "配色") {
+                        SettingsRow(
+                            icon = Icons.Outlined.Palette,
+                            title = "自定义配色",
+                            subtitle = "模式、主题色、炫彩渐变、海报取色",
+                            onClick = { showThemeDialog = true },
+                            divider = false,
                         )
                     }
                 }
-            }
-            item {
-                SettingsGroup(title = "我的收藏") {
-                    if (saved.isEmpty()) {
-                        Text(
-                            text = "还没有收藏：点上方「保存当前观感」，或导入好友分享的主题 JSON",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(16.dp),
-                        )
-                    } else {
-                        saved.forEach { theme ->
-                            val hex = "#%06X".format(theme.seed and 0xFFFFFF)
-                            SettingsRow(
-                                icon = Icons.Outlined.Palette,
-                                title = theme.name,
-                                subtitle = "种子 $hex · 底图 ${ThemeCollectionStore.backgroundLabel(theme.backgroundId)} · ${ThemeCollectionStore.modeLabel(theme.mode)}",
+                item {
+                    CollectionCaption("内置推荐")
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        ThemeCollectionStore.BUILTIN_THEMES.forEach { theme ->
+                            val active = color == theme.seed &&
+                                gradientId == ThemeStore.GRADIENT_CUSTOM &&
+                                brandGradient == theme.gradient &&
+                                bgId == theme.backgroundId
+                            ThemeStripCard(
+                                theme = theme,
+                                active = active,
                                 onClick = {
-                                    ThemeCollectionStore.applySaved(context, theme)
+                                    ThemeCollectionStore.applyBuiltin(context, theme)
                                     AppToast.show(context, "已换成「${theme.name}」")
                                 },
-                                trailing = {
-                                    Row {
-                                        IconButton(onClick = { shareTheme(context, theme) }) {
-                                            Icon(Icons.Filled.Share, contentDescription = "分享")
-                                        }
-                                        IconButton(onClick = { confirmDelete = theme }) {
-                                            Icon(Icons.Filled.Delete, contentDescription = "删除")
-                                        }
-                                    }
-                                },
                             )
                         }
                     }
                 }
-            }
-            item {
-                CollectionCaption("内置底图")
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                    modifier = Modifier.horizontalScroll(rememberScrollState()),
-                ) {
-                    BgTile(
-                        name = "默认",
-                        sub = "无底图",
-                        selected = bgId == ThemeCollectionStore.BG_NONE,
-                        onClick = { ThemeCollectionStore.setBackground(context, ThemeCollectionStore.BG_NONE) },
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .size(108.dp, 180.dp)
-                                .clip(RoundedCornerShape(12.dp))
-                                .background(MaterialTheme.colorScheme.surfaceContainerHigh),
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            Text("默认", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                item {
+                    SettingsGroup(title = "我的收藏") {
+                        if (saved.isEmpty()) {
+                            Text(
+                                text = "还没有收藏：点上方「保存当前观感」，或导入好友分享的主题 JSON",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(16.dp),
+                            )
+                        } else {
+                            saved.forEach { theme ->
+                                val hex = "#%06X".format(theme.seed and 0xFFFFFF)
+                                SettingsRow(
+                                    icon = Icons.Outlined.Palette,
+                                    title = theme.name,
+                                    subtitle = "种子 $hex · 底图 ${ThemeCollectionStore.backgroundLabel(theme.backgroundId)} · ${ThemeCollectionStore.modeLabel(theme.mode)}",
+                                    onClick = {
+                                        ThemeCollectionStore.applySaved(context, theme)
+                                        AppToast.show(context, "已换成「${theme.name}」")
+                                    },
+                                    trailing = {
+                                        Row {
+                                            IconButton(onClick = { shareTheme(context, theme) }) {
+                                                Icon(Icons.Filled.Share, contentDescription = "分享")
+                                            }
+                                            IconButton(onClick = { confirmDelete = theme }) {
+                                                Icon(Icons.Filled.Delete, contentDescription = "删除")
+                                            }
+                                        }
+                                    },
+                                )
+                            }
                         }
                     }
-                    ThemeCollectionStore.BACKGROUNDS.forEach { bg ->
-                        val id = ThemeCollectionStore.bgId(bg.id)
+                }
+                item {
+                    CollectionCaption("内置底图")
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        modifier = Modifier.horizontalScroll(rememberScrollState()),
+                    ) {
                         BgTile(
-                            name = bg.name,
-                            sub = "配 ${bg.forTheme}",
-                            selected = bgId == id,
-                            onClick = {
-                                ThemeCollectionStore.setBackground(context, id)
-                                AppToast.show(context, "底图已换成「${bg.name}」")
-                            },
+                            name = "默认",
+                            sub = "无底图",
+                            selected = bgId == ThemeCollectionStore.BG_NONE,
+                            onClick = { ThemeCollectionStore.setBackground(context, ThemeCollectionStore.BG_NONE) },
                         ) {
-                            AsyncImage(
-                                model = "file:///android_asset/theme_bg/${bg.asset}",
-                                contentDescription = bg.name,
-                                contentScale = ContentScale.Crop,
+                            Box(
                                 modifier = Modifier
                                     .size(108.dp, 180.dp)
-                                    .clip(RoundedCornerShape(12.dp)),
-                            )
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .background(MaterialTheme.colorScheme.surfaceContainerHigh),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Text("默认", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
                         }
-                    }
-                    BgTile(
-                        name = "自定义底图",
-                        sub = "从相册选图",
-                        selected = bgId == ThemeCollectionStore.BG_CUSTOM,
-                        onClick = { bgPicker.launch("image/*") },
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .size(108.dp, 180.dp)
-                                .clip(RoundedCornerShape(12.dp))
-                                .background(MaterialTheme.colorScheme.surfaceContainerLow)
-                                .dashedBorder(MaterialTheme.colorScheme.outline), // v1.2.14 E片：上传背景虚线框 outlineVariant 只有 1.62:1（浅）/1.98:1（深），改 outline（4.27/5.86）
-                            contentAlignment = Alignment.Center,
+                        ThemeCollectionStore.BACKGROUNDS.forEach { bg ->
+                            val id = ThemeCollectionStore.bgId(bg.id)
+                            BgTile(
+                                name = bg.name,
+                                sub = "配 ${bg.forTheme}",
+                                selected = bgId == id,
+                                onClick = {
+                                    ThemeCollectionStore.setBackground(context, id)
+                                    AppToast.show(context, "底图已换成「${bg.name}」")
+                                },
+                            ) {
+                                AsyncImage(
+                                    model = "file:///android_asset/theme_bg/${bg.asset}",
+                                    contentDescription = bg.name,
+                                    contentScale = ContentScale.Crop,
+                                    modifier = Modifier
+                                        .size(108.dp, 180.dp)
+                                        .clip(RoundedCornerShape(12.dp)),
+                                )
+                            }
+                        }
+                        BgTile(
+                            name = "自定义底图",
+                            sub = "从相册选图",
+                            selected = bgId == ThemeCollectionStore.BG_CUSTOM,
+                            onClick = { bgPicker.launch("image/*") },
                         ) {
-                            Text("+", fontSize = 44.sp, fontWeight = FontWeight.Light, color = MaterialTheme.colorScheme.primary)
+                            Box(
+                                modifier = Modifier
+                                    .size(108.dp, 180.dp)
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .background(MaterialTheme.colorScheme.surfaceContainerLow)
+                                    .dashedBorder(MaterialTheme.colorScheme.outline), // v1.2.14 E片：上传背景虚线框 outlineVariant 只有 1.62:1（浅）/1.98:1（深），改 outline（4.27/5.86）
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Text("+", fontSize = 44.sp, fontWeight = FontWeight.Light, color = MaterialTheme.colorScheme.primary)
+                            }
                         }
                     }
+                    Spacer(Modifier.height(16.dp))
                 }
-                Spacer(Modifier.height(16.dp))
             }
         }
     }

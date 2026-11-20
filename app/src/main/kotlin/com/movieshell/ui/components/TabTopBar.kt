@@ -29,6 +29,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.runtime.CompositionLocalProvider
 import com.movieshell.ui.theme.LocalBrandGradient
@@ -50,7 +51,7 @@ fun TabTopBar(
     onBack: (() -> Unit)? = null,
     actions: @Composable RowScope.() -> Unit = {},
 ) {
-    // v0.292.0 V5：M3 small top app bar——64dp、titleLarge 22/28 500 −0.2 字距、onSurface；
+    // v0.292.0 V5：M3 small top app bar——52dp、titleLarge 18sp、onSurface；
     // 无返回键时标题起点 16dp，有返回键时 48dp 图标按钮在 4dp 内缩处；操作区 48dp 图标按钮 + 4dp 尾距；无分隔线。
     val cs = MaterialTheme.colorScheme
     Row(
@@ -73,7 +74,7 @@ fun TabTopBar(
         }
         Text(
             text = title,
-            style = MaterialTheme.typography.titleLarge,
+            style = MaterialTheme.typography.titleLarge.copy(fontSize = 18.sp),
             color = cs.onSurface,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,

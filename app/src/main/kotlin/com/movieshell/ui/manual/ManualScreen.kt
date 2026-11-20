@@ -211,7 +211,7 @@ private val MANUAL_SECTIONS = listOf(
         points = listOf(
             "filterable 标记的 drpy 规则，分类筛选（如年份/类型/地区/排序）已生效：筛选定义取自规则的 filter 分组（含 gzip 压缩写法自动解开），filter_url 里的 {{fl.键名}} 按所选值渲染后拼进分类请求，不选时按规则默认值渲染。",
             "边界：cheerio 类规则（一级为 jsp:/json:/html 解析串，需 pdfa/pdfh/cheerio）的筛选仍不支持——垫片没有 HTML 解析能力，这类规则的分类列表本身也跑不起来。",
-            "筛选器 UI 尚未接入，当前按默认值出结果。",
+            "筛选器 UI 已接入：首页分类行有 FilterChip，点选即按所选值带 filter 重拉分类，不再按默认值出结果。",
         ),
     ),
     ManualSection(
@@ -226,7 +226,7 @@ private val MANUAL_SECTIONS = listOf(
     ManualSection(
         title = "已知限制",
         points = listOf(
-            "MSE/blob 直链未处理：视频走 MediaSource/Blob 播的站，嗅探抓不到直链，只能手动在页面里点播放看。",
+            "blob：已支持部分 blob URL 深挖；MSE 分片重建和完整视频流拼接仍不支持（MSE 分片逐段追加到 SourceBuffer，不存在可直接下载的完整 MP4 URL）。",
             "cheerio 类规则不支持：drpy 一级为 jsp:/json:/html 解析串（需 pdfa/pdfh/cheerio）的规则跑不起来。",
             "Cloudflare 人机验证：遇到 CF 验证页需在嗅探页里手动过验证，过了之后再抓直链。",
             "rtmp 流走 libmpv：嗅到 rtmp 进候选列表、点选后用 libmpv 播，未装 libmpv 插件时提示去市场安装。",

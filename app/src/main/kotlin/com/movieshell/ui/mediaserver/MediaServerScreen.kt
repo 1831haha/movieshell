@@ -73,6 +73,7 @@ import com.movieshell.player.PlaySession
 import com.movieshell.ui.components.AppSwitch
 import com.movieshell.ui.components.AppToast
 import com.movieshell.ui.components.TabTopBar
+import com.movieshell.ui.theme.StaticGlowBackground
 import com.movieshell.ui.components.TechDialog
 import com.movieshell.ui.components.TechTextField
 import kotlinx.coroutines.launch
@@ -429,289 +430,295 @@ fun MediaServerScreen(
         }
     }
 
-    Scaffold(
-        topBar = {
-            TabTopBar(
-                title = title,
-                onBack = { goBack() },
-                actions = {
-                    if (active != null) {
-                        IconButton(onClick = { showServerMenu = true }) {
-                            Icon(Icons.Outlined.MoreVert, contentDescription = "服务器管理")
-                        }
-                        DropdownMenu(
-                            expanded = showServerMenu,
-                            onDismissRequest = { showServerMenu = false },
-                        ) {
-                            servers.forEach { s ->
-                                DropdownMenuItem(
-                                    text = {
-                                        Column {
-                                            Text(s.name)
-                                            if (s.remark.isNotBlank()) {
+    // v1.3.33：二级页静态渐变底（StaticGlowBackground 在 Scaffold 之下，Scaffold 本体透明）。
+    Box(Modifier.fillMaxSize()) {
+        StaticGlowBackground(Modifier.fillMaxSize())
+        Scaffold(
+            containerColor = Color.Transparent,
+            topBar = {
+                TabTopBar(
+                    title = title,
+                    onBack = { goBack() },
+                    actions = {
+                        if (active != null) {
+                            IconButton(onClick = { showServerMenu = true }) {
+                                Icon(Icons.Outlined.MoreVert, contentDescription = "服务器管理")
+                            }
+                            DropdownMenu(
+                                expanded = showServerMenu,
+                                onDismissRequest = { showServerMenu = false },
+                            ) {
+                                servers.forEach { s ->
+                                    DropdownMenuItem(
+                                        text = {
+                                            Column {
+                                                Text(s.name)
+                                                if (s.remark.isNotBlank()) {
+                                                    Text(
+                                                        s.remark,
+                                                        style = MaterialTheme.typography.bodySmall,
+                                                        color = MaterialTheme.colorScheme.primary,
+                                                        maxLines = 1,
+                                                        overflow = TextOverflow.Ellipsis,
+                                                    )
+                                                }
                                                 Text(
-                                                    s.remark,
+                                                    s.baseUrl,
                                                     style = MaterialTheme.typography.bodySmall,
-                                                    color = MaterialTheme.colorScheme.primary,
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                                                     maxLines = 1,
                                                     overflow = TextOverflow.Ellipsis,
                                                 )
                                             }
-                                            Text(
-                                                s.baseUrl,
-                                                style = MaterialTheme.typography.bodySmall,
-                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                                maxLines = 1,
-                                                overflow = TextOverflow.Ellipsis,
-                                            )
-                                        }
-                                    },
-                                    leadingIcon = {
-                                        if (s.id == active.id) {
-                                            Icon(Icons.Outlined.Check, contentDescription = "当前服务器")
-                                        }
-                                    },
-                                    onClick = {
-                                        showServerMenu = false
-                                        EmbyStore.setActive(context, s.id)
-                                    },
-                                )
-                            }
-                            HorizontalDivider()
-                            DropdownMenuItem(
-                                text = { Text("添加服务器") },
-                                onClick = { showServerMenu = false; openAdd() },
-                            )
-                            DropdownMenuItem(
-                                text = { Text("编辑当前服务器") },
-                                onClick = { showServerMenu = false; openEdit(active) },
-                            )
-                            DropdownMenuItem(
-                                text = { Text("删除当前服务器") },
-                                onClick = { showServerMenu = false; showDeleteConfirm = true },
-                            )
-                        }
-                    }
-                },
-            )
-        },
-    ) { padding ->
-        LazyColumn(
-            modifier = Modifier.fillMaxSize().padding(padding),
-        ) {
-            if (servers.isEmpty()) {
-                item {
-                    Column(
-                        modifier = Modifier.fillMaxWidth().padding(24.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                    ) {
-                        Box(
-                            modifier = Modifier.size(64.dp).clip(CircleShape)
-                                .background(MaterialTheme.colorScheme.primaryContainer),
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            Icon(
-                                Icons.Outlined.Storage, null,
-                                tint = MaterialTheme.colorScheme.onPrimaryContainer,
-                                modifier = Modifier.size(28.dp),
-                            )
-                        }
-                        Spacer(Modifier.height(16.dp))
-                        Text("还没有添加媒体服务器", style = MaterialTheme.typography.titleMedium)
-                        Spacer(Modifier.height(8.dp))
-                        Text(
-                            "支持自建的 Emby / Jellyfin：填地址和账号登录后，" +
-                                "就能浏览媒体库、搜索、断点续播。只直连你自己的服务器。",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                        Spacer(Modifier.height(16.dp))
-                        Button(onClick = { openAdd() }) { Text("添加服务器") }
-                    }
-                }
-            } else if (active != null) {
-                val server = active
-                item {
-                    Row(
-                        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)
-                            .clip(RoundedCornerShape(12.dp))
-                            .background(MaterialTheme.colorScheme.surfaceContainerLowest)
-                            .clickable { showServerMenu = true }
-                            .padding(horizontal = 12.dp, vertical = 10.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Box(
-                            Modifier.size(8.dp).clip(CircleShape)
-                                .background(Color(0xFF4ADE80)),
-                        )
-                        Spacer(Modifier.width(8.dp))
-                        Text(server.name, style = MaterialTheme.typography.titleSmall, maxLines = 1)
-                        if (server.remark.isNotBlank()) {
-                            Spacer(Modifier.width(8.dp))
-                            Text(
-                                server.remark,
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.primary,
-                                maxLines = 1,
-                            )
-                        }
-                        Spacer(Modifier.width(8.dp))
-                        Text(
-                            server.baseUrl,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.weight(1f),
-                        )
-                        Text("切换", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.primary)
-                    }
-                }
-                item {
-                    TechTextField(
-                        value = query,
-                        onValueChange = { query = it },
-                        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
-                        placeholder = "搜索影片 / 剧集",
-                        leadingIcon = { Icon(Icons.Outlined.Search, contentDescription = null) },
-                        trailingIcon = {
-                            if (query.isNotEmpty()) {
-                                IconButton(onClick = { query = "" }) {
-                                    Icon(Icons.Filled.Close, contentDescription = "清空")
+                                        },
+                                        leadingIcon = {
+                                            if (s.id == active.id) {
+                                                Icon(Icons.Outlined.Check, contentDescription = "当前服务器")
+                                            }
+                                        },
+                                        onClick = {
+                                            showServerMenu = false
+                                            EmbyStore.setActive(context, s.id)
+                                        },
+                                    )
                                 }
-                            }
-                        },
-                        singleLine = true,
-                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                        keyboardActions = KeyboardActions(onSearch = { doSearch(server, query) }),
-                    )
-                }
-                if (authExpired) {
-                    item {
-                        Column(
-                            Modifier.fillMaxWidth().padding(16.dp)
-                                .clip(RoundedCornerShape(12.dp))
-                                .background(MaterialTheme.colorScheme.surfaceContainerLowest)
-                                .padding(16.dp),
-                        ) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(
-                                    Icons.Outlined.ErrorOutline, null,
-                                    tint = MaterialTheme.colorScheme.error,
-                                    modifier = Modifier.size(20.dp),
+                                HorizontalDivider()
+                                DropdownMenuItem(
+                                    text = { Text("添加服务器") },
+                                    onClick = { showServerMenu = false; openAdd() },
                                 )
-                                Spacer(Modifier.width(8.dp))
-                                Text("登录已过期，请重新登录", style = MaterialTheme.typography.titleMedium)
+                                DropdownMenuItem(
+                                    text = { Text("编辑当前服务器") },
+                                    onClick = { showServerMenu = false; openEdit(active) },
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("删除当前服务器") },
+                                    onClick = { showServerMenu = false; showDeleteConfirm = true },
+                                )
                             }
-                            Spacer(Modifier.height(12.dp))
-                            FilledTonalButton(onClick = { openEdit(server) }) { Text("重新登录") }
                         }
-                    }
-                } else if (loading) {
+                    },
+                )
+            },
+        ) { padding ->
+            LazyColumn(
+                modifier = Modifier.fillMaxSize().padding(padding),
+            ) {
+                if (servers.isEmpty()) {
                     item {
                         Column(
-                            Modifier.fillMaxWidth().padding(32.dp),
+                            modifier = Modifier.fillMaxWidth().padding(16.dp),
                             horizontalAlignment = Alignment.CenterHorizontally,
                         ) {
-                            CircularProgressIndicator()
-                            Spacer(Modifier.height(12.dp))
+                            Box(
+                                modifier = Modifier.size(64.dp).clip(CircleShape)
+                                    .background(MaterialTheme.colorScheme.primaryContainer),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Icon(
+                                    Icons.Outlined.Storage, null,
+                                    tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                                    modifier = Modifier.size(28.dp),
+                                )
+                            }
+                            Spacer(Modifier.height(16.dp))
+                            Text("还没有添加媒体服务器", style = MaterialTheme.typography.titleMedium)
+                            Spacer(Modifier.height(8.dp))
                             Text(
-                                "正在加载…",
+                                "支持自建的 Emby / Jellyfin：填地址和账号登录后，" +
+                                    "就能浏览媒体库、搜索、断点续播。只直连你自己的服务器。",
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
+                            Spacer(Modifier.height(16.dp))
+                            Button(onClick = { openAdd() }) { Text("添加服务器") }
                         }
                     }
-                } else if (error.isNotBlank()) {
+                } else if (active != null) {
+                    val server = active
                     item {
-                        Column(
-                            Modifier.fillMaxWidth().padding(16.dp),
-                            horizontalAlignment = Alignment.CenterHorizontally,
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(MaterialTheme.colorScheme.surfaceContainerLowest)
+                                .clickable { showServerMenu = true }
+                                .padding(horizontal = 12.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
                         ) {
-                            Icon(
-                                Icons.Outlined.ErrorOutline, null,
-                                tint = MaterialTheme.colorScheme.error,
-                                modifier = Modifier.size(40.dp),
+                            Box(
+                                Modifier.size(8.dp).clip(CircleShape)
+                                    .background(Color(0xFF4ADE80)),
                             )
-                            Spacer(Modifier.height(8.dp))
-                            Text(error, color = MaterialTheme.colorScheme.error)
-                            Spacer(Modifier.height(12.dp))
-                            FilledTonalButton(onClick = {
-                                when (level) {
-                                    Level.Root -> loadRoot(server)
-                                    is Level.Folder -> loadFolder(server, level.id)
-                                    is Level.Series -> loadSeries(server, level.id)
-                                    is Level.Season -> loadSeason(server, level.seriesId, level.seasonId)
-                                }
-                            }) { Text("重试") }
-                        }
-                    }
-                } else if (searching) {
-                    if (items.isEmpty()) {
-                        item { EmptyState(Icons.Outlined.Search, "没有找到相关内容", "换个关键词试试") }
-                    } else {
-                        items(items, key = { it.Id }) { item ->
-                            EmbyRow(server, item) { openItem(server, item) }
-                        }
-                    }
-                } else when (level) {
-                    Level.Root -> {
-                        if (resumeItems.isNotEmpty()) {
-                            item { SectionHeader("继续观看", resumeItems.size) }
-                            items(resumeItems, key = { it.Id }) { item ->
-                                EmbyRow(server, item) { openItem(server, item) }
+                            Spacer(Modifier.width(8.dp))
+                            Text(server.name, style = MaterialTheme.typography.titleSmall, maxLines = 1)
+                            if (server.remark.isNotBlank()) {
+                                Spacer(Modifier.width(8.dp))
+                                Text(
+                                    server.remark,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.primary,
+                                    maxLines = 1,
+                                )
                             }
+                            Spacer(Modifier.width(8.dp))
+                            Text(
+                                server.baseUrl,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f),
+                            )
+                            Text("切换", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.primary)
                         }
-                        if (views.isNotEmpty()) {
-                            item { SectionHeader("媒体库", views.size) }
-                            items(views, key = { it.Id }) { view ->
-                                Row(
-                                    modifier = Modifier.fillMaxWidth()
-                                        .clickable {
-                                            stack = stack + Level.Folder(view.Id, view.Name)
-                                            loadFolder(server, view.Id)
-                                        }
-                                        .padding(horizontal = 16.dp, vertical = 14.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                ) {
-                                    Box(
-                                        modifier = Modifier.size(40.dp).clip(CircleShape)
-                                            .background(MaterialTheme.colorScheme.primaryContainer),
-                                        contentAlignment = Alignment.Center,
-                                    ) {
-                                        Icon(
-                                            if (view.CollectionType == "tvshows") Icons.Outlined.Tv else Icons.Outlined.Movie,
-                                            contentDescription = null,
-                                            tint = MaterialTheme.colorScheme.onPrimaryContainer,
-                                            modifier = Modifier.size(22.dp),
-                                        )
+                    }
+                    item {
+                        TechTextField(
+                            value = query,
+                            onValueChange = { query = it },
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+                            placeholder = "搜索影片 / 剧集",
+                            leadingIcon = { Icon(Icons.Outlined.Search, contentDescription = null) },
+                            trailingIcon = {
+                                if (query.isNotEmpty()) {
+                                    IconButton(onClick = { query = "" }) {
+                                        Icon(Icons.Filled.Close, contentDescription = "清空")
                                     }
-                                    Spacer(Modifier.width(12.dp))
-                                    Column(Modifier.weight(1f)) {
-                                        Text(view.Name, style = MaterialTheme.typography.titleMedium)
-                                        Text(
-                                            if (view.CollectionType == "tvshows") "剧集库" else "电影库",
-                                            style = MaterialTheme.typography.bodySmall,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        )
-                                    }
+                                }
+                            },
+                            singleLine = true,
+                            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                            keyboardActions = KeyboardActions(onSearch = { doSearch(server, query) }),
+                        )
+                    }
+                    if (authExpired) {
+                        item {
+                            Column(
+                                // v1.3.33：错误卡只留一层内边距——去掉外层 16dp 间距，内容内边距保留。
+                                Modifier.fillMaxWidth()
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .background(MaterialTheme.colorScheme.surfaceContainerLowest)
+                                    .padding(16.dp),
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
                                     Icon(
-                                        Icons.Outlined.ChevronRight, null,
-                                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        Icons.Outlined.ErrorOutline, null,
+                                        tint = MaterialTheme.colorScheme.error,
+                                        modifier = Modifier.size(20.dp),
                                     )
+                                    Spacer(Modifier.width(8.dp))
+                                    Text("登录已过期，请重新登录", style = MaterialTheme.typography.titleMedium)
                                 }
+                                Spacer(Modifier.height(12.dp))
+                                FilledTonalButton(onClick = { openEdit(server) }) { Text("重新登录") }
                             }
                         }
-                        if (views.isEmpty() && resumeItems.isEmpty()) {
-                            item { EmptyState(Icons.Outlined.Movie, "媒体库是空的", "服务器上还没有媒体库") }
+                    } else if (loading) {
+                        item {
+                            Column(
+                                Modifier.fillMaxWidth().padding(16.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                            ) {
+                                CircularProgressIndicator()
+                                Spacer(Modifier.height(12.dp))
+                                Text(
+                                    "正在加载…",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
                         }
-                    }
-                    is Level.Folder, is Level.Series, is Level.Season -> {
+                    } else if (error.isNotBlank()) {
+                        item {
+                            Column(
+                                Modifier.fillMaxWidth().padding(16.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                            ) {
+                                Icon(
+                                    Icons.Outlined.ErrorOutline, null,
+                                    tint = MaterialTheme.colorScheme.error,
+                                    modifier = Modifier.size(40.dp),
+                                )
+                                Spacer(Modifier.height(8.dp))
+                                Text(error, color = MaterialTheme.colorScheme.error)
+                                Spacer(Modifier.height(12.dp))
+                                FilledTonalButton(onClick = {
+                                    when (level) {
+                                        Level.Root -> loadRoot(server)
+                                        is Level.Folder -> loadFolder(server, level.id)
+                                        is Level.Series -> loadSeries(server, level.id)
+                                        is Level.Season -> loadSeason(server, level.seriesId, level.seasonId)
+                                    }
+                                }) { Text("重试") }
+                            }
+                        }
+                    } else if (searching) {
                         if (items.isEmpty()) {
-                            item { EmptyState(Icons.Outlined.Movie, "这里是空的") }
+                            item { EmptyState(Icons.Outlined.Search, "没有找到相关内容", "换个关键词试试") }
                         } else {
                             items(items, key = { it.Id }) { item ->
                                 EmbyRow(server, item) { openItem(server, item) }
+                            }
+                        }
+                    } else when (level) {
+                        Level.Root -> {
+                            if (resumeItems.isNotEmpty()) {
+                                item { SectionHeader("继续观看", resumeItems.size) }
+                                items(resumeItems, key = { it.Id }) { item ->
+                                    EmbyRow(server, item) { openItem(server, item) }
+                                }
+                            }
+                            if (views.isNotEmpty()) {
+                                item { SectionHeader("媒体库", views.size) }
+                                items(views, key = { it.Id }) { view ->
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth()
+                                            .clickable {
+                                                stack = stack + Level.Folder(view.Id, view.Name)
+                                                loadFolder(server, view.Id)
+                                            }
+                                            .padding(horizontal = 16.dp, vertical = 14.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                    ) {
+                                        Box(
+                                            modifier = Modifier.size(40.dp).clip(CircleShape)
+                                                .background(MaterialTheme.colorScheme.primaryContainer),
+                                            contentAlignment = Alignment.Center,
+                                        ) {
+                                            Icon(
+                                                if (view.CollectionType == "tvshows") Icons.Outlined.Tv else Icons.Outlined.Movie,
+                                                contentDescription = null,
+                                                tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                                                modifier = Modifier.size(22.dp),
+                                            )
+                                        }
+                                        Spacer(Modifier.width(12.dp))
+                                        Column(Modifier.weight(1f)) {
+                                            Text(view.Name, style = MaterialTheme.typography.titleMedium)
+                                            Text(
+                                                if (view.CollectionType == "tvshows") "剧集库" else "电影库",
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            )
+                                        }
+                                        Icon(
+                                            Icons.Outlined.ChevronRight, null,
+                                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        )
+                                    }
+                                }
+                            }
+                            if (views.isEmpty() && resumeItems.isEmpty()) {
+                                item { EmptyState(Icons.Outlined.Movie, "媒体库是空的", "服务器上还没有媒体库") }
+                            }
+                        }
+                        is Level.Folder, is Level.Series, is Level.Season -> {
+                            if (items.isEmpty()) {
+                                item { EmptyState(Icons.Outlined.Movie, "这里是空的") }
+                            } else {
+                                items(items, key = { it.Id }) { item ->
+                                    EmbyRow(server, item) { openItem(server, item) }
+                                }
                             }
                         }
                     }
@@ -827,6 +834,8 @@ fun MediaServerScreen(
             TechDialog(
                 onDismissRequest = { dismissResult() },
                 title = resultTitle,
+                // v1.3.33：测试结果可能是长错误详情，走宽松模式。
+                compact = false,
                 confirmText = "确定",
                 dismissText = null,
                 onConfirm = { dismissResult() },
@@ -902,10 +911,10 @@ private fun SectionHeader(title: String, count: Int) {
 @Composable
 private fun EmptyState(icon: ImageVector, title: String, subtitle: String? = null) {
     Column(
-        Modifier.fillMaxWidth().padding(32.dp),
+        Modifier.fillMaxWidth().padding(16.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        Icon(icon, null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(40.dp))
+        Icon(icon, null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(28.dp))
         Spacer(Modifier.height(8.dp))
         Text(title, style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
         if (!subtitle.isNullOrBlank()) {

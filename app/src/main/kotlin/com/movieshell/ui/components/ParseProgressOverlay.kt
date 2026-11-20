@@ -161,6 +161,8 @@ private fun LinePickerDialog(
     TechDialog(
         onDismissRequest = onDismiss,
         title = "指定解析线路",
+        // v1.3.33：长列表走宽松模式。
+        compact = false,
         subtitle = "只用选中的线路解析本集",
         dismissText = "取消",
         // v1.2.15：内容是 LazyColumn 自己滚，TechDialog 内容区不套滚动。

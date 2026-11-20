@@ -1,6 +1,7 @@
 package com.movieshell.ui.novel
 
 import androidx.compose.foundation.layout.fillMaxWidth
+import com.movieshell.ui.theme.StaticGlowBackground
 import com.movieshell.ui.components.AppSearchBar
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -116,164 +117,168 @@ fun ExploreAggregateScreen(
         }
     }
 
-    Column(Modifier.fillMaxSize().padding(horizontal = 12.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            IconButton(onClick = onBack) {
-                Icon(Icons.AutoMirrored.Filled.ArrowBack, "返回")
+    // v1.3.33：二级页静态渐变底。
+    Box(Modifier.fillMaxSize()) {
+        StaticGlowBackground(Modifier.fillMaxSize())
+        Column(Modifier.fillMaxSize().padding(horizontal = 12.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                IconButton(onClick = onBack) {
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack, "返回")
+                }
+                Text(
+                    "发现聚合",
+                    style = MaterialTheme.typography.titleLarge.copy(fontSize = 18.sp),
+                    maxLines = 1,
+                    modifier = Modifier.weight(1f),
+                )
+                Text(
+                    "${aggSources.size} 个源",
+                    fontSize = 12.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
-            Text(
-                "发现聚合",
-                style = MaterialTheme.typography.titleLarge,
-                maxLines = 1,
-                modifier = Modifier.weight(1f),
+            // v0.294.6：统一 AppSearchBar
+            AppSearchBar(
+                value = query,
+                onValueChange = { query = it },
+                placeholder = "筛选书名 / 作者",
+                modifier = Modifier.fillMaxWidth(),
             )
-            Text(
-                "${aggSources.size} 个源",
-                fontSize = 12.sp,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-        // v0.294.6：统一 AppSearchBar
-        AppSearchBar(
-            value = query,
-            onValueChange = { query = it },
-            placeholder = "筛选书名 / 作者",
-            modifier = Modifier.fillMaxWidth(),
-        )
-        Spacer(Modifier.height(8.dp))
-        when {
-            aggSources.isEmpty() -> Text(
-                "没有带发现分类的已启用书源：去书源管理启用带发现地址的源。",
-                fontSize = 13.sp,
-                modifier = Modifier.padding(top = 16.dp),
-            )
-            else -> LazyColumn(Modifier.fillMaxSize()) {
-                aggSources.forEach { src ->
-                    val cats = categoriesByKey[src.key].orEmpty()
-                    val selTitle = selectedCat[src.key] ?: cats.firstOrNull()?.title
-                    val selCat = cats.firstOrNull { it.title == selTitle } ?: cats.firstOrNull()
-                    val selKey = selCat?.let { src.key to it.url }
-                    val raw = selKey?.let { resultsByCat[it] }.orEmpty()
-                    val isLoadingCat = selKey != null && loadingCats.contains(selKey)
-                    val shown = if (query.isBlank()) raw else raw.filter {
-                        it.title.contains(query, ignoreCase = true) ||
-                            (it.author?.contains(query, ignoreCase = true) == true)
-                    }
-                    // 有筛选词且该源筛空时，整组隐藏（不留空标题）。
-                    if (query.isBlank() || shown.isNotEmpty() || isLoadingCat) {
-                        item(key = "head-${src.key}") {
-                            Column {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Text(
-                                        src.name,
-                                        fontSize = 16.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        maxLines = 1,
-                                        modifier = Modifier.weight(1f),
-                                    )
-                                    TextButton(onClick = { onOpenExplore(src.key) }) {
-                                        Text("进发现页", fontSize = 12.sp)
-                                    }
-                                }
-                                if (cats.isNotEmpty()) {
-                                    LazyRow {
-                                        items(cats, key = { it.title }) { cat ->
-                                            FilterChip(
-                                                selected = cat.title == selTitle,
-                                                onClick = {
-                                                    selectedCat = selectedCat + (src.key to cat.title)
-                                                    load(src, cat)
-                                                },
-                                                label = { Text(cat.title) },
-                                                modifier = Modifier.padding(end = 6.dp),
-                                            )
+            Spacer(Modifier.height(8.dp))
+            when {
+                aggSources.isEmpty() -> Text(
+                    "没有带发现分类的已启用书源：去书源管理启用带发现地址的源。",
+                    fontSize = 13.sp,
+                    modifier = Modifier.padding(top = 16.dp),
+                )
+                else -> LazyColumn(Modifier.fillMaxSize()) {
+                    aggSources.forEach { src ->
+                        val cats = categoriesByKey[src.key].orEmpty()
+                        val selTitle = selectedCat[src.key] ?: cats.firstOrNull()?.title
+                        val selCat = cats.firstOrNull { it.title == selTitle } ?: cats.firstOrNull()
+                        val selKey = selCat?.let { src.key to it.url }
+                        val raw = selKey?.let { resultsByCat[it] }.orEmpty()
+                        val isLoadingCat = selKey != null && loadingCats.contains(selKey)
+                        val shown = if (query.isBlank()) raw else raw.filter {
+                            it.title.contains(query, ignoreCase = true) ||
+                                (it.author?.contains(query, ignoreCase = true) == true)
+                        }
+                        // 有筛选词且该源筛空时，整组隐藏（不留空标题）。
+                        if (query.isBlank() || shown.isNotEmpty() || isLoadingCat) {
+                            item(key = "head-${src.key}") {
+                                Column {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Text(
+                                            src.name,
+                                            fontSize = 15.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            maxLines = 1,
+                                            modifier = Modifier.weight(1f),
+                                        )
+                                        TextButton(onClick = { onOpenExplore(src.key) }) {
+                                            Text("进发现页", fontSize = 12.sp)
                                         }
                                     }
-                                }
-                                Spacer(Modifier.height(4.dp))
-                            }
-                        }
-                        when {
-                            isLoadingCat -> item(key = "loading-${src.key}") {
-                                Text("加载中…", fontSize = 13.sp, modifier = Modifier.padding(bottom = 12.dp))
-                            }
-                            selKey != null && failedCats.contains(selKey) && raw.isEmpty() -> item(key = "fail-${src.key}") {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Text(
-                                        "这一页没有结果（可能撞上验证，稍后重试）",
-                                        fontSize = 13.sp,
-                                        modifier = Modifier.weight(1f),
-                                    )
-                                    TextButton(onClick = {
-                                        selCat?.let { load(src, it) }
-                                    }) { Text("重试") }
-                                }
-                                Spacer(Modifier.height(12.dp))
-                            }
-                            else -> item(key = "row-${src.key}") {
-                                LazyRow {
-                                    items(shown, key = { it.remoteId }) { book ->
-                                        val group = SourceGroup(src.key, src.name, raw)
-                                        val isJoining = (group.key + book.remoteId) in joining
-                                        Column(
-                                            Modifier
-                                                .width(110.dp)
-                                                .clickable(enabled = !isJoining) {
-                                                    searchVm.joinShelf(group, book)
-                                                }
-                                                .padding(end = 10.dp),
-                                        ) {
-                                            Box(
-                                                modifier = Modifier
-                                                    .size(width = 110.dp, height = 148.dp)
-                                                    .clip(RoundedCornerShape(8.dp))
-                                                    .background(MaterialTheme.colorScheme.surfaceVariant),
-                                                contentAlignment = Alignment.Center,
-                                            ) {
-                                                if (!book.cover.isNullOrBlank()) {
-                                                    AsyncImage(
-                                                        model = book.cover,
-                                                        contentDescription = book.title,
-                                                        modifier = Modifier.fillMaxSize(),
-                                                        contentScale = ContentScale.Crop,
-                                                    )
-                                                } else {
-                                                    Text(
-                                                        book.title.firstOrNull()?.toString() ?: "书",
-                                                        fontSize = 24.sp,
-                                                        fontWeight = FontWeight.Bold,
-                                                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f), // v1.2.14 E片：占位首字 0.5 只有 2.50:1，改 0.8（5.14:1）
-                                                    )
-                                                }
+                                    if (cats.isNotEmpty()) {
+                                        LazyRow {
+                                            items(cats, key = { it.title }) { cat ->
+                                                FilterChip(
+                                                    selected = cat.title == selTitle,
+                                                    onClick = {
+                                                        selectedCat = selectedCat + (src.key to cat.title)
+                                                        load(src, cat)
+                                                    },
+                                                    label = { Text(cat.title) },
+                                                    modifier = Modifier.padding(end = 6.dp),
+                                                )
                                             }
-                                            Spacer(Modifier.height(4.dp))
-                                            Text(
-                                                book.title,
-                                                fontSize = 13.sp,
-                                                fontWeight = FontWeight.Medium,
-                                                maxLines = 2,
-                                                overflow = TextOverflow.Ellipsis,
-                                            )
-                                            if (!book.author.isNullOrBlank()) {
+                                        }
+                                    }
+                                    Spacer(Modifier.height(4.dp))
+                                }
+                            }
+                            when {
+                                isLoadingCat -> item(key = "loading-${src.key}") {
+                                    Text("加载中…", fontSize = 13.sp, modifier = Modifier.padding(bottom = 12.dp))
+                                }
+                                selKey != null && failedCats.contains(selKey) && raw.isEmpty() -> item(key = "fail-${src.key}") {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Text(
+                                            "这一页没有结果（可能撞上验证，稍后重试）",
+                                            fontSize = 13.sp,
+                                            modifier = Modifier.weight(1f),
+                                        )
+                                        TextButton(onClick = {
+                                            selCat?.let { load(src, it) }
+                                        }) { Text("重试") }
+                                    }
+                                    Spacer(Modifier.height(12.dp))
+                                }
+                                else -> item(key = "row-${src.key}") {
+                                    LazyRow {
+                                        items(shown, key = { it.remoteId }) { book ->
+                                            val group = SourceGroup(src.key, src.name, raw)
+                                            val isJoining = (group.key + book.remoteId) in joining
+                                            Column(
+                                                Modifier
+                                                    .width(110.dp)
+                                                    .clickable(enabled = !isJoining) {
+                                                        searchVm.joinShelf(group, book)
+                                                    }
+                                                    .padding(end = 10.dp),
+                                            ) {
+                                                Box(
+                                                    modifier = Modifier
+                                                        .size(width = 110.dp, height = 148.dp)
+                                                        .clip(RoundedCornerShape(8.dp))
+                                                        .background(MaterialTheme.colorScheme.surfaceVariant),
+                                                    contentAlignment = Alignment.Center,
+                                                ) {
+                                                    if (!book.cover.isNullOrBlank()) {
+                                                        AsyncImage(
+                                                            model = book.cover,
+                                                            contentDescription = book.title,
+                                                            modifier = Modifier.fillMaxSize(),
+                                                            contentScale = ContentScale.Crop,
+                                                        )
+                                                    } else {
+                                                        Text(
+                                                            book.title.firstOrNull()?.toString() ?: "书",
+                                                            fontSize = 24.sp,
+                                                            fontWeight = FontWeight.Bold,
+                                                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f), // v1.2.14 E片：占位首字 0.5 只有 2.50:1，改 0.8（5.14:1）
+                                                        )
+                                                    }
+                                                }
+                                                Spacer(Modifier.height(4.dp))
                                                 Text(
-                                                    book.author,
-                                                    fontSize = 11.sp,
-                                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                                    maxLines = 1,
+                                                    book.title,
+                                                    fontSize = 13.sp,
+                                                    fontWeight = FontWeight.Medium,
+                                                    maxLines = 2,
                                                     overflow = TextOverflow.Ellipsis,
                                                 )
-                                            }
-                                            if (isJoining) {
-                                                Text(
-                                                    "加入中…",
-                                                    fontSize = 11.sp,
-                                                    color = MaterialTheme.colorScheme.primary,
-                                                )
+                                                if (!book.author.isNullOrBlank()) {
+                                                    Text(
+                                                        book.author,
+                                                        fontSize = 11.sp,
+                                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                        maxLines = 1,
+                                                        overflow = TextOverflow.Ellipsis,
+                                                    )
+                                                }
+                                                if (isJoining) {
+                                                    Text(
+                                                        "加入中…",
+                                                        fontSize = 11.sp,
+                                                        color = MaterialTheme.colorScheme.primary,
+                                                    )
+                                                }
                                             }
                                         }
                                     }
+                                    Spacer(Modifier.height(16.dp))
                                 }
-                                Spacer(Modifier.height(16.dp))
                             }
                         }
                     }

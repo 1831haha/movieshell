@@ -1,6 +1,7 @@
 package com.movieshell.ui.bookshelf
 
 import androidx.compose.foundation.clickable
+import com.movieshell.ui.theme.StaticGlowBackground
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -91,106 +92,113 @@ fun NovelTocScreen(
         if (list == null) null else if (reversed) list.asReversed() else list
     }
 
-    Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            IconButton(onClick = onBack) {
-                Icon(Icons.AutoMirrored.Filled.ArrowBack, "返回", tint = MaterialTheme.colorScheme.onSurface)
-            }
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    n?.title ?: "目录",
-                    style = MaterialTheme.typography.titleLarge,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                Text(
-                    when {
-                        list == null -> "加载中…"
-                        list.isEmpty() -> "目录获取失败"
-                        else -> "共 ${list.size} 章 · 已读到第 ${read + 1} 章"
-                    },
-                    fontSize = 12.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-            if (!list.isNullOrEmpty()) {
-                IconButton(onClick = { reversed = !reversed }) {
-                    Icon(
-                        Icons.Filled.SwapVert,
-                        if (reversed) "正序" else "倒序",
-                        tint = MaterialTheme.colorScheme.onSurface,
+    // v1.3.33：二级页静态渐变底。
+    Box(Modifier.fillMaxSize()) {
+        StaticGlowBackground(Modifier.fillMaxSize())
+        Column(modifier = Modifier.fillMaxSize().padding(horizontal = 8.dp, vertical = 16.dp)) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.padding(horizontal = 8.dp),
+            ) {
+                IconButton(onClick = onBack) {
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack, "返回", tint = MaterialTheme.colorScheme.onSurface)
+                }
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        n?.title ?: "目录",
+                        style = MaterialTheme.typography.titleLarge.copy(fontSize = 18.sp),
+                        color = MaterialTheme.colorScheme.onSurface,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    Text(
+                        when {
+                            list == null -> "加载中…"
+                            list.isEmpty() -> "目录获取失败"
+                            else -> "共 ${list.size} 章 · 已读到第 ${read + 1} 章"
+                        },
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
-            }
-        }
-        Spacer(Modifier.height(8.dp))
-        when {
-            list == null -> {
-                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    CircularProgressIndicator(modifier = Modifier.size(24.dp))
-                }
-            }
-            list.isEmpty() -> {
-                Column(
-                    modifier = Modifier.fillMaxSize(),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.Center,
-                ) {
-                    Text("目录获取失败", fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurface)
-                    Spacer(Modifier.height(6.dp))
-                    Text("可能是源站改版或网络问题", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Spacer(Modifier.height(16.dp))
-                    OutlinedButton(
-                        onClick = {
-                            val cur = n ?: return@OutlinedButton
-                            retrying = true
-                            NovelDirectoryFill.refillFromShelf(context.applicationContext, cur)
-                            PluginUi.toast(context, "正在重新获取目录")
-                            // 补取终态由 completed 流回推 load()；60 秒无终态则停转，不让按钮一直卡住。
-                            scope.launch {
-                                delay(60_000)
-                                retrying = false
-                            }
-                        },
-                        enabled = !retrying,
-                    ) {
-                        Text(if (retrying) "正在获取…" else "重新获取", fontSize = 13.sp)
+                if (!list.isNullOrEmpty()) {
+                    IconButton(onClick = { reversed = !reversed }) {
+                        Icon(
+                            Icons.Filled.SwapVert,
+                            if (reversed) "正序" else "倒序",
+                            tint = MaterialTheme.colorScheme.onSurface,
+                        )
                     }
                 }
             }
-            else -> {
-                LazyColumn(
-                    modifier = Modifier.fillMaxSize(),
-                    verticalArrangement = Arrangement.spacedBy(2.dp),
-                ) {
-                    items(display.orEmpty(), key = { it.index }) { ch ->
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(8.dp))
-                                .clickable {
-                                    ReaderJumpRequest.chapter = ch.index
-                                    onOpenReader(novelId)
+            Spacer(Modifier.height(8.dp))
+            when {
+                list == null -> {
+                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        CircularProgressIndicator(modifier = Modifier.size(24.dp))
+                    }
+                }
+                list.isEmpty() -> {
+                    Column(
+                        modifier = Modifier.fillMaxSize(),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center,
+                    ) {
+                        Text("目录获取失败", fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurface)
+                        Spacer(Modifier.height(6.dp))
+                        Text("可能是源站改版或网络问题", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Spacer(Modifier.height(16.dp))
+                        OutlinedButton(
+                            onClick = {
+                                val cur = n ?: return@OutlinedButton
+                                retrying = true
+                                NovelDirectoryFill.refillFromShelf(context.applicationContext, cur)
+                                PluginUi.toast(context, "正在重新获取目录")
+                                // 补取终态由 completed 流回推 load()；60 秒无终态则停转，不让按钮一直卡住。
+                                scope.launch {
+                                    delay(60_000)
+                                    retrying = false
                                 }
-                                .padding(horizontal = 8.dp, vertical = 10.dp),
-                            verticalAlignment = Alignment.CenterVertically,
+                            },
+                            enabled = !retrying,
                         ) {
-                            Text(
-                                text = ch.title.ifBlank { "第 ${ch.index + 1} 章" },
-                                fontSize = 13.sp,
-                                color = if (ch.index <= read) MaterialTheme.colorScheme.primary
-                                else MaterialTheme.colorScheme.onSurface,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                                modifier = Modifier.weight(1f),
-                            )
-                            if (ch.index == read && n?.hasStartedReading == true) {
+                            Text(if (retrying) "正在获取…" else "重新获取", fontSize = 13.sp)
+                        }
+                    }
+                }
+                else -> {
+                    LazyColumn(
+                        modifier = Modifier.fillMaxSize(),
+                        verticalArrangement = Arrangement.spacedBy(2.dp),
+                    ) {
+                        items(display.orEmpty(), key = { it.index }) { ch ->
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .clickable {
+                                        ReaderJumpRequest.chapter = ch.index
+                                        onOpenReader(novelId)
+                                    }
+                                    .padding(horizontal = 8.dp, vertical = 10.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
                                 Text(
-                                    "在读",
-                                    fontSize = 11.sp,
-                                    color = MaterialTheme.colorScheme.primary,
+                                    text = ch.title.ifBlank { "第 ${ch.index + 1} 章" },
+                                    fontSize = 13.sp,
+                                    color = if (ch.index <= read) MaterialTheme.colorScheme.primary
+                                    else MaterialTheme.colorScheme.onSurface,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier.weight(1f),
                                 )
+                                if (ch.index == read && n?.hasStartedReading == true) {
+                                    Text(
+                                        "在读",
+                                        fontSize = 11.sp,
+                                        color = MaterialTheme.colorScheme.primary,
+                                    )
+                                }
                             }
                         }
                     }

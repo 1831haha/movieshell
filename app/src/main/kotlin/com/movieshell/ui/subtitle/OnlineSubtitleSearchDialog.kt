@@ -130,13 +130,13 @@ fun OnlineSubtitleSearchDialog(
         when {
             searching -> {
                 Row(
-                    modifier = Modifier.fillMaxWidth().padding(24.dp),
+                    modifier = Modifier.fillMaxWidth().padding(16.dp),
                     horizontalArrangement = Arrangement.Center,
                 ) { CircularProgressIndicator() }
             }
             downloading -> {
                 Row(
-                    modifier = Modifier.fillMaxWidth().padding(24.dp),
+                    modifier = Modifier.fillMaxWidth().padding(16.dp),
                     horizontalArrangement = Arrangement.Center,
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
@@ -150,7 +150,7 @@ fun OnlineSubtitleSearchDialog(
                     "没搜到，换个关键词试试",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(24.dp),
+                    modifier = Modifier.padding(16.dp),
                 )
             }
             results.isNotEmpty() -> {
