@@ -1968,7 +1968,8 @@ fun SourcesScreen(
                     items(
                         // v1.3.34 审查 P3-2：先按失败分类、再按源名排，同原因的失败聚成一片。
                         group.sortedWith(compareBy({ it.category }, { it.label.ifBlank { it.name } })),
-                        key = { "${it.kind}:${it.name}" },
+                        // GPT 审查 P2：行 key 加 probe-row: 前缀，与组头 probe-group: 命名空间隔离。
+                        key = { "probe-row:${it.kind}:${it.name}" },
                     ) { r ->
                         ProbeResultRow(
                             target = ProbeTarget(r.kind, r.name, r.label),
