@@ -13,6 +13,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 import java.io.IOException
+import java.net.Proxy
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
 
@@ -117,18 +118,19 @@ object HttpClient {
     }
 
     /**
-     * v1.4.3：LX 脚本请求专用 client——与 defaultClient 同配置（代理/超时/
+     * v1.4.3：LX 脚本请求专用 client——与 defaultClient 同配置（超时/
      * CookieJar/UA/日志全继承），只去掉重试拦截器。背景：脚本每个后端都自带
      * timeout 且自己轮询下一个后端，挂起的请求被 defaultClient 重试 3 次会把
      * 单后端成本 ×3（2026-11-20 16:19:16 三次重试实证）；且脚本的单后端 timeout
      * 由 LxMusicSourceEngine.rpcHttpx 经 per-call timeout 落实，client 层不
      * 应再放大。超时与连接失败一律由脚本层按后端失败缓存处理。
+     * v1.4.4：音乐改直连——代理钉死 NO_PROXY（见 noProxyClient 的注释）。
      */
     fun lxClient(): OkHttpClient = sharedLxClient
 
     private val sharedLxClient: OkHttpClient by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
         OkHttpClient.Builder()
-            .proxySelector(ProxyRouting.selector)
+            .proxy(Proxy.NO_PROXY)
             .connectTimeout(TIMEOUT_S, TimeUnit.SECONDS)
             .readTimeout(TIMEOUT_S, TimeUnit.SECONDS)
             .writeTimeout(TIMEOUT_S, TimeUnit.SECONDS)
@@ -138,6 +140,21 @@ object HttpClient {
             .addInterceptor(uaInterceptor)
             .addInterceptor(simpleLogInterceptor)
             .build()
+    }
+
+    /**
+     * v1.4.4：音乐专用直连 client——与 defaultClient 同配置（超时/CookieJar/
+     * UA/重试/日志全继承），只把代理钉死为 NO_PROXY。背景：音乐没有任何代理
+     * 开关，却共用挂 selector 的 defaultClient，别的视频源一旦登记了 qq.com
+     * 系 host 就会连带音乐流量（2026-11-20 两路审查：部分失效）；音乐改直连
+     * 后，LX 取链/验活/脚本下载/搜索/歌词/榜单/封面一律不走代理，与音频流
+     * （ExoPlayer 默认数据源，本就直连）对齐。有声小说不受影响：它走影视源
+     * 自己的解析（PlayResolver），不用这里的 client。
+     */
+    fun noProxyClient(): OkHttpClient = sharedNoProxyClient
+
+    private val sharedNoProxyClient: OkHttpClient by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
+        sharedClient.newBuilder().proxy(Proxy.NO_PROXY).build()
     }
 
     /**

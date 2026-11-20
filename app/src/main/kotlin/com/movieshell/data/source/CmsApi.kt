@@ -56,6 +56,9 @@ class CmsApi(
          */
         fun defaultClient(): OkHttpClient = HttpClient.defaultClient()
 
+        /** v1.4.4：音乐专用直连 client（见 HttpClient.noProxyClient），只供音乐模块用。 */
+        fun noProxyClient(): OkHttpClient = HttpClient.noProxyClient()
+
         /** drpy 规则请求专用 client（3/4/4/5 秒、零重试），只供 V8DrpyEngine 用。 */
         fun drpyClient(): OkHttpClient = HttpClient.drpyClient()
 

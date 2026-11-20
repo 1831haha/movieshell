@@ -16,6 +16,7 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.json.JSONArray
 import org.json.JSONObject
+import java.net.Proxy
 import java.net.URLEncoder
 
 /**
@@ -161,11 +162,13 @@ object MusicApi {
 
     // v0.112.0 B1：纯短 GET（搜索/播放地址/封面），每次请求显式带 UA 头，
     // 共享单例的 UA 拦截器不覆盖调用方显式 UA；改用进程级共享单例。
-    private val http = CmsApi.defaultClient()
+    // v1.4.4：音乐改直连——搜索/歌词/榜单走直连 client（见 HttpClient.noProxyClient）。
+    private val http = CmsApi.noProxyClient()
 
     // v1.4.2：封面解析走独立 Dispatcher 的 picClient（见 HttpClient.picClient），
     // 不再跟 playlist 请求抢同一 host 的 5 路并发。
-    private val picHttp = HttpClient.picClient()
+    // v1.4.4：音乐改直连——封面也钉死直连（派生 client 只改代理，Dispatcher 不变）。
+    private val picHttp = HttpClient.picClient().newBuilder().proxy(Proxy.NO_PROXY).build()
 
     // v1.4.2：client 参数——封面解析走 picClient，其余走共享 client。
     private suspend fun get(url: String, client: OkHttpClient = http): String = withContext(Dispatchers.IO) {

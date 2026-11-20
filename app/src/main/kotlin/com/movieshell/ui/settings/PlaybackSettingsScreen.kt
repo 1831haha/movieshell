@@ -1,7 +1,7 @@
 package com.movieshell.ui.settings
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.WindowInsetsSides
@@ -11,7 +11,6 @@ import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Restore
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -22,7 +21,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.platform.LocalContext
@@ -71,81 +69,67 @@ fun PlaybackSettingsScreen(
             topBar = { TabTopBar(title = "播放设置", onBack = onBack) },
             containerColor = cs.surfaceContainer,
         ) { inner ->
-            LazyColumn(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(inner),
-                contentPadding = PaddingValues(
-                    start = V5.Gutter,
-                    end = V5.Gutter,
-                    top = 8.dp,
-                    bottom = 24.dp,
-                ),
-            ) {
-                // 拖动时才出现：拖到这里松手，行搬回设置页“播放 · 解析”组。
-                if (dragState.isDragging) {
+            // v1.4.4：回页条固定在列表上方（SettingBackStripBar），不再做 LazyColumn
+            // 的第 0 项——列表滚下去后第 0 项脱离视口不组合，stripRect 记不上，
+            // 行就拖不回设置页。
+            Column(Modifier.fillMaxSize().padding(inner)) {
+                SettingBackStripBar(dragState)
+                LazyColumn(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth(),
+                    contentPadding = PaddingValues(
+                        start = V5.Gutter,
+                        end = V5.Gutter,
+                        top = 8.dp,
+                        bottom = 24.dp,
+                    ),
+                ) {
                     item {
                         Box(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(bottom = 8.dp)
-                                .settingBackStrip(dragState)
-                                .background(cs.primaryContainer, RoundedCornerShape(V5.CornerMd))
-                                .padding(vertical = 12.dp),
-                            contentAlignment = Alignment.Center,
+                                .settingDropContainer(dragState, SettingsLayoutStore.PAGE_PLAYBACK),
                         ) {
-                            Text(
-                                "拖到这里，移回设置页",
-                                style = MaterialTheme.typography.labelLarge,
-                                color = cs.onPrimaryContainer,
-                            )
-                        }
-                    }
-                }
-                item {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .settingDropContainer(dragState, SettingsLayoutStore.PAGE_PLAYBACK),
-                    ) {
-                        SettingsGroup(title = "播放设置") {
-                            if (rows.isEmpty()) {
-                                Text(
-                                    "还没有行：去设置页长按一行，拖到“播放设置”入口上松手。",
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = cs.onSurfaceVariant,
-                                    modifier = Modifier.padding(vertical = 8.dp),
-                                )
-                            }
-                            rows.forEachIndexed { index, id ->
-                                Box(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .settingDraggable(dragState, id, onDrop)
-                                        .then(if (dragState.draggedId == id) Modifier.alpha(0.3f) else Modifier),
-                                ) {
-                                    MovableSettingRow(
-                                        id = id,
-                                        style = SettingRowStyle.Plain,
-                                        cardPosition = SegPos.Single,
-                                        divider = index < rows.size - 1,
-                                        onOpenMarketClick = onOpenMarketClick,
-                                        onTmdbSettingsClick = onTmdbSettingsClick,
+                            SettingsGroup(title = "播放设置") {
+                                if (rows.isEmpty()) {
+                                    Text(
+                                        "还没有行：去设置页长按一行，拖到“播放设置”入口上松手。",
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = cs.onSurfaceVariant,
+                                        modifier = Modifier.padding(vertical = 8.dp),
                                     )
+                                }
+                                rows.forEachIndexed { index, id ->
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .settingDraggable(dragState, id, onDrop)
+                                            .then(if (dragState.draggedId == id) Modifier.alpha(0.3f) else Modifier),
+                                    ) {
+                                        MovableSettingRow(
+                                            id = id,
+                                            style = SettingRowStyle.Plain,
+                                            cardPosition = SegPos.Single,
+                                            divider = index < rows.size - 1,
+                                            onOpenMarketClick = onOpenMarketClick,
+                                            onTmdbSettingsClick = onTmdbSettingsClick,
+                                        )
+                                    }
                                 }
                             }
                         }
                     }
-                }
-                item {
-                    SettingsGroup(title = "布局") {
-                        SettingsRow(
-                            icon = Icons.Outlined.Restore,
-                            title = "恢复默认布局",
-                            subtitle = "所有可移行回默认分组",
-                            onClick = { SettingsLayoutStore.reset(context) },
-                            divider = false,
-                        )
+                    item {
+                        SettingsGroup(title = "布局") {
+                            SettingsRow(
+                                icon = Icons.Outlined.Restore,
+                                title = "恢复默认布局",
+                                subtitle = "所有可移行回默认分组",
+                                onClick = { SettingsLayoutStore.reset(context) },
+                                divider = false,
+                            )
+                        }
                     }
                 }
             }

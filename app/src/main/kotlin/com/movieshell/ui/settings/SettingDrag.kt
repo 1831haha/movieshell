@@ -1,20 +1,24 @@
 package com.movieshell.ui.settings
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
@@ -25,6 +29,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
+import com.movieshell.ui.theme.V5
 import kotlin.math.roundToInt
 
 /**
@@ -167,6 +172,41 @@ fun Modifier.settingBackStrip(
     dragState: SettingDragState,
 ): Modifier = onGloballyPositioned { coords ->
     dragState.stripRect = coords.boundsInWindow()
+}
+
+/**
+ * v1.4.4：子页面顶部的“拖回设置页”条——必须放在 LazyColumn 外面、固定在列表上方。
+ * 之前它做在 LazyColumn 的第 0 个 item 里：列表一旦滚下去一点，第 0 项就脱离
+ * 视口不再组合，onGloballyPositioned 不跑，stripRect 一直是 null，hitTest
+ * 永远撞不上 BackToMain，行就拖不回主页面（拖进去没事，因为主页面入口行
+ * 是常驻项）。放外面后拖动时它一直在屏上，stripRect 始终有效，滚多远都管用。
+ * 只在拖动时出现；悬停时描边，和主页面入口行的高亮口径一致。两子页面共用。
+ */
+@Composable
+fun SettingBackStripBar(dragState: SettingDragState) {
+    if (!dragState.isDragging) return
+    val cs = MaterialTheme.colorScheme
+    val hovered = dragState.hoverTarget == SettingDropTarget.BackToMain
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(start = V5.Gutter, end = V5.Gutter, top = 8.dp)
+            .settingBackStrip(dragState)
+            .background(cs.primaryContainer, RoundedCornerShape(V5.CornerMd))
+            .then(
+                if (hovered) Modifier.border(
+                    2.dp, cs.primary, RoundedCornerShape(V5.CornerMd),
+                ) else Modifier,
+            )
+            .padding(vertical = 12.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            "拖到这里，移回设置页",
+            style = MaterialTheme.typography.labelLarge,
+            color = cs.onPrimaryContainer,
+        )
+    }
 }
 
 /** 拖动时的悬浮跟手副本 + 插入位置指示线，宿主屏放在最外层 Box 的最后。 */

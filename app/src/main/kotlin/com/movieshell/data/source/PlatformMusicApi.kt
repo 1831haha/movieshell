@@ -24,7 +24,7 @@ import java.net.URLEncoder
  *
  * Track 口径与 MusicApi 一致：source 写 LX code，urlId 放该平台主键，
  * picId 能直出图片地址的直接放完整 URL（MusicApi.picImageUrl 对 http 开头直通）。
- * 网络走 CmsApi.defaultClient() 共享单例，不新造 client。
+ * 网络走 CmsApi.noProxyClient() 直连单例（v1.4.4：音乐改直连），不新造 client。
  */
 object PlatformMusicApi {
     private const val UA_MOBILE =
@@ -35,7 +35,8 @@ object PlatformMusicApi {
         "Mozilla/5.0 (iPhone; CPU iPhone OS 9_1 like Mac OS X) AppleWebKit/601.1.46 " +
             "(KHTML, like Gecko) Version/9.0 Mobile/13B143 Safari/601.1"
 
-    private val http = CmsApi.defaultClient()
+    // v1.4.4：音乐改直连——搜索/榜单走直连 client。
+    private val http = CmsApi.noProxyClient()
 
     private suspend fun get(
         url: String,

@@ -41,6 +41,7 @@ import com.movieshell.data.source_mgr.DrpySourceManager
 import com.movieshell.data.source_mgr.PySourceManager
 import com.movieshell.data.source_mgr.ServicePluginManager
 import com.movieshell.data.source_mgr.SubSiteStore
+import com.movieshell.data.source_mgr.WebSourceManager
 import com.movieshell.data.store.RuleInfo
 import com.movieshell.ui.components.AppButton
 import com.movieshell.ui.components.AppButtonVariant
@@ -62,8 +63,9 @@ import kotlinx.coroutines.launch
  *
  * 三块：① clash 服务状态（启动/停止/探活/去服务页）；② 订阅链接（只存本机，
  * 带 Clash UA 更新订阅，写进私有目录给 mihomo 的 file 型 provider 读）；
- * ③ 每源一个“走代理”开关（JS/PY 规则 + CMS 订阅，支持搜索与分组折叠；
- * PHP/网页源不支持，见页内说明）。只代理开了开关的源，其他源一点不受影响。
+ * ③ 每源一个“走代理”开关（JS/PY 规则 + CMS 订阅 + 网页源，支持搜索与分组折叠；
+ * PHP 不支持，见页内说明；音乐改直连，不走代理，见 HttpClient.noProxyClient）。
+ * 只代理开了开关的源，其他源一点不受影响。
  */
 @Composable
 fun ClashSettingsScreen(
@@ -84,7 +86,11 @@ fun ClashSettingsScreen(
     var jsRules by remember { mutableStateOf<List<RuleInfo>>(emptyList()) }
     var pyRules by remember { mutableStateOf<List<RuleInfo>>(emptyList()) }
     var cmsSubs by remember { mutableStateOf<List<ApiSource>>(emptyList()) }
+    // v1.4.4：网页源分组——只列 http(s) 站源（file:// 本地页没有 host，走不了代理）。
+    var webSites by remember { mutableStateOf<List<WebSourceManager.WebSite>>(emptyList()) }
     var proxyOn by remember { mutableStateOf<Set<String>>(emptySet()) }
+    // v1.4.4：生效域名快照（ClashProxy.proxiedHosts），让“走没走代理”可查。
+    var proxiedHosts by remember { mutableStateOf<Set<String>>(emptySet()) }
     // v1.3.30：源列表搜索 + 胶囊过滤（0=全部 1=已开启 2=未开启）。
     var proxyQuery by remember { mutableStateOf("") }
     var proxyFilter by remember { mutableStateOf(0) }
@@ -100,7 +106,10 @@ fun ClashSettingsScreen(
         jsRules = runCatching { DrpySourceManager.listRules() }.getOrDefault(emptyList())
         pyRules = runCatching { PySourceManager.listRules() }.getOrDefault(emptyList())
         cmsSubs = runCatching { ApiSourceStore.load(context) }.getOrDefault(emptyList())
+        webSites = runCatching { WebSourceManager.listSites() }.getOrDefault(emptyList())
+            .filter { it.url.startsWith("http://") || it.url.startsWith("https://") }
         proxyOn = ClashProxy.enabledKeys()
+        proxiedHosts = ClashProxy.proxiedHosts()
     }
     LaunchedEffect(Unit) {
         // v1.3.27：进页先认领市场装到 plugins/ 的旧 clash（无注册表），
@@ -126,11 +135,12 @@ fun ClashSettingsScreen(
         return when (key) {
             "py" -> pyRules.any { proxyOn.contains(ClashProxy.pyKey(it.name)) }
             "cms" -> cmsSubs.any { proxyOn.contains(ClashProxy.cmsKey(it.url)) }
+            "web" -> webSites.any { proxyOn.contains(ClashProxy.webKey(it.fileName)) }
             else -> jsRules.any { proxyOn.contains(ClashProxy.jsKey(it.name)) }
         }
     }
     fun toggleGroup(key: String) {
-        val current = setOf("js", "py", "cms").filter { isGroupExpanded(it) }.toMutableSet()
+        val current = setOf("js", "py", "cms", "web").filter { isGroupExpanded(it) }.toMutableSet()
         if (current.contains(key)) current.remove(key) else current.add(key)
         expandedGroups = current.toList()
         hasExpandedMemory = true
@@ -169,6 +179,12 @@ fun ClashSettingsScreen(
                 add(ProxyListItem.SourceRow(2, sub.name.ifBlank { sub.url }, sub.url, key))
             }
         }
+        webSites.forEach { site ->
+            val key = ClashProxy.webKey(site.fileName)
+            if (matchSource(proxyOn.contains(key), site.name, site.url)) {
+                add(ProxyListItem.SourceRow(3, site.name.ifBlank { site.url }, site.url, key))
+            }
+        }
     }
 
     // v1.3.30：分组折叠列表（无过滤时）——组头 + 组内行，空组展开后给一行提示。
@@ -192,6 +208,13 @@ fun ClashSettingsScreen(
             if (cmsSubs.isEmpty()) add(ProxyListItem.EmptyNote("暂无 CMS 订阅"))
             else cmsSubs.forEach { sub ->
                 add(ProxyListItem.SourceRow(2, sub.name.ifBlank { sub.url }, sub.url, ClashProxy.cmsKey(sub.url)))
+            }
+        }
+        add(ProxyListItem.Header("web"))
+        if (isGroupExpanded("web")) {
+            if (webSites.isEmpty()) add(ProxyListItem.EmptyNote("暂无网页源（仅 http(s) 站源可走代理）"))
+            else webSites.forEach { site ->
+                add(ProxyListItem.SourceRow(3, site.name.ifBlank { site.url }, site.url, ClashProxy.webKey(site.fileName)))
             }
         }
     }
@@ -431,21 +454,25 @@ fun ClashSettingsScreen(
                                     val headerIcon = when (key) {
                                         "py" -> Icons.Filled.Terminal
                                         "cms" -> Icons.Outlined.Link
+                                        "web" -> Icons.Outlined.Extension
                                         else -> Icons.Outlined.Code
                                     }
                                     val headerName = when (key) {
                                         "py" -> "PY 规则"
                                         "cms" -> "CMS 订阅"
+                                        "web" -> "网页源"
                                         else -> "JS 规则"
                                     }
                                     val headerTotal = when (key) {
                                         "py" -> pyRules.size
                                         "cms" -> cmsSubs.size
+                                        "web" -> webSites.size
                                         else -> jsRules.size
                                     }
                                     val headerOn = when (key) {
                                         "py" -> pyRules.count { proxyOn.contains(ClashProxy.pyKey(it.name)) }
                                         "cms" -> cmsSubs.count { proxyOn.contains(ClashProxy.cmsKey(it.url)) }
+                                        "web" -> webSites.count { proxyOn.contains(ClashProxy.webKey(it.fileName)) }
                                         else -> jsRules.count { proxyOn.contains(ClashProxy.jsKey(it.name)) }
                                     }
                                     SegItem(
@@ -467,6 +494,7 @@ fun ClashSettingsScreen(
                                     val rowIcon = when (item.kind) {
                                         1 -> Icons.Filled.Terminal
                                         2 -> Icons.Outlined.Link
+                                        3 -> Icons.Outlined.Extension
                                         else -> Icons.Outlined.Code
                                     }
                                     SegItem(
@@ -497,6 +525,14 @@ fun ClashSettingsScreen(
                                                                 if (hosts.isNotEmpty()) ClashProxy.registerHosts(item.key, hosts)
                                                             }
                                                         }
+                                                        3 -> {
+                                                            // 网页源：subtitle 就是站源地址，取它的 host prime。
+                                                            if (on) {
+                                                                ClashProxy.hostOf(item.subtitle)?.let {
+                                                                    ClashProxy.registerHosts(item.key, listOf(it))
+                                                                }
+                                                            }
+                                                        }
                                                         else -> {
                                                             if (on) {
                                                                 DrpySourceManager.ruleHost(item.subtitle)?.let {
@@ -506,6 +542,7 @@ fun ClashSettingsScreen(
                                                         }
                                                     }
                                                     proxyOn = ClashProxy.enabledKeys()
+                                                    proxiedHosts = ClashProxy.proxiedHosts()
                                                 },
                                             )
                                         },
@@ -521,9 +558,42 @@ fun ClashSettingsScreen(
                                 }
                             }
                         }
-                        // v1.3.33：PHP/网页源列为灰态“不支持”——PHP 走原生 php、
-                        // 网页源走浏览器，本版不走代理；只留一句小字用户无从发现，
-                        // 开关列表里必须有这两行灰态，拨了开关也不会生效。
+                        // v1.4.4：生效域名快照——已开代理的源登记的 host 并集（ClashProxy.proxiedHosts）。
+                        // 让“走没走代理”可查：命中这里的域名才走代理；clash 未运行时全部直连（见上方服务状态）。
+                        Text(
+                            text = "生效域名（${proxiedHosts.size} 个）",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(start = 16.dp, top = 8.dp, bottom = 4.dp),
+                        )
+                        if (proxiedHosts.isEmpty()) {
+                            Text(
+                                text = "暂无——还没有源开代理。",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                            )
+                        } else {
+                            proxiedHosts.sorted().forEach { host ->
+                                Text(
+                                    text = host,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp),
+                                )
+                            }
+                            if (!running) {
+                                Text(
+                                    text = "clash 未运行，这些域名当前实际直连。",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                                )
+                            }
+                        }
+                        // v1.3.33：PHP 列为灰态“不支持”——PHP 走原生 php，本版不走代理；
+                        // 只留一句小字用户无从发现，开关列表里必须有这行灰态，拨了开关也不会生效。
+                        // v1.4.4：网页源已进上面的开关列表（webKey），这里只剩 PHP。
                         Text(
                             text = "不支持走代理",
                             style = MaterialTheme.typography.bodySmall,
@@ -531,7 +601,7 @@ fun ClashSettingsScreen(
                             modifier = Modifier.padding(start = 16.dp, top = 8.dp, bottom = 4.dp),
                         )
                         SegItem(
-                            position = SegPos.First,
+                            position = SegPos.Single,
                             icon = Icons.Outlined.Code,
                             title = "PHP 规则",
                             subtitle = "走原生 php，暂不支持走代理",
@@ -544,22 +614,8 @@ fun ClashSettingsScreen(
                                 )
                             },
                         )
-                        SegItem(
-                            position = SegPos.Last,
-                            icon = Icons.Outlined.Link,
-                            title = "网页源",
-                            subtitle = "走浏览器，暂不支持走代理",
-                            enabled = false,
-                            trailing = {
-                                Text(
-                                    text = "不支持",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
-                            },
-                        )
                         Text(
-                            text = "PHP 走原生 php、网页源走浏览器，暂不支持走代理；上面两行灰态即不生效的源。",
+                            text = "网页源开关只对其接口请求生效；在嗅探浏览器里打开的页面本身不走代理。",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
@@ -581,8 +637,8 @@ private fun clashPos(index: Int, size: Int): SegPos = when {
 
 /**
  * v1.3.30：按源走代理列表的行——组头 / 源行 / 空组提示行。
- * SourceRow.kind：0=JS 规则 1=PY 规则 2=CMS 订阅；subtitle 兼作查 host/
- * 查缓存站点的键（JS/PY 为规则文件名，CMS 为订阅地址）。
+ * SourceRow.kind：0=JS 规则 1=PY 规则 2=CMS 订阅 3=网页源；subtitle 兼作查 host/
+ * 查缓存站点的键（JS/PY 为规则文件名，CMS 为订阅地址，网页源为站源地址）。
  */
 private sealed interface ProxyListItem {
     data class Header(val key: String) : ProxyListItem

@@ -1,5 +1,6 @@
 package com.movieshell.core.net
 
+import com.movieshell.core.log.LogBus
 import java.io.IOException
 import java.net.InetSocketAddress
 import java.net.Proxy
@@ -17,6 +18,8 @@ import java.net.URI
  */
 object ProxyRouting {
 
+    private const val TAG = "ProxyRouting"
+
     /** 某 host 是否走代理（ClashProxy 注入：服务在跑 + host 在已开代理的源的 host 集里）。 */
     @Volatile
     var shouldProxyHost: (String) -> Boolean = { false }
@@ -32,6 +35,9 @@ object ProxyRouting {
                 val host = uri.host ?: return listOf(Proxy.NO_PROXY)
                 val addr = proxyAddress() ?: return listOf(Proxy.NO_PROXY)
                 if (!shouldProxyHost(host)) return listOf(Proxy.NO_PROXY)
+                // v1.4.4：只在命中代理时记一条（直连不记，避免刷屏）；配合设置页
+                // 的生效域名列表，回答“这次请求走没走代理”。
+                LogBus.d(TAG, "走代理 host=$host → $addr")
                 listOf(Proxy(Proxy.Type.HTTP, addr))
             }.getOrDefault(listOf(Proxy.NO_PROXY))
         }

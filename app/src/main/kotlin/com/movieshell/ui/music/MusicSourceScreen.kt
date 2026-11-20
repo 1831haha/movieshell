@@ -36,9 +36,9 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -442,10 +442,13 @@ fun MusicSourceScreen(onBack: () -> Unit = {}) {
         StaticGlowBackground(Modifier.fillMaxSize())
         Scaffold(
             containerColor = Color.Transparent,
-            topBar = { TabTopBar(title = "音乐源管理", onBack = onBack) },
-            floatingActionButton = {
-                FloatingActionButton(onClick = { showAdd = true }) {
-                    Icon(Icons.Filled.Add, contentDescription = "添加音乐源")
+            // v1.4.4：+ 号放顶栏右侧，不再用悬浮按钮——FAB 悬在列表右下角会盖住
+            // 最后一张卡的操作行（测试/Cookie/删除），滑到底也点不到删除。
+            topBar = {
+                TabTopBar(title = "音乐源管理", onBack = onBack) {
+                    IconButton(onClick = { showAdd = true }) {
+                        Icon(Icons.Filled.Add, contentDescription = "添加音乐源")
+                    }
                 }
             },
         ) { inner ->

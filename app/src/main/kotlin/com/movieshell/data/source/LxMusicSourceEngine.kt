@@ -17,6 +17,7 @@ import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
+import java.net.Proxy
 import java.net.URI
 import java.util.concurrent.TimeUnit
 
@@ -53,7 +54,8 @@ import java.util.concurrent.TimeUnit
 class LxMusicSourceEngine(context: Context) {
 
     private val appContext = context.applicationContext
-    private val http: OkHttpClient = CmsApi.defaultClient()
+    // v1.4.4：音乐改直连——脚本下载也走直连 client（只供 downloadText 用）。
+    private val http: OkHttpClient = CmsApi.noProxyClient()
 
     /** 按 scriptUrl 缓存已加载的实例：一个脚本只 load 一次，各自持有一条私有 JS 会话。 */
     private val engines = HashMap<String, LxInstance>()
@@ -647,9 +649,11 @@ class LxMusicSourceEngine(context: Context) {
         /** 验活整单上限（毫秒）：Range 与普通 GET 两次尝试共用，超了按死链处理。 */
         private const val VERIFY_TIMEOUT_MS = 8_000L
 
-        /** 验活专用 client：紧超时（3/3/5 秒）、零重试；从默认 client 派生，保留 UA/cookie/日志拦截器。 */
+        /** 验活专用 client：紧超时（3/3/5 秒）、零重试；从默认 client 派生，保留 UA/cookie/日志拦截器。
+         * v1.4.4：音乐改直连——代理钉死 NO_PROXY。 */
         private val verifyClient: OkHttpClient by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
             CmsApi.defaultClient().newBuilder()
+                .proxy(Proxy.NO_PROXY)
                 .connectTimeout(3, TimeUnit.SECONDS)
                 .readTimeout(3, TimeUnit.SECONDS)
                 .callTimeout(5, TimeUnit.SECONDS)
@@ -683,7 +687,8 @@ suspend fun resolveBuiltinHuibq(source: String, songId: String, quality: String)
                 .header("X-Request-Key", "share-v3")
                 .get()
                 .build()
-            CmsApi.defaultClient().newCall(req).execute().use { resp ->
+            // v1.4.4：音乐改直连——内置 huibq 也走直连 client。
+            CmsApi.noProxyClient().newCall(req).execute().use { resp ->
                 if (!resp.isSuccessful) return@withContext null
                 val text = resp.body?.string() ?: return@withContext null
                 val o = JSONObject(text)
