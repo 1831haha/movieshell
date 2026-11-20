@@ -148,6 +148,7 @@ import java.util.Locale
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 import androidx.work.WorkInfo
 import androidx.work.WorkManager
@@ -684,6 +685,7 @@ fun SourcesScreen(
                     }
                 }
                 .onFailure { e ->
+                    if (e is CancellationException) throw e
                     // v0.46.0：手动刷新失败也记，"已失效" badge 及时更新
                     SubRefreshStore.recordResult(context, subUrl, false)
                     if (!quiet) {

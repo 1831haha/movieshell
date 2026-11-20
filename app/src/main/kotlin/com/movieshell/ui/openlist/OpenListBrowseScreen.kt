@@ -49,6 +49,7 @@ import com.movieshell.ui.components.TechTextField
 import com.movieshell.ui.components.V5Segmented
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
@@ -107,6 +108,7 @@ fun OpenListBrowseScreen(
                 total = pageData.total
                 entries = if (append) entries + pageData.content else pageData.content
             }.onFailure { e ->
+                if (e is CancellationException) throw e
                 val msg = e.message.orEmpty()
                 if (msg.contains("code=401")) {
                     needLogin = true
@@ -130,6 +132,7 @@ fun OpenListBrowseScreen(
             res.onSuccess { url ->
                 onPlay(url, entry.name)
             }.onFailure { e ->
+                if (e is CancellationException) throw e
                 val msg = e.message.orEmpty()
                 if (msg.contains("code=401")) {
                     needLogin = true

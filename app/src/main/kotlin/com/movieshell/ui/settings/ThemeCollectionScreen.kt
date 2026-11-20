@@ -71,6 +71,7 @@ import com.movieshell.ui.components.TechDialog
 import com.movieshell.ui.theme.V5
 import com.movieshell.ui.theme.StaticGlowBackground
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -126,7 +127,10 @@ fun ThemeCollectionScreen(onBack: () -> Unit) {
             }
             withContext(Dispatchers.Main) {
                 result.onSuccess { AppToast.show(context, "已导入 ${it} 个主题") }
-                    .onFailure { AppToast.show(context, "导入失败：${it.message}", long = true) }
+                    .onFailure {
+                        if (it is CancellationException) throw it
+                        AppToast.show(context, "导入失败：${it.message}", long = true)
+                    }
             }
         }
     }

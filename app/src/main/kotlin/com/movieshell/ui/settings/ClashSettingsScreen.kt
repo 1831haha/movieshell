@@ -54,6 +54,7 @@ import kotlinx.coroutines.withContext
 import com.movieshell.ui.components.TabTopBar
 import com.movieshell.ui.components.TechTextField
 import com.movieshell.ui.theme.V5
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 
 /**
@@ -244,6 +245,7 @@ fun ClashSettingsScreen(
                                                 }
                                             }
                                             r.onFailure {
+                                                if (it is CancellationException) throw it
                                                 AppToast.show(context, "停止失败：${it.message}")
                                             }
                                             refresh()
@@ -266,6 +268,7 @@ fun ClashSettingsScreen(
                                                 }
                                             }
                                             r.onFailure {
+                                                if (it is CancellationException) throw it
                                                 AppToast.show(context, "启动失败：${it.message}")
                                             }
                                             refresh()
@@ -338,14 +341,18 @@ fun ClashSettingsScreen(
                                 onClick = {
                                     scope.launch {
                                         updating = true
-                                        val r = ClashProxy.fetchSubscription()
-                                        updating = false
-                                        r.onSuccess { n ->
-                                            subStatus = "已更新，节点约 $n 个"
-                                            AppToast.show(context, "订阅已更新，节点约 $n 个")
-                                        }.onFailure { e ->
-                                            subStatus = e.message ?: "更新失败"
-                                            AppToast.show(context, "更新失败：${e.message}")
+                                        try {
+                                            val r = ClashProxy.fetchSubscription()
+                                            r.onSuccess { n ->
+                                                subStatus = "已更新，节点约 $n 个"
+                                                AppToast.show(context, "订阅已更新，节点约 $n 个")
+                                            }.onFailure { e ->
+                                                if (e is CancellationException) throw e
+                                                subStatus = e.message ?: "更新失败"
+                                                AppToast.show(context, "更新失败：${e.message}")
+                                            }
+                                        } finally {
+                                            updating = false
                                         }
                                     }
                                 },

@@ -63,6 +63,7 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 import androidx.compose.animation.core.animate
 import androidx.compose.animation.core.spring
@@ -417,6 +418,7 @@ private fun exportLog(context: Context) {
         LogBus.i("Log", "日志已导出：${file.name}")
         AppToast.show(context, "日志已导出到 log 目录：${file.name}", long = true)
     } catch (e: Exception) {
+        if (e is CancellationException) throw e
         LogBus.e("Log", "日志导出失败：${e.message}")
         AppToast.show(context, "导出失败：${e.message}", long = true)
     }
@@ -429,6 +431,7 @@ private fun copyLog(context: Context) {
         cm.setPrimaryClip(ClipData.newPlainText("movieshell_log", LogBus.dumpText()))
         AppToast.show(context, "日志已复制到剪贴板", long = false)
     } catch (e: Exception) {
+        if (e is CancellationException) throw e
         AppToast.show(context, "复制失败：${e.message}", long = true)
     }
 }

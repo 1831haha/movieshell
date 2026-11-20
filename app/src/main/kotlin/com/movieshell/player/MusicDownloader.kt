@@ -13,6 +13,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
@@ -142,6 +143,7 @@ object MusicDownloader {
                 val where = if (StoragePaths.hasAccess(appContext)) "Download 文件夹" else "本地"
                 AppToast.show(appContext, "已下载《${track.name}》到${where}，去本地 tab 听", long = false)
             }.onFailure {
+                if (it is CancellationException) throw it
                 LogBus.w("Music", "下载失败：${track.name} ${it.message}")
                 AppToast.show(
                     appContext,

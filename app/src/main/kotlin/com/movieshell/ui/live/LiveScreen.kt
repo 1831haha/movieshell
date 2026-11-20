@@ -113,6 +113,7 @@ import coil.compose.AsyncImage
 import com.movieshell.data.source.EpgFetcher
 import com.movieshell.data.store.LiveChannel
 import com.movieshell.data.store.LiveSource
+import com.movieshell.data.source_mgr.SubSiteStore
 import com.movieshell.data.store.LiveStore
 import com.movieshell.core.log.LogBus
 import com.movieshell.core.util.StoragePaths
@@ -128,6 +129,7 @@ import com.movieshell.ui.components.TechTextField
 import com.movieshell.ui.components.EmptyKind
 import com.movieshell.ui.components.EmptyState
 import com.movieshell.ui.components.TabTopBar
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 import java.io.File
 import java.text.SimpleDateFormat
@@ -260,19 +262,29 @@ fun LiveScreen(
         }
     }
 
+    // v1.4.2：直播刷新改走 SubSiteStore.appScope——刷新结果进 LiveStore 单例，
+    // 用户切走也应跑完；原来用组合 scope，切 tab 即取消，runCatching 还把取消
+    // 当失败弹 Toast（1.4.1 实证：图 2 那条英文提示就是这么飘到音乐页上的）。
+    // 取消异常重抛，复位放 finally。
     fun doRefresh() {
         if (refreshing) return
         refreshing = true
-        scope.launch {
-            runCatching { LiveStore.refresh(context) }
-                // v0.107.0 P0-9：订阅 0 频道不再静默，给可见提示
-                .onSuccess { empties ->
-                    if (empties.isNotEmpty()) {
-                        AppToast.show(context, "以下订阅未解析出频道：${empties.joinToString("、")}", long = true)
+        SubSiteStore.appScope.launch {
+            try {
+                runCatching { LiveStore.refresh(context) }
+                    // v0.107.0 P0-9：订阅 0 频道不再静默，给可见提示
+                    .onSuccess { empties ->
+                        if (empties.isNotEmpty()) {
+                            AppToast.show(context, "以下订阅未解析出频道：${empties.joinToString("、")}", long = true)
+                        }
                     }
-                }
-                .onFailure { AppToast.show(context, "刷新失败：${it.message}", long = true) }
-            refreshing = false
+                    .onFailure {
+                        if (it is CancellationException) throw it
+                        AppToast.show(context, "刷新失败：${it.message}", long = true)
+                    }
+            } finally {
+                refreshing = false
+            }
         }
     }
 
@@ -691,7 +703,8 @@ fun LiveScreen(
                 detailChannel = null
                 TrashStore.trashLiveManual(context, ch)
                 LiveStore.removeManual(context, ch.id)
-                scope.launch { LiveStore.refresh(context) }
+                // v1.4.2：走 doRefresh（appScope）——删台后切走，刷新也要跑完。
+                doRefresh()
                 AppToast.show(context, "已移入回收站", long = true)
             },
         )
@@ -1572,7 +1585,9 @@ fun LiveManageScreen(onBack: () -> Unit) {
                         }
                         IconButton(onClick = {
                             LiveStore.removeSource(context, s.url)
-                            scope.launch { LiveStore.refresh(context) }
+                            // v1.4.2：走 appScope——删源后切走，刷新也要跑完
+                            //（doRefresh 是 LiveScreen 的局部函数，这里直接走 appScope）。
+                            SubSiteStore.appScope.launch { LiveStore.refresh(context) }
                         }) {
                             Icon(Icons.Filled.Delete, contentDescription = "删除订阅")
                         }
@@ -1599,7 +1614,9 @@ fun LiveManageScreen(onBack: () -> Unit) {
                 }
                 if (LiveStore.addSource(context, name.ifBlank { "M3U订阅" }, LiveSource.M3U_URL, u)) {
                     showAddSub = false
-                    scope.launch { LiveStore.refresh(context) }
+                    // v1.4.2：走 appScope——加源后切走，刷新也要跑完
+                    //（doRefresh 是 LiveScreen 的局部函数，这里直接走 appScope）。
+                    SubSiteStore.appScope.launch { LiveStore.refresh(context) }
                 } else {
                     AppToast.show(context, "该订阅已存在", long = false)
                 }
@@ -1658,7 +1675,9 @@ fun LiveManageScreen(onBack: () -> Unit) {
                 }
                 if (LiveStore.addManual(context, name.ifBlank { "未命名频道" }, u, logo)) {
                     showAddChannel = false
-                    scope.launch { LiveStore.refresh(context) }
+                    // v1.4.2：走 appScope——加台后切走，刷新也要跑完
+                    //（doRefresh 是 LiveScreen 的局部函数，这里直接走 appScope）。
+                    SubSiteStore.appScope.launch { LiveStore.refresh(context) }
                 } else {
                     AppToast.show(context, "该频道已存在", long = false)
                 }

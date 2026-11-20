@@ -95,6 +95,7 @@ import com.movieshell.ui.components.EmptyKind
 import com.movieshell.ui.components.EmptyState
 import com.movieshell.ui.components.TechDialog
 import com.movieshell.ui.components.TechTextField
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 import android.provider.OpenableColumns
 import androidx.activity.ComponentActivity
@@ -168,8 +169,10 @@ fun MusicScreen(
     val scope = rememberCoroutineScope()
     var showPlaylistDialog by remember { mutableStateOf(false) }
     var playlistInput by remember { mutableStateOf("") }
-    // v0.294.17：进播放页再返回不丢歌单标题（与页签同用 rememberSaveable）
-    var playlistName by rememberSaveable { mutableStateOf<String?>(null) }
+    // v1.4.2：歌单名进 VM（见 MusicSearchViewModel.playlistName）——
+    // 榜单/歌单导入改走 viewModelScope 后，导入可能在切 tab 后才完成，
+    // 名字留在本屏的 rememberSaveable 里，回来时列表已回填、标题却丢了。
+    val playlistName by vm.playlistName.collectAsState()
     var importingPlaylist by remember { mutableStateOf(false) }
     // v1.3.33：歌单导入只认网易云——当前平台跟 MusicSettings 走（OnlineTab 同款读法）。
     val musicPlatform by MusicSettings.musicPlatform.collectAsState()
@@ -209,19 +212,26 @@ fun MusicScreen(
         val inp = input.trim()
         if (inp.isBlank() || importingPlaylist) return
         importingPlaylist = true
-        scope.launch {
-            runCatching { MusicApi.playlist(inp) }
-                .onSuccess { (name, list) ->
-                    playlistName = name
-                    vm.setTracks(list)
-                    AppToast.show(context, "已导入歌单「$name」（${list.size} 首）", long = false)
-                    onDone(true)
-                }
-                .onFailure {
-                    AppToast.show(context, "导入失败：${it.message}", long = false)
-                    onDone(false)
-                }
-            importingPlaylist = false
+        // v1.4.2：歌单导入改走 activity 级 viewModelScope——切 tab/切后台不再掐断导入，
+        // 结果（tracks 与歌单名都在 VM 里）回来还在；取消异常重抛，不再把切走报成“导入失败”；
+        // 复位放 finally，回调抛异常也不留脏状态。
+        vm.viewModelScope.launch {
+            try {
+                runCatching { MusicApi.playlist(inp) }
+                    .onSuccess { (name, list) ->
+                        vm.setPlaylistName(name)
+                        vm.setTracks(list)
+                        AppToast.show(context, "已导入歌单「$name」（${list.size} 首）", long = false)
+                        onDone(true)
+                    }
+                    .onFailure {
+                        if (it is CancellationException) throw it
+                        AppToast.show(context, "导入失败：${it.message}", long = false)
+                        onDone(false)
+                    }
+            } finally {
+                importingPlaylist = false
+            }
         }
     }
 
@@ -325,7 +335,7 @@ fun MusicScreen(
                 OnlineTab(
                     query = query,
                     playlistName = playlistName,
-                    onPlaylistNameChange = { playlistName = it },
+                    onPlaylistNameChange = { vm.setPlaylistName(it) },
                     tracks = tracks,
                     searching = searching,
                     searched = searched,
@@ -339,7 +349,6 @@ fun MusicScreen(
                     onSearch = { q -> doSearch(q) },
                     onResetToCharts = {
                         vm.resetToCharts()
-                        playlistName = null
                     },
                     onTracksLoaded = { list -> vm.setTracks(list) },
                     onPlayAt = { idx -> MusicPlayer.playList(context, tracks, idx) },
@@ -610,8 +619,10 @@ private fun OnlineTab(
     // v0.278.0：下载状态（在线/收藏两页共用 MusicDownloader 的流）
     val downloadingIds by MusicDownloader.downloading.collectAsState()
     val downloadedIds by MusicDownloader.downloaded.collectAsState()
-    // v0.128.0：榜单加载忙碌标记（原与歌单导入共用 importingPlaylist，导入上提后本页独立持有）
-    var importingChart by remember { mutableStateOf(false) }
+    // v1.4.2：每张榜单独立 loading 态——原来全页共用一个 importingChart，
+    // 点一张榜四张卡同时转圈（1.4.1 实证）；改成在途 id 集合，只有被点的卡转，
+    // 点 A 时点 B 也不再被挡（守卫按 id 判断）。
+    var importingChartIds by remember { mutableStateOf<Set<String>>(emptySet()) }
     // v0.84.0：加到歌单
     var addToPlaylistTrack by remember { mutableStateOf<MusicApi.Track?>(null) }
 
@@ -686,23 +697,30 @@ private fun OnlineTab(
         }
         LaunchedEffect(musicPlatform) { loadCharts() }
         // 点榜单 → 拉该平台榜单曲目并回填列表（与歌单导入同一通路）
+        // v1.4.2：导入改走 activity 级 viewModelScope——切 tab 不再掐断导入，
+        // 结果（tracks 与榜单名都在 VM 里）回来还在；取消异常重抛，不再把切走
+        // 报成“榜单加载失败”；复位放 finally，回调抛异常也不留脏状态。
         fun loadChart(entry: MusicApi.ChartEntry) {
-            if (importingChart) return
-            importingChart = true
-            scope.launch {
-                runCatching { MusicApi.chartTracks(musicPlatform, entry.id) }
-                    .onSuccess { list ->
-                        if (list.isEmpty()) {
-                            AppToast.show(context, "榜单暂时拉不到，稍后再试", long = false)
-                        } else {
-                            onPlaylistNameChange(entry.name)
-                            onTracksLoaded(list)
+            if (entry.id in importingChartIds) return
+            importingChartIds += entry.id
+            vm.viewModelScope.launch {
+                try {
+                    runCatching { MusicApi.chartTracks(musicPlatform, entry.id) }
+                        .onSuccess { list ->
+                            if (list.isEmpty()) {
+                                AppToast.show(context, "榜单暂时拉不到，稍后再试", long = false)
+                            } else {
+                                onPlaylistNameChange(entry.name)
+                                onTracksLoaded(list)
+                            }
                         }
-                    }
-                    .onFailure {
-                        AppToast.show(context, "榜单加载失败：${it.message}", long = false)
-                    }
-                importingChart = false
+                        .onFailure {
+                            if (it is CancellationException) throw it
+                            AppToast.show(context, "榜单加载失败：${it.message}", long = false)
+                        }
+                } finally {
+                    importingChartIds -= entry.id
+                }
             }
         }
         Spacer(Modifier.height(4.dp))
@@ -806,7 +824,7 @@ private fun OnlineTab(
                     items(charts, key = { it.id }) { entry ->
                         ChartCard(
                             name = entry.name,
-                            importing = importingChart,
+                            importing = entry.id in importingChartIds,
                             onClick = { loadChart(entry) },
                             modifier = Modifier.fillMaxWidth(),
                         )

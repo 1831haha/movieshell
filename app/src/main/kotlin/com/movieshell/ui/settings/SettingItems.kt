@@ -86,6 +86,7 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -954,6 +955,7 @@ internal fun WebDavConfigDialog(onDismiss: () -> Unit) {
                                     val err = CloudSyncManager.test(context)
                                     AppToast.show(context, err ?: "连接成功", long = false)
                                 } catch (e: Exception) {
+                                    if (e is CancellationException) throw e
                                     AppToast.show(context, "连接失败：${e.message}", long = true)
                                 } finally {
                                     cloudWorking = false
@@ -1536,6 +1538,7 @@ internal fun BackupExpandBlock(style: SettingRowStyle, isLastRow: Boolean) {
                         AppToast.show(context, "恢复失败：${r.reason}", long = true)
                 }
             } catch (e: Exception) {
+                if (e is CancellationException) throw e
                 AppToast.show(context, "恢复失败：${e.message}", long = true)
             }
         }
@@ -1570,6 +1573,7 @@ internal fun BackupExpandBlock(style: SettingRowStyle, isLastRow: Boolean) {
                 LogBus.i("Backup", "备份已导出：${file.absolutePath}")
                 AppToast.show(context, "备份已导出：${file.absolutePath}", long = true)
             } catch (e: Exception) {
+                if (e is CancellationException) throw e
                 LogBus.e("Backup", "备份导出失败：${e.message}")
                 AppToast.show(context, "导出失败：${e.message}", long = true)
             }

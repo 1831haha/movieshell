@@ -727,31 +727,34 @@ private fun ManageMarketsSheet(
                 }
                 validating = true
                 scope.launch {
-                    runCatching { PluginMarket.validateMarket(url) }
-                        .onSuccess {
-                            val ok = if (isAdd) {
-                                PluginStore.addMarketSource(context, nameInput, url)
-                            } else {
-                                PluginStore.updateMarketSource(
-                                    context, editing!!.id, nameInput, url,
-                                )
-                            }
-                            validating = false
-                            if (!ok) {
-                                AppToast.show(context, if (isAdd) "该地址已在列表中"
-                                    else "名称/地址为空或地址已被其他市场占用", long = false)
-                            } else {
-                                if (editing != null && editing.url != url) {
-                                    PluginMarket.deleteCache(context, editing.url)
+                    try {
+                        runCatching { PluginMarket.validateMarket(url) }
+                            .onSuccess {
+                                val ok = if (isAdd) {
+                                    PluginStore.addMarketSource(context, nameInput, url)
+                                } else {
+                                    PluginStore.updateMarketSource(
+                                        context, editing!!.id, nameInput, url,
+                                    )
                                 }
-                                editTarget = null
-                                onChanged()
+                                if (!ok) {
+                                    AppToast.show(context, if (isAdd) "该地址已在列表中"
+                                        else "名称/地址为空或地址已被其他市场占用", long = false)
+                                } else {
+                                    if (editing != null && editing.url != url) {
+                                        PluginMarket.deleteCache(context, editing.url)
+                                    }
+                                    editTarget = null
+                                    onChanged()
+                                }
                             }
-                        }
-                        .onFailure { e ->
-                            validating = false
-                            AppToast.show(context, "保存失败：${e.message}", long = true)
-                        }
+                            .onFailure { e ->
+                                if (e is CancellationException) throw e
+                                AppToast.show(context, "保存失败：${e.message}", long = true)
+                            }
+                    } finally {
+                        validating = false
+                    }
                 }
             },
             dismissText = "取消",

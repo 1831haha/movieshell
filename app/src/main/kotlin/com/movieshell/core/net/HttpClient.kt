@@ -4,6 +4,7 @@ import android.webkit.CookieManager
 import com.movieshell.core.log.LogBus
 import okhttp3.Cookie
 import okhttp3.CookieJar
+import okhttp3.Dispatcher
 import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.Interceptor
@@ -58,6 +59,22 @@ object HttpClient {
 
     private val sharedClient: OkHttpClient by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
         buildDefaultClient()
+    }
+
+    /**
+     * v1.4.2：封面解析专用 client——与 defaultClient 同配置（代理/超时/拦截器/连接池
+     * 全继承），只换一个独立 Dispatcher。1.4.1 实证：playlist 与全部 pic 请求同 host
+     * 同 client 抢默认的 maxRequestsPerHost=5，第二次点榜的 playlist 请求排在 pic 队尾。
+     */
+    private val picDispatcher = Dispatcher().apply {
+        maxRequests = 16
+        maxRequestsPerHost = 3
+    }
+
+    fun picClient(): OkHttpClient = sharedPicClient
+
+    private val sharedPicClient: OkHttpClient by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
+        sharedClient.newBuilder().dispatcher(picDispatcher).build()
     }
 
     private fun buildDefaultClient(): OkHttpClient = OkHttpClient.Builder()

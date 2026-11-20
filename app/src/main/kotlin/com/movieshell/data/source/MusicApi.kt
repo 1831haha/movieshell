@@ -3,12 +3,16 @@ package com.movieshell.data.source
 import com.movieshell.core.log.LogBus
 import com.movieshell.data.source.CmsApi
 import com.movieshell.core.net.DEFAULT_UA_WEBKIT
+import com.movieshell.core.net.HttpClient
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
+import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.json.JSONArray
 import org.json.JSONObject
@@ -159,12 +163,17 @@ object MusicApi {
     // 共享单例的 UA 拦截器不覆盖调用方显式 UA；改用进程级共享单例。
     private val http = CmsApi.defaultClient()
 
-    private suspend fun get(url: String): String = withContext(Dispatchers.IO) {
+    // v1.4.2：封面解析走独立 Dispatcher 的 picClient（见 HttpClient.picClient），
+    // 不再跟 playlist 请求抢同一 host 的 5 路并发。
+    private val picHttp = HttpClient.picClient()
+
+    // v1.4.2：client 参数——封面解析走 picClient，其余走共享 client。
+    private suspend fun get(url: String, client: OkHttpClient = http): String = withContext(Dispatchers.IO) {
         val req = Request.Builder()
             .url(url)
             .header("User-Agent", DEFAULT_UA_WEBKIT)
             .build()
-        http.newCall(req).execute().use { resp ->
+        client.newCall(req).execute().use { resp ->
             if (!resp.isSuccessful) throw IllegalStateException("音乐接口请求失败：${resp.code}")
             resp.body?.string().orEmpty()
         }
@@ -233,7 +242,12 @@ object MusicApi {
             ?: Regex("[0-9]+").find(idOrUrl)?.value
             ?: throw IllegalStateException("没识别出歌单 ID")
         // 歌单导入仍是网易云歌单（GD playlist 仅 netease），源写 gdSourceOf("wy")
+        // v1.4.2：分段耗时日志——1.4.1 实证响应 200 后约 3–4 秒才打“导入成功”，
+        // 先定位 gap 在传输还是解析，再决定优化哪边。
+        val reqStartMs = System.currentTimeMillis()
         val body = get("$BASE?types=playlist&source=${gdSourceOf("wy")}&id=$id")
+        val reqEndMs = System.currentTimeMillis()
+        LogBus.d(TAG, "歌单 $id 请求耗时 ${reqEndMs - reqStartMs}ms，响应 ${body.length} 字节")
         val tracks = mutableListOf<Track>()
         val name = runCatching {
             val root = JSONObject(body)
@@ -259,6 +273,7 @@ object MusicApi {
             }
             pl.optString("name").ifBlank { "歌单 $id" }
         }.getOrElse { throw IllegalStateException("歌单解析失败") }
+        LogBus.d(TAG, "歌单 $id 解析耗时 ${System.currentTimeMillis() - reqEndMs}ms，${tracks.size} 首")
         if (tracks.isEmpty()) throw IllegalStateException("歌单是空的或已下架")
         LogBus.i(TAG, "歌单导入成功")
         return name to tracks
@@ -394,8 +409,16 @@ object MusicApi {
      */
     private val picCache = mutableMapOf<String, String>()
     private val picInFlight = mutableMapOf<String, Deferred<String>>()
-    private val picFailAt = mutableMapOf<String, Long>()
+    // v1.4.2：失败退避截止时间（原 picFailAt 记“上次失败时刻”，现记“下次可重试时刻”，
+    // 退避窗口按失败类型分档——见 picImageUrl）。
+    private val picFailUntil = mutableMapOf<String, Long>()
     private const val PIC_FAIL_BACKOFF_MS = 30_000L
+    // v1.4.2：HTTP 错误（503 等服务端拒绝）退避 5 分钟——服务端自己说不行时，
+    // 30 秒后重试大概率还是 503，列表滚动/重组只会反复续命。
+    private const val PIC_HTTP_FAIL_BACKOFF_MS = 300_000L
+    // v1.4.2：封面并发节流——45 首各打一次时最多 4 路在途，别把 GD 接口与
+    // 同 host 的 playlist 请求一起冲垮（配 picClient 的独立 Dispatcher 双保险）。
+    private val picSemaphore = Semaphore(4)
     private val picScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     /** v0.126.0：封面按平台（LX code）解析；缓存键含 GD source，跨平台同 id 不串图。
@@ -414,13 +437,25 @@ object MusicApi {
             if (existing != null) {
                 deferred = existing
             } else {
-                val lastFail = synchronized(picFailAt) { picFailAt[key] } ?: 0L
-                if (System.currentTimeMillis() - lastFail < PIC_FAIL_BACKOFF_MS) return ""
+                val failUntil = synchronized(picFailUntil) { picFailUntil[key] } ?: 0L
+                if (System.currentTimeMillis() < failUntil) return ""
                 deferred = picScope.async {
-                    runCatching {
-                        JSONObject(get("$BASE?types=pic&source=${gdSourceOf(lx)}&id=$picId"))
-                            .optString("url")
-                    }.getOrDefault("")
+                    picSemaphore.withPermit {
+                        runCatching {
+                            JSONObject(get("$BASE?types=pic&source=${gdSourceOf(lx)}&id=$picId", picHttp))
+                                .optString("url")
+                        }.fold(
+                            onSuccess = { it },
+                            onFailure = { e ->
+                                // 失败退避按类型分档：HTTP 错误（get() 对非 2xx 抛
+                                // IllegalStateException，含 503）退避 5 分钟，
+                                // IO 异常（超时/断连）退避 30 秒。
+                                val window = if (e is IllegalStateException) PIC_HTTP_FAIL_BACKOFF_MS else PIC_FAIL_BACKOFF_MS
+                                synchronized(picFailUntil) { picFailUntil[key] = System.currentTimeMillis() + window }
+                                ""
+                            },
+                        )
+                    }
                 }
                 picInFlight[key] = deferred
             }
@@ -431,10 +466,9 @@ object MusicApi {
         }
         if (url.isNotBlank()) {
             synchronized(picCache) { picCache[key] = url }
-            synchronized(picFailAt) { picFailAt.remove(key) }
-        } else {
-            synchronized(picFailAt) { picFailAt[key] = System.currentTimeMillis() }
+            synchronized(picFailUntil) { picFailUntil.remove(key) }
         }
+        // 空结果的退避截止时间已在请求协程内按失败类型记下，这里不再覆写。
         return url
     }
 }

@@ -113,10 +113,21 @@ class MusicSearchViewModel(app: Application) : AndroidViewModel(app) {
         _searchError.value = false
     }
 
+    // v1.4.2：榜单/歌单名跟曲目列表一起进 VM——loadChart 改走 viewModelScope 后，
+    // 导入可能在切 tab 后才完成，名字若留在 MusicScreen 的 rememberSaveable 里，
+    // 回来时列表已回填、标题却丢了；名字与 tracks 同生同死才一致。
+    private val _playlistName = MutableStateFlow<String?>(null)
+    val playlistName: StateFlow<String?> = _playlistName
+
+    fun setPlaylistName(name: String?) {
+        _playlistName.value = name
+    }
+
     /** v0.146.0：空关键词切平台时回榜单态——榜单跟随平台刷新，旧搜索结果不再赖着不走。 */
     fun resetToCharts() {
         _searched.value = false
         _searchError.value = false
+        _playlistName.value = null
     }
 
     /**

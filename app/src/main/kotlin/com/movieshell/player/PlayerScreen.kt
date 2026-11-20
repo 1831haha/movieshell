@@ -1128,6 +1128,7 @@ fun PlayerScreen(
                     }
                 }
             } catch (t: Throwable) {
+                if (t is CancellationException) throw t
                 LogBus.e(
                     "Player",
                     "自动换内核异常：${t::class.java.simpleName}: ${t.message}",
@@ -1515,6 +1516,7 @@ fun PlayerScreen(
                 if (ok) EngineHost.applySubtitleStyle(PlayerSettings.subtitleStyle.value, playerView)
                 else AppToast.show(context, "字幕应用失败", long = false)
             } catch (t: Throwable) {
+                if (t is CancellationException) throw t
                 LogBus.e("Player", "重播异常：${t.message}")
                 AppToast.show(context, "操作失败，请重试", long = false)
             }
@@ -1593,6 +1595,7 @@ fun PlayerScreen(
                     }
                 } else AppToast.show(context, "切换后起播失败", long = false)
             } catch (t: Throwable) {
+                if (t is CancellationException) throw t
                 LogBus.e("Player", "手动切换内核异常：${t::class.java.simpleName}: ${t.message}")
                 AppToast.show(context, "切换内核失败", long = false)
             } finally {

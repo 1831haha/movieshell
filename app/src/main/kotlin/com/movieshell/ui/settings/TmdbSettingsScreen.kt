@@ -45,6 +45,7 @@ import com.movieshell.ui.components.AppToast
 import com.movieshell.ui.components.TabTopBar
 import com.movieshell.ui.components.TechTextField
 import com.movieshell.ui.theme.V5
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 
 /**
@@ -117,7 +118,10 @@ fun TmdbSettingsScreen(
                     Uri.parse("https://www.themoviedb.org/settings/api"),
                 ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
             )
-        }.onFailure { AppToast.show(context, "打不开浏览器") }
+        }.onFailure {
+            if (it is CancellationException) throw it
+            AppToast.show(context, "打不开浏览器")
+        }
     }
 
     Box(Modifier.fillMaxSize()) {

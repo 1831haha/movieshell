@@ -80,6 +80,7 @@ import com.movieshell.ui.components.TechDialog
 import com.movieshell.ui.components.TechTextField
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -186,6 +187,7 @@ fun ServerPluginScreen(
                 }
                 AppToast.show(context, msg, long = false)
             }.onFailure {
+                if (it is CancellationException) throw it
                 AppToast.show(context, it.message ?: "保存失败", long = true)
             }
         }
@@ -208,6 +210,7 @@ fun ServerPluginScreen(
                 cm.setPrimaryClip(ClipData.newPlainText("movieshell_services", text))
                 AppToast.show(context, "服务配置已复制到剪贴板", long = false)
             }.onFailure {
+                if (it is CancellationException) throw it
                 AppToast.show(context, "复制失败：${it.message}", long = true)
             }
         }
@@ -712,6 +715,7 @@ fun ServerPluginScreen(
                         )
                         AppToast.show(context, "日志已复制到剪贴板", long = false)
                     }.onFailure {
+                        if (it is CancellationException) throw it
                         AppToast.show(context, "复制失败：${it.message}", long = true)
                     }
                 }) { Text("复制") }
@@ -762,6 +766,7 @@ fun ServerPluginScreen(
                         AppToast.show(context, summary, long = true)
                         reload()
                     }.onFailure {
+                        if (it is CancellationException) throw it
                         AppToast.show(context, it.message ?: "导入失败", long = true)
                     }
                 }
