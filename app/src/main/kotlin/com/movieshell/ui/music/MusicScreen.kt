@@ -100,6 +100,7 @@ import kotlinx.coroutines.launch
 import android.provider.OpenableColumns
 import androidx.activity.ComponentActivity
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.lifecycle.viewModelScope
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.material.icons.filled.Add
