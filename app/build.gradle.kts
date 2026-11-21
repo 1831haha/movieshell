@@ -187,6 +187,8 @@ dependencies {
     implementation("org.nanohttpd:nanohttpd:2.3.1")
 
     testImplementation("org.json:json:20240303")
+    // v1.4.8：EpgFetcher.parse() 用 XmlPullParserFactory，纯 JVM 单测里 android.jar 的 org.xmlpull.v1 是空壳（Stub!），须给真实现；同 org.json 一路
+    testImplementation("net.sf.kxml:kxml2:2.3.0")
 
     // v0.113.0：V8 引擎真机冒烟测试（instrumentation 直跑引擎，绕开 UI）
     androidTestImplementation("junit:junit:4.13.2")
