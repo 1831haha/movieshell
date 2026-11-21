@@ -88,6 +88,9 @@ fun MusicPlayerLayoutPickerDialog(
     TechDialog(
         onDismissRequest = onDismiss,
         title = "播放界面",
+        // v1.4.5：内容自带 verticalScroll，关掉 TechDialog 的外层滚动——
+        // 滚动套滚动会量出无限高闪退（与自定义配色同一类毛病）。
+        scrollable = false,
         dismissText = "完成",
     ) {
         Column(

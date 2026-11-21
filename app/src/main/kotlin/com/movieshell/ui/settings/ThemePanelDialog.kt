@@ -59,6 +59,9 @@ internal fun ThemePanelDialog(onDismiss: () -> Unit) {
         title = "主题",
         // v1.3.33：多分区长面板走宽松模式。
         compact = false,
+        // v1.4.5：内容自带 verticalScroll，关掉 TechDialog 的外层滚动——
+        // 滚动套滚动会量出无限高闪退（2026-11-21 真机：点自定义配色即崩）。
+        scrollable = false,
         dismissText = "完成",
     ) {
         Column(Modifier.verticalScroll(rememberScrollState())) {

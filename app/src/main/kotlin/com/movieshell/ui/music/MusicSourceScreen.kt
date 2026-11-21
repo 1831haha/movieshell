@@ -25,9 +25,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.material.icons.Icons
@@ -848,9 +846,9 @@ fun MusicSourceScreen(onBack: () -> Unit = {}) {
                     val filled = cookieSlots.count { cookieValues[it.key].orEmpty().isNotBlank() }
                     CookieStatusCard(filled = filled, total = cookieSlots.size)
                     Spacer(Modifier.height(10.dp))
-                    Column(
-                        modifier = Modifier.verticalScroll(rememberScrollState()),
-                    ) {
+                    // v1.4.5：删掉内层 verticalScroll——TechDialog 内容区本身可滚，
+                    // 滚动套滚动会量出无限高闪退（与自定义配色同一类毛病）；外层滚动接管。
+                    Column {
                         cookieSlots.forEach { slot ->
                             CookieSlotCard(
                                 slot = slot,
