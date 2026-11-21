@@ -65,7 +65,10 @@ fun PlaybackSettingsScreen(
 
     Box(Modifier.fillMaxSize()) {
         Scaffold(
-            contentWindowInsets = WindowInsets.safeDrawing.only(WindowInsetsSides.Bottom + WindowInsetsSides.Horizontal),
+            // v1.4.7：只留 Bottom——K80 系统报约 46dp 左侧安全区，Horizontal
+            // 会让内容被往右顶（左边距 62dp、右边 16dp），主页面本来就只留 Bottom。
+            // 同批 6 个设置子页＋其他同写法页面一并改掉，全仓已无 Bottom + Horizontal。
+            contentWindowInsets = WindowInsets.safeDrawing.only(WindowInsetsSides.Bottom),
             topBar = { TabTopBar(title = "播放设置", onBack = onBack) },
             containerColor = cs.surfaceContainer,
         ) { inner ->

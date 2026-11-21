@@ -140,7 +140,7 @@ fun ThemeCollectionScreen(onBack: () -> Unit) {
         StaticGlowBackground(Modifier.fillMaxSize())
         Scaffold(
             containerColor = Color.Transparent,
-            contentWindowInsets = WindowInsets.safeDrawing.only(WindowInsetsSides.Bottom + WindowInsetsSides.Horizontal),
+            contentWindowInsets = WindowInsets.safeDrawing.only(WindowInsetsSides.Bottom),
             topBar = {
                 TabTopBar(
                     title = "主题收藏夹",

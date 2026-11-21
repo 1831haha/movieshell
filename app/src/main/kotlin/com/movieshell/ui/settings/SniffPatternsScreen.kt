@@ -59,7 +59,7 @@ fun SniffPatternsScreen(onBack: () -> Unit = {}) {
     }
 
     Scaffold(
-        contentWindowInsets = WindowInsets.safeDrawing.only(WindowInsetsSides.Bottom + WindowInsetsSides.Horizontal),
+        contentWindowInsets = WindowInsets.safeDrawing.only(WindowInsetsSides.Bottom),
         topBar = {
             TabTopBar(
                 title = "嗅探正则管理",

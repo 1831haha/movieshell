@@ -263,7 +263,7 @@ fun FilePreviewScreen(
     val loadFailed = previewData.failed
 
     Scaffold(
-        contentWindowInsets = WindowInsets.safeDrawing.only(WindowInsetsSides.Bottom + WindowInsetsSides.Horizontal),
+        contentWindowInsets = WindowInsets.safeDrawing.only(WindowInsetsSides.Bottom),
         topBar = {
             TabTopBar(
                 title = fileName,

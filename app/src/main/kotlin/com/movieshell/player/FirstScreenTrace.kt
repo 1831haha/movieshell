@@ -360,6 +360,8 @@ class FirstScreenAttempt(
 class FirstScreenSession(
     val id: Long,
     val isLive: Boolean,
+    /** 本会话归属的播放地址：effect 重入时凭它判断是不是同一播放（v1.4.7）。 */
+    val url: String = "",
     pendingResolveMs: Long? = null,
     pendingPrefetchHit: Boolean = false,
     private val clock: () -> Long = { 0L },

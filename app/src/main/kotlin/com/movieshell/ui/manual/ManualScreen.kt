@@ -297,7 +297,7 @@ private val MANUAL_SECTIONS = listOf(
 @Composable
 fun ManualScreen(onBack: () -> Unit) {
     Scaffold(
-        contentWindowInsets = WindowInsets.safeDrawing.only(WindowInsetsSides.Bottom + WindowInsetsSides.Horizontal),
+        contentWindowInsets = WindowInsets.safeDrawing.only(WindowInsetsSides.Bottom),
         topBar = {
             TabTopBar(
                 title = "使用手册",

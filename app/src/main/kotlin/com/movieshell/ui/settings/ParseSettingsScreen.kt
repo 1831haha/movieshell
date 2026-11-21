@@ -127,7 +127,7 @@ fun ParseSettingsScreen(onBack: () -> Unit) {
     }
 
     Scaffold(
-        contentWindowInsets = WindowInsets.safeDrawing.only(WindowInsetsSides.Bottom + WindowInsetsSides.Horizontal),
+        contentWindowInsets = WindowInsets.safeDrawing.only(WindowInsetsSides.Bottom),
         topBar = {
             TabTopBar(
                 title = "解析接口",

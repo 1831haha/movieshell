@@ -75,7 +75,7 @@ fun PluginCenterScreen(
         mutableIntStateOf(initialTab.coerceIn(0, 2))
     }
     Scaffold(
-        contentWindowInsets = WindowInsets.safeDrawing.only(WindowInsetsSides.Bottom + WindowInsetsSides.Horizontal),
+        contentWindowInsets = WindowInsets.safeDrawing.only(WindowInsetsSides.Bottom),
         topBar = {
             Column {
                 TabTopBar(title = "插件中心", onBack = onBack)

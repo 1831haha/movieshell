@@ -223,7 +223,8 @@ object EngineHost {
         }
         // v1.4.6 A1.1：首屏分段诊断——Attempt 从这里建（T0 = 本函数入口的 t0）；
         // 关时内部直接返回，不建 Attempt、不挂监听器，零开销。
-        PlaybackDiagnostic.beginAttempt(eng, t0, live)
+        // v1.4.7：把地址带给 beginAttempt，隐式会话也能认出是同一播放。
+        PlaybackDiagnostic.beginAttempt(eng, t0, live, url)
         // v1.3.21 H2：分发前先停另一引擎——正常切集/换线路时旧引擎
         // 不停，双引擎会同时响。直接调各引擎 stop，不走 EngineHost.stop()
         //（后者带磁力 4 秒释放簿记，换内核/重试是“停→马上再播”，不算离开）。

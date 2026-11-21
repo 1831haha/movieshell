@@ -78,7 +78,7 @@ fun DataSettingsScreen(
 
     Box(Modifier.fillMaxSize()) {
         Scaffold(
-            contentWindowInsets = WindowInsets.safeDrawing.only(WindowInsetsSides.Bottom + WindowInsetsSides.Horizontal),
+            contentWindowInsets = WindowInsets.safeDrawing.only(WindowInsetsSides.Bottom),
             topBar = { TabTopBar(title = "数据设置", onBack = onBack) },
             containerColor = cs.surfaceContainer,
         ) { inner ->

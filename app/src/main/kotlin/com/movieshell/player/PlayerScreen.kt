@@ -376,6 +376,10 @@ fun PlayerScreen(
     // v0.96.1：横屏不断流——翻转前快照播放状态，方向变化后若停播则无缝恢复（双引擎通用）
     var rotateWasPlaying by remember { mutableStateOf(false) }
     var rotatePosMs by remember { mutableLongStateOf(0L) }
+    // v1.4.7 P0：本页 effect 创建/接管的诊断会话 id——finally 与 onDispose
+    // 凭它认领会话，旧 effect 收尾误杀不了新会话；NO_SESSION_ID 表示
+    // 尚未建过会话（开关关闭时 beginSession 即返回它）。
+    var diagSessionId by remember { mutableLongStateOf(PlaybackDiagnostic.NO_SESSION_ID) }
     var lastSensorLandscape by remember { mutableStateOf<Boolean?>(null) }
     var lastCfgOrientation by remember { mutableStateOf<Int?>(null) }
 
@@ -500,6 +504,20 @@ fun PlayerScreen(
                     PlaySession.clear()
                     // v0.78.1：退出播放页必须停播放器，否则退到后台还在响
                     EngineHost.stop()
+                    // v1.4.7：真离开才收尾诊断会话——effect 的 finally 可能
+                    // 先于 stop 跑（那时播放器还在服务地址、会跳过收尾），
+                    // 这里补上，免得会话靠 30 秒超时收尾、汇总错标成超时。
+                    // 回小窗（returnToEmbedded）那支不走这里，会话延续。
+                    // v1.4.7 P0：凭本页 effect 记下的会话 id 收尾（id 不符
+                    // 是 no-op）。NO_SESSION_ID 表示本页从未拥有过会话——
+                    // 进页时开关关着，beginSession 没建会话——此时什么都
+                    // 不做：若开关后来打开、play() 建了隐式会话，它由 30 秒
+                    // 超时终结 Attempt 并打汇总行，会话本身由下一次
+                    // beginSession 收尾（Attempt 已终结，不重复打行）；
+                    // 无条件走无参版会误杀别的页面后来建的会话，宁可不收。
+                    if (diagSessionId != PlaybackDiagnostic.NO_SESSION_ID) {
+                        PlaybackDiagnostic.endSession(diagSessionId)
+                    }
                 }
             }
             // v0.27.7：退出播放器恢复系统默认方向 + 停重力感应（仅全屏页；嵌入不碰）
@@ -1177,7 +1195,19 @@ fun PlayerScreen(
         val epAtEntry = PlaySession.episodeIndex
         // v1.4.6 A1.1：新会话（每次播放/重播/切集一次）；解析耗时由切集处的
         // 待记值带入，用完即清。
-        PlaybackDiagnostic.beginSession(isLive, pendingResolveMs, pendingPrefetchHit)
+        // v1.4.7：把地址带给 beginSession——同一地址的 effect 重入（全屏跳页/
+        // 返回小窗）不重建会话，否则接续播放时 Attempt 被置空、后续打点全丢。
+        // v1.4.7 P1：接续判断在 beginSession 之前算——播放器当时是否正在服务
+        // 该地址。全屏跳页/返回小窗接续同一播放器时为真；真正新播（切集、
+        // 重播、换线）时为假。只凭 URL 分不清“同地址重入”与“同地址重播”，
+        // Attempt 是否已终结也不能当信号（首帧一到 Attempt 即终结）。
+        val diagContinuation = playUrl.isNotBlank() && EngineHost.isActiveFor(playUrl)
+        // v1.4.7 P0：beginSession 返回会话 id，effect 入口捕获它（局部量，
+        // finally 用它认领）；同时记到 remember 里供本页 onDispose 用。
+        val diagSessionIdAtEntry = PlaybackDiagnostic.beginSession(
+            playUrl, isLive, diagContinuation, pendingResolveMs, pendingPrefetchHit,
+        )
+        diagSessionId = diagSessionIdAtEntry
         pendingResolveMs = null
         pendingPrefetchHit = false
         // v0.188.0 M03：换地址先清上一集残留，再拉新——上一集手动选的
@@ -1308,8 +1338,19 @@ fun PlayerScreen(
         } finally {
             lastUrl = urlAtEntry
             lastEpIdx = epAtEntry
-            // v1.4.6 A1.1：会话结束（地址切换 / 退出播放页），未终结的 Attempt 按取消收尾。
-            PlaybackDiagnostic.endSession()
+            // v1.4.7：finally 不只在取消时跑——effect 体是“一发即走”：
+            // play() 只是分发起播，返回后 effect 体即跑完走 finally，会话在起播
+            // 后数毫秒就被收尾（1.4.6 真机丢点的真凶）。isActiveFor 门挡住的
+            // 正是这次正常跑完；只有播放器确实不再服务该地址时才收尾——换地址
+            // 由新 effect 的 beginSession 收尾旧 Attempt，真离开由 dispose 处
+            // 的 endSession 收尾。
+            // v1.4.7 P0：只收尾本次 effect 入口捕获的会话 id——旧 effect 的
+            // finally 可能晚于新 effect 的 beginSession 跑，凭 id 认领才不会
+            // 误杀新会话；id 不符时 endSession 是 no-op。注意这里不能现读
+            // 当前会话 id 再传，必须用入口捕获的局部量。
+            if (!EngineHost.isActiveFor(urlAtEntry)) {
+                PlaybackDiagnostic.endSession(diagSessionIdAtEntry)
+            }
         }
     }
 

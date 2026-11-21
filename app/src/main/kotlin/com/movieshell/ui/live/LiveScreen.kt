@@ -120,6 +120,7 @@ import com.movieshell.core.util.StoragePaths
 import com.movieshell.data.store.TrashStore
 import com.movieshell.player.EngineHost
 import com.movieshell.player.PlaySession
+import com.movieshell.player.PlaybackDiagnostic
 import com.movieshell.player.PlayerScreen
 import org.json.JSONObject
 import com.movieshell.ui.components.AppButton
@@ -251,6 +252,9 @@ fun LiveScreen(
         onDispose {
             if (!goingToLivePage) {
                 EngineHost.stop()
+                // v1.4.7：真离开直播页才收尾诊断会话——跳全屏独立页时会话延续，
+                // 不走这里；切 tab 等真离开才收尾。
+                PlaybackDiagnostic.endSession()
                 PlaySession.clear()
                 PlaySession.playerVisible = false
             }

@@ -375,7 +375,7 @@ fun ServerPluginScreen(
     }
 
     Scaffold(
-        contentWindowInsets = WindowInsets.safeDrawing.only(WindowInsetsSides.Bottom + WindowInsetsSides.Horizontal),
+        contentWindowInsets = WindowInsets.safeDrawing.only(WindowInsetsSides.Bottom),
         topBar = {
             if (!embedded) {
                 TabTopBar(
@@ -979,7 +979,7 @@ private fun ServiceEditor(
     }
 
     Scaffold(
-        contentWindowInsets = WindowInsets.safeDrawing.only(WindowInsetsSides.Bottom + WindowInsetsSides.Horizontal),
+        contentWindowInsets = WindowInsets.safeDrawing.only(WindowInsetsSides.Bottom),
         topBar = {
             TabTopBar(
                 title = if (initial.id.isBlank()) "新建服务" else "编辑服务",

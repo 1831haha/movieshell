@@ -200,6 +200,7 @@ import com.movieshell.player.PlaySession
 import com.movieshell.player.PlayerGestureMath
 import com.movieshell.player.PlayerManager
 import com.movieshell.player.EngineHost
+import com.movieshell.player.PlaybackDiagnostic
 import com.movieshell.player.PicsViewerScreen
 import com.movieshell.player.PlayerScreen
 import com.movieshell.player.resolvePlayUrl
@@ -260,6 +261,10 @@ fun DetailScreen(
             // v1.3.21 L14：每步各自兜底——某一步抛错也不跳过后面的清理，
             // 否则 PlaySession 残留与方向锁会污染下一次播放/首页。
             runCatching { EngineHost.stop() }
+            // v1.4.7：真离开详情页才收尾诊断会话——嵌入播放器的 effect
+            // finally 可能先于 stop 跑（那时播放器还在服务地址、会跳过收尾），
+            // 这里补上，免得会话靠 30 秒超时收尾、汇总错标成超时。
+            runCatching { PlaybackDiagnostic.endSession() }
             runCatching { PlaySession.clear() }
             runCatching { PlaySession.playerVisible = false }
             runCatching { OrientationSensor.stop() }
