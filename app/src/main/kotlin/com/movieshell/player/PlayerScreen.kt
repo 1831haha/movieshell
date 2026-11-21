@@ -12,6 +12,7 @@ import com.movieshell.ui.components.AppToast
 import android.content.pm.ActivityInfo
 import android.content.res.Configuration
 import android.os.Build
+import android.os.SystemClock
 import com.movieshell.data.source.EmbyApi
 import com.movieshell.data.source_mgr.ClashProxy
 import com.movieshell.data.source_mgr.DrpySourceManager
@@ -318,6 +319,12 @@ fun PlayerScreen(
     var errorMsg by remember { mutableStateOf<String?>(null) }
     // v0.124.0：本播放器是否已把窗口切进沉浸式全出血（恢复时凭它守卫，没动过不恢复）
     var immersiveApplied by remember { mutableStateOf(false) }
+    // v1.4.6 A1.1：首屏诊断待记解析耗时——切集处解析完成时写入，新会话建立时消费；
+    // 详情页带已解析地址进入时不写，解析段记未到该段；预解析命中记 0ms + 备注。
+    var pendingResolveMs by remember { mutableStateOf<Long?>(null) }
+    var pendingPrefetchHit by remember { mutableStateOf(false) }
+    // v1.4.6 A1.1：首屏诊断浮层快照（开关关时恒为 null）。
+    val diagSnapshot by PlaybackDiagnostic.snapshotFlow.collectAsState()
     // v0.19.0
     var playUrl by remember { mutableStateOf(url) } // 实际播放地址（切线路/重试时更新）
     val triedLines = remember { mutableSetOf<Int>() } // 已试过的线路下标（声明前置：LaunchedEffect(url) 里引用）
@@ -924,6 +931,7 @@ fun PlayerScreen(
                 var targetLine = -1
                 var targetEpIdx = 0
                 var guard = 0
+                var lastResolveMs: Long? = null
                 while (guard < lines.size && link.isBlank()) {
                     if (next !in triedLines) {
                         triedLines.add(next)
@@ -933,11 +941,14 @@ fun PlayerScreen(
                         val ep = line.episodes.getOrNull(epIdx)
                         // 磁力不参与自动重试（走 MagnetPlayer 分支，无播放器错误可重试）
                         if (ep != null && !MagnetPlayer.isMagnet(ep.url)) {
+                            val resolveStartMs = SystemClock.elapsedRealtime()
                             val resolved = resolver(context, ep, false)
                             if (resolved.isNotBlank() && resolved != playUrl) {
                                 link = resolved
                                 targetLine = next
                                 targetEpIdx = epIdx
+                                // v1.4.6 A1.1：解析实测耗时——只在真正换地址时写入待记值。
+                                lastResolveMs = SystemClock.elapsedRealtime() - resolveStartMs
                             }
                         }
                     }
@@ -953,6 +964,7 @@ fun PlayerScreen(
                     AppToast.show(context, "已自动切换到「${lines[targetLine].name}」", long = false)
                     LogBus.i("Player", "播放失败，自动换线路：${lines[targetLine].name}")
                     autoSwitching = true
+                    pendingResolveMs = lastResolveMs
                     playUrl = link
                 } else {
                     // v1.2.8：没有别的视频线路可试时，同线路重解析一次——记死的解析线
@@ -960,6 +972,7 @@ fun PlayerScreen(
                     // 才走自动换源。每条视频线路每集只重解析一次（triedLines 守卫），
                     // 不会在死解析线之间来回空转。
                     val curEp = lines.getOrNull(curLine)?.episodes?.getOrNull(PlaySession.episodeIndex)
+                    val relinkStartMs = SystemClock.elapsedRealtime()
                     val relink = if (curEp != null && !MagnetPlayer.isMagnet(curEp.url)) {
                         resolver(context, curEp, false)
                     } else ""
@@ -969,6 +982,8 @@ fun PlayerScreen(
                         AppToast.show(context, "已切换解析线路，正在重试", long = false)
                         sameEngineRetries.intValue = 0
                         autoSwitching = true
+                        // v1.4.6 A1.1：解析实测耗时——只在真正换地址时写入待记值。
+                        pendingResolveMs = SystemClock.elapsedRealtime() - relinkStartMs
                         playUrl = relink
                     } else {
                         tryAutoSwitchSource("所有线路均播放失败")
@@ -1160,6 +1175,11 @@ fun PlayerScreen(
         // 的进度记到新集名下；finally 里用入口快照落账，取消也保存。
         val urlAtEntry = playUrl
         val epAtEntry = PlaySession.episodeIndex
+        // v1.4.6 A1.1：新会话（每次播放/重播/切集一次）；解析耗时由切集处的
+        // 待记值带入，用完即清。
+        PlaybackDiagnostic.beginSession(isLive, pendingResolveMs, pendingPrefetchHit)
+        pendingResolveMs = null
+        pendingPrefetchHit = false
         // v0.188.0 M03：换地址先清上一集残留，再拉新——上一集手动选的
         // 字幕覆盖（sessionSubtitle）与旧弹幕列表，否则同标题切集时旧
         // 字幕/旧弹幕会带到下一集。安全说明：字幕选择走 replayWithSubtitle，
@@ -1288,6 +1308,8 @@ fun PlayerScreen(
         } finally {
             lastUrl = urlAtEntry
             lastEpIdx = epAtEntry
+            // v1.4.6 A1.1：会话结束（地址切换 / 退出播放页），未终结的 Attempt 按取消收尾。
+            PlaybackDiagnostic.endSession()
         }
     }
 
@@ -1328,6 +1350,8 @@ fun PlayerScreen(
             resolveGen++
             PlaySession.moveTo(lineIdx, epIdx)
             triedLines.clear()
+            // v1.4.6 A1.1：预解析命中——新会话的解析段记 0ms + 备注。
+            pendingPrefetchHit = true
             playUrl = link
             // v0.65：通知外部（嵌入时详情页高亮跟随）
             onEpisodeChange(lineIdx, epIdx)
@@ -1340,11 +1364,14 @@ fun PlayerScreen(
         resolveJob?.cancel()
         val myGen = ++resolveGen
         resolveJob = PlayResolveScope.launch {
+            val resolveStartMs = SystemClock.elapsedRealtime()
             val link = resolver(context, ep, false)
             if (myGen != resolveGen) return@launch // 已被更新的切集取代，丢弃
             if (link.isNotBlank()) {
                 PlaySession.moveTo(lineIdx, epIdx)
                 triedLines.clear()
+                // v1.4.6 A1.1：解析实测耗时——新会话的解析段记实测值。
+                pendingResolveMs = SystemClock.elapsedRealtime() - resolveStartMs
                 playUrl = link
                 // v0.65：通知外部（嵌入时详情页高亮跟随）
                 onEpisodeChange(lineIdx, epIdx)
@@ -2467,6 +2494,16 @@ fun PlayerScreen(
             }
             } // Column：顶栏区
         } // if (uiVm.controlsVisible && !uiVm.locked)：顶部栏
+
+        // v1.4.6 A1.1：首屏分段诊断浮层——贴顶栏下方右上角；不跟随控制层自动隐藏，
+        // 只在开关开且本次 Attempt 已有数据时出现（组件内部再判）；点本体折叠，点 × 关闭。
+        // 顶栏高约 30dp（嵌入）/ 状态栏 + 约 56dp（独立页），按嵌入与否取对应偏移。
+        FirstScreenTraceOverlay(
+            snapshot = diagSnapshot,
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .let { if (embedded) it.padding(top = 30.dp) else it.statusBarsPadding().padding(top = 56.dp) },
+        )
 
         // v0.40.0：悬浮按钮——锁定 + 截图（目标界面：圆形半透明黑底）
         // v0.65：移到右侧（对标目标界面）

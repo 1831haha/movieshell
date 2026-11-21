@@ -35,6 +35,7 @@ object PlayerSettings {
     private const val KEY_SUB_OFFSET = "subtitle_style_offset"
     /** v0.27.7：重力感应自动横屏 */
     private const val KEY_GRAVITY_ROTATE = "gravity_rotate"
+    private const val KEY_FIRST_SCREEN_TRACE = "first_screen_trace"
     /** v1.2.14 B片（9）：默认播放方向（0=跟随重力感应 1=横屏 2=竖屏） */
     private const val KEY_DEFAULT_ORIENTATION = "player_default_orientation"
     /** v1.2.14 B片（9）：播放器转场动画（0=系统默认 1=淡入 2=缩放 3=海报碎片） */
@@ -63,6 +64,10 @@ object PlayerSettings {
     /** v0.27.7：重力感应自动横屏（默认开） */
     private val _gravityRotate = MutableStateFlow(true)
     val gravityRotate: StateFlow<Boolean> = _gravityRotate
+
+    /** v1.4.6 A1.1：首屏分段诊断（默认关，仅新播放会话生效；关时零开销）。 */
+    private val _firstScreenTrace = MutableStateFlow(false)
+    val firstScreenTrace: StateFlow<Boolean> = _firstScreenTrace
 
     /**
      * v1.2.14 B片（9）：默认播放方向——进播放器时锁定的方向。
@@ -158,6 +163,7 @@ object PlayerSettings {
             offsetMs = prefs.getLong(KEY_SUB_OFFSET, 0L).coerceIn(-10_000L, 10_000L),
         )
         _gravityRotate.value = prefs.getBoolean(KEY_GRAVITY_ROTATE, true)
+        _firstScreenTrace.value = prefs.getBoolean(KEY_FIRST_SCREEN_TRACE, false)
         _defaultOrientation.value = prefs.getInt(KEY_DEFAULT_ORIENTATION, ORIENTATION_FOLLOW).coerceIn(0, 2)
         _transitionMode.value = prefs.getInt(KEY_PLAYER_TRANSITION, TRANSITION_SYSTEM).coerceIn(0, 3)
         _audioLanguage.value = prefs.getString(KEY_AUDIO_LANG, "").orEmpty()
@@ -347,6 +353,13 @@ object PlayerSettings {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             .edit().putBoolean(KEY_GRAVITY_ROTATE, on).apply()
         _gravityRotate.value = on
+    }
+
+    /** v1.4.6 A1.1：首屏分段诊断开关（仅新播放会话生效）。 */
+    fun setFirstScreenTrace(context: Context, on: Boolean) {
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .edit().putBoolean(KEY_FIRST_SCREEN_TRACE, on).apply()
+        _firstScreenTrace.value = on
     }
 
     /** v1.2.14 B片（9）：默认播放方向（0 跟随 / 1 横屏 / 2 竖屏）。 */

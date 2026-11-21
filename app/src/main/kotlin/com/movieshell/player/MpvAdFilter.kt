@@ -32,6 +32,16 @@ object MpvAdFilter {
     private val UriAttr = Regex("URI=\"([^\"]+)\"")
 
     /**
+     * v1.4.6 A1.1：上次过滤结果的种类（供首屏诊断记过滤下载备注段；NONE=未尝试，
+     * 如开关关/直播/非播放列表；FAILED=下载或过滤失败后走原地址）。
+     */
+    enum class PrepareKind { NONE, CACHE, DOWNLOADED, FAILED }
+
+    @Volatile
+    var lastPrepareKind: PrepareKind = PrepareKind.NONE
+        private set
+
+    /**
      * 阻塞调用（跑在 MpvPlayerManager 的 executor 上）：返回本地过滤后播放列表的
      * 绝对路径；不适用 / 下载失败 / 不是 m3u8 时返回 null。
      */
@@ -41,14 +51,23 @@ object MpvAdFilter {
         headers: Map<String, String> = emptyMap(),
         live: Boolean = false,
     ): String? {
-        if (!SniffConfig.adFilterEnabled) return null
-        if (live) return null
+        if (!SniffConfig.adFilterEnabled) {
+            lastPrepareKind = PrepareKind.NONE
+            return null
+        }
+        if (live) {
+            lastPrepareKind = PrepareKind.NONE
+            return null
+        }
         // M28：后缀不明时不再直接放行失败——无后缀 HLS（/play.php?id= 等）
         // 在 isPlaylistRequest(url, null) 里拿不到头、只剩后缀判断，直接
         // 返回 null 就永远走不到过滤。只有明确不是播放列表的地址才提前
         // 返回；其余的先下载，download() 再按 Content-Type 与 #EXTM3U
         // 内容判定，不是 m3u8 就返回 null。
-        if (isDefinitelyNotPlaylist(url)) return null
+        if (isDefinitelyNotPlaylist(url)) {
+            lastPrepareKind = PrepareKind.NONE
+            return null
+        }
         val dir = File(context.filesDir, CACHE_DIR).apply { mkdirs() }
         // v1.3.21 H13：缓存键 v3，混入请求头摘要——同一地址换 Cookie/
         // Referer（如夸克 __pugs 续期、清 Referer 重试）是不同的播放列表，
@@ -61,16 +80,25 @@ object MpvAdFilter {
         // 否则重下——半截写盘的坏文件不再被当成好缓存复用。
         if (isCacheValid(file)) {
             LogBus.i("MpvAdFilter", "去广告：复用 1 小时内缓存 ${file.name}")
+            lastPrepareKind = PrepareKind.CACHE
             return file.absolutePath
         }
-        return runCatching {
+        val result = runCatching {
             val client = HttpClient.defaultClient().newBuilder()
                 .connectTimeout(3, TimeUnit.SECONDS)
                 .readTimeout(5, TimeUnit.SECONDS)
                 .callTimeout(8, TimeUnit.SECONDS)
                 .build()
-            val text = download(client, url, headers) ?: return null
-            val filtered = filterPlaylist(client, url, headers, text) ?: return null
+            val text = download(client, url, headers)
+            if (text == null) {
+                lastPrepareKind = PrepareKind.FAILED
+                return null
+            }
+            val filtered = filterPlaylist(client, url, headers, text)
+            if (filtered == null) {
+                lastPrepareKind = PrepareKind.FAILED
+                return null
+            }
             pruneCache(dir)
             // v1.3.19：写盘前再去一次行首杂质（链路里任何一步都可能留出空行），
             // 并把首行打进日志——下次再逐条播，先看首行是不是 #EXTM3U。
@@ -89,6 +117,8 @@ object MpvAdFilter {
         }.onFailure {
             LogBus.w("MpvAdFilter", "过滤失败，走原地址：${it.message}")
         }.getOrNull()
+        lastPrepareKind = if (result != null) PrepareKind.DOWNLOADED else PrepareKind.FAILED
+        return result
     }
 
     /**

@@ -136,7 +136,15 @@ object MpvPlayerManager {
         }
         override fun eventProperty(property: String, value: Double) {
             when (property) {
-                "time-pos" -> lastPositionMs = (value * 1000).toLong().coerceAtLeast(0L)
+                "time-pos" -> {
+                    lastPositionMs = (value * 1000).toLong().coerceAtLeast(0L)
+                    // v1.4.6 A1.1：S8 首帧渲染近似代理——time-pos 首次 > 0
+                    //（VIDEO_RECONFIG 未到时兜底），Attempt 成功终结；先到先得。
+                    if (value > 0.0) {
+                        PlaybackDiagnostic.markPoint(TraceStage.FIRST_FRAME, approximate = true)
+                        PlaybackDiagnostic.finishAttempt(TraceOutcome.SUCCESS)
+                    }
+                }
                 "duration" -> lastDurationMs = (value * 1000).toLong().coerceAtLeast(0L)
             }
         }
@@ -151,7 +159,16 @@ object MpvPlayerManager {
             }
             // v1.3.25 合并 7：文件载入后轨道表才完整，读 track-list 推给 UI。
             if (eventId == MPVLib.MPV_EVENT_FILE_LOADED && !destroyed.get()) {
+                // v1.4.6 A1.1：S4 开流结束（口径注明“文件载入，非流打开”）+ S5 媒体准备结束。
+                PlaybackDiagnostic.markEnd(TraceStage.OPEN)
+                PlaybackDiagnostic.markEnd(TraceStage.PREPARE)
                 runCatching { executor.execute { refreshAudioTracks() } }
+            }
+            // v1.4.6 A1.1：S8 首帧渲染——MPV_EVENT_VIDEO_RECONFIG（mpv 0.40 事件 17，
+            // 与 mpv-android 同源 MPVLib 常量一致）优先于 time-pos 近似代理；先到先得。
+            if (eventId == MPVLib.MPV_EVENT_VIDEO_RECONFIG && !destroyed.get()) {
+                PlaybackDiagnostic.markPoint(TraceStage.FIRST_FRAME)
+                PlaybackDiagnostic.finishAttempt(TraceOutcome.SUCCESS)
             }
         }
     }
@@ -436,6 +453,12 @@ object MpvPlayerManager {
         lastPlayHost = runCatching { Uri.parse(url).host.orEmpty() }.getOrDefault("")
         lastPlayExt = url.substringBefore("?").substringAfterLast(".", "").take(8)
         lastPlayStartMs = SystemClock.elapsedRealtime()
+        // v1.4.6 A1.1：mpv 侧 DNS/建连/解码器初始化/首帧解码在 App 侧无钩子可观测，标未取到；
+        // 开流起点在 loadfile 提交时记（见 loadFilteredFile）。
+        PlaybackDiagnostic.markMissing(TraceStage.DNS, TraceMissing.UNAVAILABLE)
+        PlaybackDiagnostic.markMissing(TraceStage.CONNECT, TraceMissing.UNAVAILABLE)
+        PlaybackDiagnostic.markMissing(TraceStage.DECODE, TraceMissing.UNAVAILABLE)
+        PlaybackDiagnostic.markMissing(TraceStage.FIRST_DECODE, TraceMissing.UNAVAILABLE)
         // v1.3.17：起播代次快照——executor 里 loadfile 前核对，过期丢弃
         val gen = playGen
         val seq = playSeq.incrementAndGet()
@@ -446,12 +469,21 @@ object MpvPlayerManager {
                     clearDownloadFlagIfCurrent(seq)
                     return@Thread
                 }
+                val filterStartMs = SystemClock.elapsedRealtime()
                 val filteredPath = appContext?.let { ctx ->
                     synchronized(filterLock) {
                         // 拿锁后复核——等锁期间可能已有更新的起播排进来。
                         if (isStalePlayRequest(seq, playSeq.get()) || gen != playGen) null
                         else runCatching { MpvAdFilter.prepareFilteredPlaylist(ctx, url, headers, live) }.getOrNull()
                     }
+                }
+                // v1.4.6 A1.1：过滤下载实测计时，单独记备注段（不进主段、不参与总计）；
+                // 未尝试（开关关/直播/非播放列表）不记。
+                if (MpvAdFilter.lastPrepareKind != MpvAdFilter.PrepareKind.NONE) {
+                    PlaybackDiagnostic.noteFilterDownload(
+                        SystemClock.elapsedRealtime() - filterStartMs,
+                        MpvAdFilter.lastPrepareKind == MpvAdFilter.PrepareKind.CACHE,
+                    )
                 }
                 // H1：过滤最长 16 秒，期间 stop() 可能已把代次 +1——下载
                 // 完、loadfile 前再核对一次代次与请求序号，过期直接丢弃。
@@ -503,6 +535,8 @@ object MpvPlayerManager {
         }
         val playUrl = filteredPath ?: url
         val loaded = runCatching {
+            // v1.4.6 A1.1：S4 开流起点——loadfile 提交时刻（过滤下载在前，不计入主段）。
+            PlaybackDiagnostic.markStart(TraceStage.OPEN)
             // v1.3.20：本地 m3u8 起播前把 demuxer-lavf-format 强制成
             // hls——lavf_check_file 里 forced_format 直接满分 100，
             // 不走探测；非 m3u8 起播前清掉，免得 mp4 也被强制成 hls。
@@ -947,6 +981,8 @@ object MpvPlayerManager {
                 }
             }
             val report = if (decodeFailed) "${PlayFailureClass.DECODE_FAILED_MARKER}|$detail" else detail
+            // v1.4.6 A1.1：libmpv 尝试失败终结；新 Attempt 由播放页重试链的 EngineHost.play() 建。
+            PlaybackDiagnostic.finishAttempt(TraceOutcome.FAILED)
             mainHandler.post { errorListener?.invoke(report) }
         } else {
             // v0.217.0（F23）：自然播完同样置 paused——原来只有异常结束置，

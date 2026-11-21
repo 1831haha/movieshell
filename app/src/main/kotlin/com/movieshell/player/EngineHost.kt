@@ -221,6 +221,9 @@ object EngineHost {
                 eng = PlayerEngine.MEDIA3
             }
         }
+        // v1.4.6 A1.1：首屏分段诊断——Attempt 从这里建（T0 = 本函数入口的 t0）；
+        // 关时内部直接返回，不建 Attempt、不挂监听器，零开销。
+        PlaybackDiagnostic.beginAttempt(eng, t0, live)
         // v1.3.21 H2：分发前先停另一引擎——正常切集/换线路时旧引擎
         // 不停，双引擎会同时响。直接调各引擎 stop，不走 EngineHost.stop()
         //（后者带磁力 4 秒释放簿记，换内核/重试是“停→马上再播”，不算离开）。
@@ -242,6 +245,10 @@ object EngineHost {
                 MpvPlayerManager.play(url, effHeaders, startPositionMs, subtitleUrl, live, proxyAddr = proxyAddr)
             }
             actualEngine = if (dispatched) eng else null
+            if (!dispatched) {
+                // v1.4.6 A1.1：起播未提交（静默早返），Attempt 失败终结。
+                PlaybackDiagnostic.finishAttempt(TraceOutcome.FAILED)
+            }
             val cost = SystemClock.elapsedRealtime() - t0
             // v0.25.0：结构化诊断日志（URL 脱敏：只留 host + 后缀）
             LogBus.i(
@@ -253,6 +260,8 @@ object EngineHost {
         } catch (t: Throwable) {
             actualEngine = null
             LogBus.e("Play", "起播异常 engine=$eng ${t::class.java.simpleName}: ${t.message}")
+            // v1.4.6 A1.1：起播抛异常，Attempt 失败终结。
+            PlaybackDiagnostic.finishAttempt(TraceOutcome.FAILED)
             false
         }
     }

@@ -801,6 +801,22 @@ private fun settingRowContent(
                 },
             )
         }
+        // v1.4.6 A1.1：首屏分段诊断（默认关；开后在播放器角落显示各段耗时，仅诊断不影响播放）
+        SettingsLayoutStore.ITEM_FIRST_SCREEN_TRACE -> {
+            val firstScreenTrace by PlayerSettings.firstScreenTrace.collectAsState()
+            SettingRowContent(
+                icon = Icons.Outlined.Info,
+                title = "首屏诊断",
+                subtitle = "开后在播放器角落显示各段耗时 · 仅诊断不影响播放",
+                onClick = { PlayerSettings.setFirstScreenTrace(context, !firstScreenTrace) },
+                trailing = {
+                    AppSwitch(
+                        checked = firstScreenTrace,
+                        onCheckedChange = { PlayerSettings.setFirstScreenTrace(context, it) },
+                    )
+                },
+            )
+        }
         // v0.27.7：重力感应自动横屏（默认开）
         else -> {
             val gravityRotate by PlayerSettings.gravityRotate.collectAsState()

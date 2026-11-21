@@ -158,7 +158,11 @@ object PlayerManager {
         override fun onVideoDecoderInitialized(
             eventTime: androidx.media3.exoplayer.analytics.AnalyticsListener.EventTime,
             decoderName: String, initializedTimestampMs: Long, initializationDurationMs: Long,
-        ) { LogBus.i("Player", "视频解码器：$decoderName") }
+        ) {
+            LogBus.i("Player", "视频解码器：$decoderName")
+            // v1.4.6 A1.1：S6 解码器初始化耗时——此前只记解码器名、时长参数被丢弃，这里存下来。
+            PlaybackDiagnostic.markMeasured(TraceStage.DECODE, initializationDurationMs)
+        }
         override fun onAudioDecoderInitialized(
             eventTime: androidx.media3.exoplayer.analytics.AnalyticsListener.EventTime,
             decoderName: String, initializedTimestampMs: Long, initializationDurationMs: Long,
@@ -166,6 +170,35 @@ object PlayerManager {
         override fun onVideoCodecError(
             eventTime: androidx.media3.exoplayer.analytics.AnalyticsListener.EventTime, videoCodecError: Exception,
         ) { LogBus.e("Player", "视频解码出错：${videoCodecError.message}") }
+        // v1.4.6 A1.1：HLS 分片请求诊断 + 开流结束/媒体准备起点（只记首次加载开始）。
+        // onLoadStarted 是 Media3 1.4.1 的三参版（四参 retryCount 版是 1.5.0 才加的）。
+        override fun onLoadStarted(
+            eventTime: androidx.media3.exoplayer.analytics.AnalyticsListener.EventTime,
+            loadEventInfo: androidx.media3.exoplayer.source.LoadEventInfo,
+            mediaLoadData: androidx.media3.exoplayer.source.MediaLoadData,
+        ) {
+            if (PlaybackDiagnostic.noteLoadStarted()) {
+                PlaybackDiagnostic.markEnd(TraceStage.OPEN)
+                PlaybackDiagnostic.markStart(TraceStage.PREPARE)
+            }
+        }
+        override fun onLoadCompleted(
+            eventTime: androidx.media3.exoplayer.analytics.AnalyticsListener.EventTime,
+            loadEventInfo: androidx.media3.exoplayer.source.LoadEventInfo,
+            mediaLoadData: androidx.media3.exoplayer.source.MediaLoadData,
+        ) { /* 成功分片不逐条记，只记首次与失败（见 onLoadError） */ }
+        override fun onLoadError(
+            eventTime: androidx.media3.exoplayer.analytics.AnalyticsListener.EventTime,
+            loadEventInfo: androidx.media3.exoplayer.source.LoadEventInfo,
+            mediaLoadData: androidx.media3.exoplayer.source.MediaLoadData,
+            error: java.io.IOException,
+            wasCanceled: Boolean,
+        ) {
+            if (wasCanceled) return
+            val uri = loadEventInfo.uri?.toString().orEmpty()
+            if (uri.isBlank()) return
+            PlaybackDiagnostic.noteSegmentFailure(uri, mediaLoadData.dataType, error.javaClass.simpleName)
+        }
     }
 
     /** 就绪且在播、选中了视频轨，6 秒仍没首帧 → 认定解不了画面，换 libmpv */
@@ -187,20 +220,34 @@ object PlayerManager {
         override fun onRenderedFirstFrame() {
             firstFrameAt = android.os.SystemClock.elapsedRealtime()
             if (decoderFallbackUrl.startsWith("http://127.0.0.1")) LogBus.i("Player", "本机磁力流：首帧已渲染")
+            // v1.4.6 A1.1：S8 首帧渲染到，Attempt 成功终结（打汇总行）。
+            PlaybackDiagnostic.markPoint(TraceStage.FIRST_FRAME)
+            PlaybackDiagnostic.finishAttempt(TraceOutcome.SUCCESS)
         }
         override fun onVideoSizeChanged(videoSize: androidx.media3.common.VideoSize) {
             if (videoSize.width > 0) _videoSize.value = videoSize
             if (decoderFallbackUrl.startsWith("http://127.0.0.1") && videoSize.width > 0)
                 LogBus.i("Player", "本机磁力流：画面 ${videoSize.width}×${videoSize.height}")
+            // v1.4.6 A1.1：S7 首帧解码近似代理——首个有效画面尺寸（宽高 > 0），标“（近似）”。
+            if (videoSize.width > 0 && videoSize.height > 0) {
+                PlaybackDiagnostic.markPoint(TraceStage.FIRST_DECODE, approximate = true)
+            }
         }
         override fun onPlaybackStateChanged(playbackState: Int) {
-            if (playbackState == Player.STATE_READY) scheduleNoFrameCheck()
+            if (playbackState == Player.STATE_READY) {
+                scheduleNoFrameCheck()
+                // v1.4.6 A1.1：开流/媒体准备的兜底终点（轨道回调未到时也收口，先到先得）。
+                PlaybackDiagnostic.markEnd(TraceStage.OPEN)
+                PlaybackDiagnostic.markEnd(TraceStage.PREPARE)
+            }
             if (decoderFallbackUrl.startsWith("http://127.0.0.1"))
                 LogBus.i("Player", "本机磁力流：状态 " + when (playbackState) { 1 -> "空闲"; 2 -> "缓冲中"; 3 -> "就绪"; 4 -> "结束"; else -> "$playbackState" })
         }
         // v0.294.35：只有音轨没有视频轨（听书等）→ 通知详情页改用音乐播放器
         override fun onTracksChanged(tracks: androidx.media3.common.Tracks) {
             if (tracks.groups.isEmpty()) return
+            // v1.4.6 A1.1：S5 媒体准备结束——首次拿到非空轨道组。
+            PlaybackDiagnostic.markEnd(TraceStage.PREPARE)
             // v1.2.14 B片（3）：音频轨道推给 UI（齿轮页音轨选择用）
             _audioTracks.value = AudioTracks.fromTracks(tracks)
             // v0.294.38：记录每条轨道（类型 / 编码 / 分辨率 / 设备是否支持 / 是否选中）
@@ -232,6 +279,8 @@ object PlayerManager {
     }
 
     private fun switchToMpvImpl(reason: String) {
+        // v1.4.6 A1.1：Media3 尝试终结（失败）；换内核的新 Attempt 由随后的 EngineHost.play() 建。
+        PlaybackDiagnostic.finishAttempt(TraceOutcome.FAILED)
         run {
             if (decoderFallbackDone) return
             // v1.3.15：libmpv 已在本集失败过，不再切回去空转；留 Media3 真正试一次解码。
@@ -283,6 +332,8 @@ object PlayerManager {
     private val listener2 = object : Player.Listener {
         override fun onPlayerError(error: PlaybackException) {
             LogBus.e("Player", "播放器错误：${error.errorCodeName} ${error.message}")
+            // v1.4.6 A1.1：Media3 尝试失败终结；换内核/重试的新 Attempt 由后续 EngineHost.play() 建。
+            PlaybackDiagnostic.finishAttempt(TraceOutcome.FAILED)
             // v0.100.0：硬解初始化失败 → 自动切 libmpv 重播（每次播放只做一次）。
             // 播放页另有通用换内核逻辑（EngineHost.setOnErrorListener），这里接管后不再外抛，
             // 避免两处重复切换；libmpv 再失败会走播放页逻辑回到 Media3 后试其他线路。
@@ -441,7 +492,8 @@ object PlayerManager {
         // 跨协议重定向 OkHttp 默认即跟随；其他播放走原 DefaultHttpDataSource。
         val httpFactory: androidx.media3.datasource.HttpDataSource.Factory =
             if (EngineHost.shouldBypassCert(ignoreCert, url)) {
-                OkHttpDataSource.Factory(EmbyApi.insecurePlaybackClient)
+                // v1.4.6 A1.1：诊断浅拷贝挂 EventListener（共享单例不动，关时原样返回）。
+                OkHttpDataSource.Factory(PlaybackDiagnostic.maybeWrapClient(EmbyApi.insecurePlaybackClient))
                     .setUserAgent(ua)
                     // v1.1.19：带宽表挂上游——只计量真正走网络的流量（缓存命中不经过这里），
                     // 采样码率进 bitrateEstimate，供顶栏显示网速。
@@ -450,10 +502,14 @@ object PlayerManager {
                 // v1.3.26：走代理的源——DefaultHttpDataSource 走 HttpURLConnection，
                 // 吃不到 OkHttp 的代理选择器；改走挂了 selector 的共享客户端，
                 // host 集里的播放地址走本地 clash 代理，其余直连。
-                OkHttpDataSource.Factory(HttpClient.defaultClient())
+                OkHttpDataSource.Factory(PlaybackDiagnostic.maybeWrapClient(HttpClient.defaultClient()))
                     .setUserAgent(ua)
                     .setTransferListener(bandwidthMeter)
             } else {
+                // v1.4.6 A1.1：默认分支走 HttpURLConnection，不经过 OkHttp，
+                // DNS/建连无钩子可观测，标未取到（不是连接复用、不是未到该段）。
+                PlaybackDiagnostic.markMissing(TraceStage.DNS, TraceMissing.UNAVAILABLE)
+                PlaybackDiagnostic.markMissing(TraceStage.CONNECT, TraceMissing.UNAVAILABLE)
                 DefaultHttpDataSource.Factory()
                     .setUserAgent(ua)
                     .setConnectTimeoutMs(DefaultHttpDataSource.DEFAULT_CONNECT_TIMEOUT_MILLIS)
