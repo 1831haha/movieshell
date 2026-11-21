@@ -12,7 +12,7 @@ import org.junit.Test
  * 可移项（默认在 page 末尾，顺序同 ALL_ITEMS）。
  * v1.2.16：数据组 12 项成第 11–22 个可移项（默认全在 main:data，顺序同设置页原顺序）。
  * v1.3.25 合并 5：Anime4K 画质增强成第 23 个可移项（默认在 page 末尾，顺序同 ALL_ITEMS）。
- * v1.4.6 A1.1：首屏分段诊断开关成第 24 个可移项（默认在 page 末尾，顺序同 ALL_ITEMS）。
+ * v1.4.6 A1.1：首屏诊断成第 24 个可移项（默认在 page 末尾、anime4k 之后，顺序同 ALL_ITEMS）。
  * v1.2.19：数据行进数据设置子页面（moveDataRowIntoDataPage 锁住），子页面只认
  * 自家行——串页的 move 直接拦下，存坏了的布局由 normalize 搬回主组。
  */
