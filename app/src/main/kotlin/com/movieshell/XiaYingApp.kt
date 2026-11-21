@@ -20,6 +20,7 @@ import com.movieshell.data.source_mgr.SpiderEngine
 import com.movieshell.core.util.StartupWatchdog
 import com.movieshell.core.util.StoragePaths
 import com.movieshell.data.source_mgr.SubSiteEngines
+import com.movieshell.data.store.DohSettings
 import com.movieshell.data.store.SourceHealthStore
 import com.movieshell.data.source.ChaquopyEngine
 import com.movieshell.data.source.JsRuntime
@@ -45,6 +46,9 @@ class XiaYingApp : Application() {
         // 都算一次“启动未完成”，10 分钟内播 3 次磁力就误触发自愈清缓存；只计主进程。
         StartupWatchdog.onAppStart(this)
         LogBus.readLastCrash(this)
+        // v1.4.8 A4：DoH 启动快照——放最前：sharedClient 是 lazy 单例，首次建 client 前
+        // 必须注入，否则开关读不到；开关改完重启 App 才重建 client 生效。
+        HttpClient.initDoh(DohSettings.snapshot(this))
         // v0.294.29：上次进程（含 :magnet）非正常退出原因写进运行日志（原生崩溃 Java 抓不到）
         ProcessExitLog.logAsync(this)
         // v0.294.28：启动只清磁力缓存目录，绝不加载 libtorrent（避免 JNI 启动闪退）

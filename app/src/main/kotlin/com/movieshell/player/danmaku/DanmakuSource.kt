@@ -400,6 +400,65 @@ fun parseCustomDanmakuHosts(raw: String): List<String> {
 }
 
 /**
+ * v1.4.8 A5：danmu-service 插件内置的 14 家弹幕源（与插件 server.sh 的
+ * HOSTS 词表逐字一致）。App 侧写 CUSTOM_HOSTS env 前去掉与这些重复的项，
+ * 插件侧只追加、不重复跑同一家。
+ */
+val PLUGIN_BUILTIN_DANMAKU_HOSTS: List<String> = listOf(
+    "dm.999.team",
+    "danmu.qianting168.com",
+    "dm.ljiaovm.com",
+    "danmu.longemby.com",
+    "justdanmu.irisnb.com",
+    "dandan.wenjian.de",
+    "danmu.cynn.top",
+    "dmfl.us.ci",
+    "danmu.0000996.xyz",
+    "dm.taotu.ink",
+    "logvardm.278612356.xyz",
+    "logvar.hhht.cc.cd",
+    "dm.66608880.xyz",
+    "danmu.iyo.us.ci",
+)
+
+/** v1.4.8 A5：danmu-service 的服务 id、CUSTOM_HOSTS env 键、最低版本。 */
+const val DANMU_SERVICE_ID = "danmu-service"
+const val DANMU_SERVICE_CUSTOM_HOSTS_KEY = "CUSTOM_HOSTS"
+const val DANMU_SERVICE_MIN_VERSION = "1.0.2"
+
+/**
+ * v1.4.8 A5：写进 danmu-service env 的 host 序列化（纯函数）——逗号分隔、
+ * 去空白、去重、去掉与插件内置 14 家重复的项、超限截断到 10 个。
+ * 与 parseCustomDanmakuHosts 的区别：去内置重复在截断之前做，排在前面的
+ * 内置项不占自定义名额。
+ */
+fun serializePluginDanmakuHosts(raw: String): String {
+    val seen = LinkedHashSet<String>()
+    for (token in raw.split('\n', ',', '，', ' ', '\t')) {
+        val h = normalizeDanmakuHost(token) ?: continue
+        if (h in PLUGIN_BUILTIN_DANMAKU_HOSTS) continue
+        seen.add(h)
+        if (seen.size >= 10) break
+    }
+    return seen.joinToString(",")
+}
+
+/**
+ * v1.4.8 A5：插件版本门（纯函数）——按点分段逐段比数字，1.0.2 及以上放行。
+ * 未安装（null）或非法版本号一律不放行。
+ */
+fun isDanmakuPluginVersionSupported(version: String?): Boolean {
+    if (version.isNullOrBlank()) return false
+    val min = intArrayOf(1, 0, 2)
+    val parts = version.trim().removePrefix("v").split(".")
+    for (i in min.indices) {
+        val v = parts.getOrNull(i)?.toIntOrNull() ?: 0
+        if (v != min[i]) return v > min[i]
+    }
+    return true
+}
+
+/**
  * v0.54：弹幕开关与状态（持久化在 movieshell_prefs）。
  * v0.56：加样式设置（大小/透明度/速度/区域），全部持久化。
  */

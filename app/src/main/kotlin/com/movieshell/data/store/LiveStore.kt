@@ -7,6 +7,7 @@ import com.movieshell.core.util.StoragePaths
 import com.movieshell.data.source.CmsApi
 import com.movieshell.core.net.DEFAULT_UA
 import com.movieshell.data.source.EpgFetcher
+import com.movieshell.domain.model.PlayerEngine
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ensureActive
@@ -31,7 +32,15 @@ import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import okhttp3.Request
+import org.json.JSONObject
 import java.io.File
+
+/** v1.4.8 A2：单频道偏好——只记与全局不同的项，缺省字段 = 跟随全局，不存默认值。 */
+data class ChannelPref(
+    val engine: PlayerEngine? = null,
+    val scale: Int? = null,
+    val lastUsed: Long = 0L,
+)
 
 /** 直播频道 */
 @Serializable
@@ -205,6 +214,143 @@ object LiveStore {
         _channels.value = _channels.value.map {
             if (it.id == id) it.copy(favorite = favs.contains(id)) else it
         }
+    }
+
+    // ---------------- 按频道偏好（v1.4.8 A2） ----------------
+    //
+    // 存哪：live_prefs 下单个 JSON 键 live_channel_prefs，值是
+    // {频道 id: {engine, scale, lastUsed}} 的映射表（形态照抄
+    // LiveSelection.sourceByName 的 JSON 存盘先例）。缺省 = 该频道
+    // 无条目 = 跟随全局，不存默认值；engine 存 PlayerEngine.name，
+    // scale 存 0/1/2，lastUsed 存毫秒时间戳（淘汰用）。
+    // 膨胀控制：整表上限 200 条，超了按 lastUsed 最旧淘汰。
+    // 读写只走这里的单一同步入口，LiveScreen 与 PlayerScreen 都调它，
+    // 不直接碰 SharedPreferences（整表 JSON + apply 异步落盘，
+    // 两处各写各的会互相覆盖）。
+
+    private const val KEY_CHANNEL_PREFS = "live_channel_prefs"
+
+    /** 频道偏好表上限（条）。 */
+    const val MAX_CHANNEL_PREFS = 200
+
+    /** 解析偏好表 JSON：坏串/坏条目只跳过，不抛（纯函数，可单测）。 */
+    fun parseChannelPrefsJson(raw: String?): Map<String, ChannelPref> {
+        if (raw.isNullOrBlank()) return emptyMap()
+        return runCatching {
+            val obj = JSONObject(raw)
+            val out = LinkedHashMap<String, ChannelPref>()
+            obj.keys().forEach { id ->
+                val entry = obj.optJSONObject(id) ?: return@forEach
+                val engine = entry.optString("engine").takeIf { it.isNotBlank() }
+                    ?.let { runCatching { PlayerEngine.valueOf(it) }.getOrNull() }
+                val scale = if (entry.has("scale")) {
+                    entry.optInt("scale", -1).takeIf { it in 0..2 }
+                } else {
+                    null
+                }
+                val lastUsed = entry.optLong("lastUsed", 0L)
+                if (engine == null && scale == null) return@forEach
+                out[id] = ChannelPref(engine, scale, lastUsed)
+            }
+            out
+        }.getOrDefault(emptyMap())
+    }
+
+    /** 偏好表写 JSON（纯函数，可单测）。 */
+    fun serializeChannelPrefsJson(prefs: Map<String, ChannelPref>): String {
+        val obj = JSONObject()
+        prefs.forEach { (id, pref) ->
+            val entry = JSONObject()
+            pref.engine?.let { entry.put("engine", it.name) }
+            pref.scale?.let { entry.put("scale", it) }
+            entry.put("lastUsed", pref.lastUsed)
+            obj.put(id, entry)
+        }
+        return obj.toString()
+    }
+
+    /** 按 lastUsed 最旧淘汰，只留最新的 max 条（纯函数，可单测）。 */
+    fun pruneChannelPrefs(
+        prefs: Map<String, ChannelPref>,
+        max: Int = MAX_CHANNEL_PREFS,
+    ): Map<String, ChannelPref> {
+        if (prefs.size <= max) return prefs
+        return prefs.entries.sortedByDescending { it.value.lastUsed }
+            .take(max).associate { it.key to it.value }
+    }
+
+    /** 读某台偏好：无条目返回 null = 跟随全局。 */
+    @Synchronized
+    fun getChannelPref(context: Context, channelId: String): ChannelPref? =
+        parseChannelPrefsJson(prefs(context).getString(KEY_CHANNEL_PREFS, null))[channelId]
+
+    /**
+     * 写某台偏好（部分更新：传 null 的字段保留旧值；两项都空时删条目）。
+     * 每次写都刷新 lastUsed；写完超上限按最旧淘汰；单次 apply 写整表。
+     */
+    @Synchronized
+    fun setChannelPref(
+        context: Context,
+        channelId: String,
+        engine: PlayerEngine?,
+        scale: Int?,
+    ) {
+        val table = parseChannelPrefsJson(
+            prefs(context).getString(KEY_CHANNEL_PREFS, null),
+        ).toMutableMap()
+        val prev = table[channelId]
+        val mergedEngine = engine ?: prev?.engine
+        val mergedScale = scale ?: prev?.scale
+        if (mergedEngine == null && mergedScale == null) {
+            table.remove(channelId)
+        } else {
+            table[channelId] = ChannelPref(
+                mergedEngine, mergedScale, System.currentTimeMillis(),
+            )
+        }
+        persistChannelPrefs(context, pruneChannelPrefs(table))
+    }
+
+    /** 删某台偏好条目（只删该台，不动全局与别的台）= 恢复跟随全局。 */
+    @Synchronized
+    fun clearChannelPref(context: Context, channelId: String) {
+        val table = parseChannelPrefsJson(
+            prefs(context).getString(KEY_CHANNEL_PREFS, null),
+        ).toMutableMap()
+        if (table.remove(channelId) == null) return
+        persistChannelPrefs(context, table)
+    }
+
+    /** 播放时刷新 lastUsed（纯函数）：无条目时原样返回，不新建条目。 */
+    fun touchChannelPref(
+        prefs: Map<String, ChannelPref>,
+        channelId: String,
+        now: Long = System.currentTimeMillis(),
+    ): Map<String, ChannelPref> {
+        val prev = prefs[channelId] ?: return prefs
+        if (prev.lastUsed == now) return prefs
+        return prefs + (channelId to prev.copy(lastUsed = now))
+    }
+
+    /**
+     * 播放某台时刷新该台偏好的 lastUsed（无条目时不动，不新建）。
+     * 只在写偏好时刷新 lastUsed，会让“常看但很久没改过偏好”的台在
+     * 200 条淘汰时先被误淘汰；起播即最近使用，刷新后淘汰按最近
+     * 使用排（§2.5 真机验点）。
+     */
+    @Synchronized
+    fun touchChannelPref(context: Context, channelId: String) {
+        val table = parseChannelPrefsJson(
+            prefs(context).getString(KEY_CHANNEL_PREFS, null),
+        )
+        val touched = touchChannelPref(table, channelId)
+        if (touched !== table) persistChannelPrefs(context, touched)
+    }
+
+    private fun persistChannelPrefs(context: Context, prefs: Map<String, ChannelPref>) {
+        prefs(context).edit()
+            .putString(KEY_CHANNEL_PREFS, serializeChannelPrefsJson(prefs))
+            .apply()
     }
 
     // ---------------- 刷新聚合 ----------------

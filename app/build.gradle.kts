@@ -14,8 +14,8 @@ android {
         applicationId = "com.movieshell"
         minSdk = 26
         targetSdk = 34
-        versionCode = 530
-        versionName = "1.4.7"
+        versionCode = 531
+        versionName = "1.4.8"
 
         // v1.1.25：阿里云盘开放平台应用凭证——构建期注入，仓库不许出现凭证明文。
         // 未配置时为空串，阿里扫码入口给明确提示；CI 里由 secrets 注入环境变量。
@@ -140,6 +140,8 @@ dependencies {
 
     // 网络 / JSON
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
+    // v1.4.8 A4：DoH——DnsOverHttps 在独立 artifact 里，不在 okhttp 本体里（与 okhttp 同版本）。
+    implementation("com.squareup.okhttp3:okhttp-dnsoverhttps:4.12.0")
     // v1.3.5：ShareQrLogin 用 JavaNetCookieJar（OkHttp 4.x 里它在 okhttp-urlconnection 模块，不在 okhttp 本体里）
     implementation("com.squareup.okhttp3:okhttp-urlconnection:4.12.0")
     implementation("org.jsoup:jsoup:1.17.2")

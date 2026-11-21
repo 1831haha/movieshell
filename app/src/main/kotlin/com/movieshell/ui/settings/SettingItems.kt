@@ -524,6 +524,9 @@ private fun settingRowContent(
                             if (MpvPluginLoader.isInstalled(context)) "libmpv" else "libmpv（未安装 · 点后去市场安装）"
                         SingleChoiceDialog(
                             title = "播放器内核",
+                            // v1.4.8 A2：全局内核只改全局——已记偏好的频道仍按本台
+                            // 偏好播，须在播放器里对该台点“恢复跟随全局”。
+                            subtitle = "已记偏好的频道仍按本台偏好播，须在播放器里对该台点“恢复跟随全局”",
                             options = listOf("Media3（默认）", libmpvOption),
                             selected = if (engine == PlayerEngine.MEDIA3) "Media3（默认）" else libmpvOption,
                             onDismiss = { showEngineDialog = false },
@@ -538,7 +541,8 @@ private fun settingRowContent(
                                     // 设置页也不在播放器组合内），做不了“取断点停播再重播”；
                                     // 只清掉失败转移写下的临时覆盖，否则当前播放的重试点仍走旧覆盖。
                                     EngineHost.setEngineOverride(null)
-                                    AppToast.show(context, "播放器内核已切换，下次播放时生效", long = false)
+                                    // v1.4.8 A2：全局改了，已记偏好的频道仍按本台偏好播。
+                                    AppToast.show(context, "播放器内核已切换，下次播放时生效；已记偏好的频道仍按本台偏好播，须在播放器里对该台点“恢复跟随全局”", long = false)
                                     showEngineDialog = false
                                 } else {
                                     // v1.1.31：未安装不再只 Toast，直接跳市场页签装插件

@@ -40,6 +40,7 @@ import android.app.Activity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
@@ -109,7 +110,8 @@ import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import coil.compose.AsyncImage
+import coil.compose.AsyncImagePainter
+import coil.compose.rememberAsyncImagePainter
 import com.movieshell.data.source.EpgFetcher
 import com.movieshell.data.store.LiveChannel
 import com.movieshell.data.store.LiveSource
@@ -440,7 +442,7 @@ fun LiveScreen(
     var epg by remember { mutableStateOf<Pair<EpgFetcher.Program?, EpgFetcher.Program?>?>(null) }
     LaunchedEffect(selected, globalEpg) {
         val ch = selected
-        val src = ch?.epgUrl?.ifBlank { globalEpg }.orEmpty()
+        val src = EpgFetcher.resolveEpgUrl(ch?.epgUrl, globalEpg)
         epg = if (ch != null && src.isNotBlank()) {
             EpgFetcher.nowAndNext(src, ch.name)
         } else {
@@ -507,6 +509,8 @@ fun LiveScreen(
                         url = playing.url,
                         title = playing.name,
                         isLive = true,
+                        // v1.4.8 A2：嵌入页传在播频道 id，内核/比例偏好跟台走。
+                        channelId = playing.id,
                         onBack = {},
                         embedded = true,
                         onFullscreen = {
@@ -663,8 +667,8 @@ fun LiveScreen(
                     ChannelCell(
                         index = idx + 1,
                         channel = ch,
-                        isPlaying = selected?.name == ch.name,
-                        nowTitle = if (selected?.name == ch.name) epg?.first?.title else null,
+                        isPlaying = isSameChannel(selected?.id, ch.id),
+                        nowTitle = nowTitleForChannel(selected?.id, ch.id, epg?.first?.title),
                         onClick = { playChannel(ch) },
                         onLongClick = { detailChannel = ch },
                         onFavorite = { LiveStore.toggleFavorite(context, ch.id) },
@@ -1084,9 +1088,14 @@ private fun ChannelCell(
                 .background(if (isPlaying) v.primaryContainer else v.surfaceContainerHighest),
             contentAlignment = Alignment.Center,
         ) {
-            if (channel.logo.isNotBlank()) {
-                AsyncImage(
-                    model = channel.logo,
+            // v1.4.8 A3(a)：台标只显示不读像素；加载中/失败先显示首字块，
+            // 图到后再换图片，不留空白块。
+            val logoPainter = rememberAsyncImagePainter(model = channel.logo)
+            val logoReady = channel.logo.isNotBlank() &&
+                logoPainter.state is AsyncImagePainter.State.Success
+            if (logoReady) {
+                Image(
+                    painter = logoPainter,
                     contentDescription = channel.name,
                     modifier = Modifier.fillMaxSize().padding(6.dp),
                     contentScale = ContentScale.Fit,
@@ -1190,7 +1199,7 @@ private fun ChannelDetailSheet(
     val globalEpgDetail by LiveStore.globalEpg.collectAsState()
 
     LaunchedEffect(channel.id, globalEpgDetail) {
-        val src = channel.epgUrl.ifBlank { globalEpgDetail }
+        val src = EpgFetcher.resolveEpgUrl(channel.epgUrl, globalEpgDetail)
         if (src.isNotBlank()) {
             epgLoading = true
             epg = EpgFetcher.nowAndNext(src, channel.name)
@@ -1215,9 +1224,13 @@ private fun ChannelDetailSheet(
                         .background(MaterialTheme.colorScheme.surfaceVariant),
                     contentAlignment = Alignment.Center,
                 ) {
-                    if (channel.logo.isNotBlank()) {
-                        AsyncImage(
-                            model = channel.logo,
+                    // v1.4.8 A3(a)：与 ChannelCell 同口径，加载中/失败落 Tv 图标块。
+                    val logoPainter = rememberAsyncImagePainter(model = channel.logo)
+                    val logoReady = channel.logo.isNotBlank() &&
+                        logoPainter.state is AsyncImagePainter.State.Success
+                    if (logoReady) {
+                        Image(
+                            painter = logoPainter,
                             contentDescription = channel.name,
                             modifier = Modifier.fillMaxSize(),
                             contentScale = ContentScale.Fit,
@@ -1328,6 +1341,16 @@ private fun displayNameOf(resolver: ContentResolver, uri: Uri): String? {
  *   tvg-logo / group-title + 台名，下一行播放地址；
  * - 应用内收藏状态不进标准字段（不发明自定义字段），需要时调用方另行处理。
  */
+/**
+ * v1.4.8 A3(f)：频道身份按稳定 id 比较，不按 name——同名多源时只给
+ * 选中台显示在播节目名。
+ */
+internal fun isSameChannel(selectedId: String?, channelId: String): Boolean =
+    selectedId != null && selectedId == channelId
+
+internal fun nowTitleForChannel(selectedId: String?, channelId: String, epgTitle: String?): String? =
+    if (isSameChannel(selectedId, channelId)) epgTitle else null
+
 internal fun buildM3uExport(channels: List<LiveChannel>, globalEpg: String): String {
     fun attr(v: String): String = v.replace('"', '\'').replace('\n', ' ').replace('\r', ' ').trim()
     val sb = StringBuilder()

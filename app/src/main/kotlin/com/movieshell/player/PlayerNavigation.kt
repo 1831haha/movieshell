@@ -32,6 +32,17 @@ const val PLAYER_ROUTE_BASE = "player"
 /** 路由里的 ignoreCert 参数（"1"=放行，其他一律不放行）。纯函数，可单测。 */
 fun parseIgnoreCertArg(raw: String?): Boolean = raw == "1"
 
+/** 读路由里的 ch 参数：空串/缺省（旧 deep link、历史记录无 ch）一律当无频道 id。纯函数，可单测。 */
+fun parseChannelIdArg(raw: String?): String? = raw?.ifBlank { null }
+
+/**
+ * v1.4.8 A2：ch 查询段（纯函数，可单测）——channelId 含 `|` 与完整 URL，
+ * 必须编码后才能进路由，否则 `&`/`?` 会破坏参数解析。encode 由调用方传
+ * [Uri.encode]；单测传同一语义的纯编码器锁定段格式与空值默认。
+ */
+fun channelIdQuerySegment(channelId: String?, encode: (String) -> String): String =
+    "&ch=${encode(channelId.orEmpty())}"
+
 /** 构造播放器路由（自动做 Uri.encode） */
 fun playerRoute(
     url: String,
@@ -40,8 +51,11 @@ fun playerRoute(
     isLive: Boolean = false,
     siteKey: String? = null,
     ignoreCert: Boolean = false,
+    // v1.4.8 A2：直播频道 id（LiveChannel.id）；点播/无 id 的入口传 null，
+    // 路由里记空 ch，目的地读到 null，走全局偏好。
+    channelId: String? = null,
 ): String =
-    "$PLAYER_ROUTE_BASE?url=${Uri.encode(url)}&title=${Uri.encode(title)}&vod=${Uri.encode(vodId.orEmpty())}&live=${if (isLive) 1 else 0}&site=${Uri.encode(siteKey.orEmpty())}&ignoreCert=${if (ignoreCert) 1 else 0}"
+    "$PLAYER_ROUTE_BASE?url=${Uri.encode(url)}&title=${Uri.encode(title)}&vod=${Uri.encode(vodId.orEmpty())}&live=${if (isLive) 1 else 0}&site=${Uri.encode(siteKey.orEmpty())}&ignoreCert=${if (ignoreCert) 1 else 0}${channelIdQuerySegment(channelId, Uri::encode)}"
 
 /** 跳转到播放器页；空地址直接不跳转，不再进黑屏播放器页只剩返回键 */
 fun NavController.navigateToPlayer(
@@ -51,9 +65,11 @@ fun NavController.navigateToPlayer(
     isLive: Boolean = false,
     siteKey: String? = null,
     ignoreCert: Boolean = false,
+    // v1.4.8 A2：直播频道 id（全屏直播页传 ch.id；历史页播直播无 id，传 null）。
+    channelId: String? = null,
 ) {
     if (url.isBlank()) return
-    navigate(playerRoute(url, title, vodId, isLive, siteKey, ignoreCert))
+    navigate(playerRoute(url, title, vodId, isLive, siteKey, ignoreCert, channelId))
 }
 
 /** 在 NavHost DSL 中注册播放器目的地 */
@@ -65,7 +81,7 @@ fun NavGraphBuilder.playerDestination(
     onAutoSwitchSource: ((vodId: String, siteKey: String, episodeIndex: Int) -> Unit)? = null,
 ) {
     composable(
-        route = "$PLAYER_ROUTE_BASE?url={url}&title={title}&vod={vod}&live={live}&site={site}&ignoreCert={ignoreCert}",
+        route = "$PLAYER_ROUTE_BASE?url={url}&title={title}&vod={vod}&live={live}&site={site}&ignoreCert={ignoreCert}&ch={ch}",
         arguments = listOf(
             navArgument("url") { type = NavType.StringType; defaultValue = "" },
             navArgument("title") { type = NavType.StringType; defaultValue = "" },
@@ -73,6 +89,8 @@ fun NavGraphBuilder.playerDestination(
             navArgument("live") { type = NavType.StringType; defaultValue = "0" },
             navArgument("site") { type = NavType.StringType; defaultValue = "" },
             navArgument("ignoreCert") { type = NavType.StringType; defaultValue = "0" },
+            // v1.4.8 A2：频道 id（默认 ""，读到 null 即无频道偏好，走全局）。
+            navArgument("ch") { type = NavType.StringType; defaultValue = "" },
         ),
         // v1.2.14 B片（9）：播放器转场动画按设置走（目的地级覆盖 NavHost 全局淡入+位移）；
         // 系统默认返回 null（用全局转场），淡入/缩放/海报碎片各给一对进出场。
@@ -118,6 +136,9 @@ fun NavGraphBuilder.playerDestination(
                 isLive = entry.arguments?.getString("live") == "1",
                 // v1.2.14：Emby 自签证书播放（路由参数透传，其他入口默认 "0" 不放行）。
                 ignoreCert = parseIgnoreCertArg(entry.arguments?.getString("ignoreCert")),
+                // v1.4.8 A2：频道 id（无 ch 时为 null，走全局偏好；不走
+                // LiveSelection.channelId 单例兜底，历史页播别的台会带错偏好）。
+                channelId = parseChannelIdArg(entry.arguments?.getString("ch")),
                 onBack = onBack,
                 onOpenPluginCenter = onOpenPluginCenter,
                 onAutoSwitchSource = onAutoSwitchSource,

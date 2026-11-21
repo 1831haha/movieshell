@@ -123,6 +123,7 @@ import com.movieshell.data.store.FollowStore
 import com.movieshell.data.source.JsRuntime
 import com.movieshell.data.source.SniffConfig
 import com.movieshell.data.store.DownloadStore
+import com.movieshell.data.store.DohSettings
 import com.movieshell.core.log.CrashHandler
 import com.movieshell.core.log.LogBus
 import com.movieshell.data.ai.LlmClient
@@ -188,6 +189,8 @@ fun SettingsScreen(
     onDataSettingsClick: () -> Unit = {}, // v1.2.19：数据设置子页面入口
     // v1.3.26：Clash 代理设置页入口（订阅 + 每源走代理开关）
     onClashSettingsClick: () -> Unit = {},
+    // v1.4.8 A4：网络设置页入口（DoH）
+    onNetworkSettingsClick: () -> Unit = {},
     // v1.2.14：TMDB 独立设置页入口（播放设置页 TMDB Key 行点进）
     onTmdbSettingsClick: () -> Unit = {},
     onPluginCenterClick: () -> Unit = {}, // v0.127.0：插件中心（插件/服务/市场三页签，原两入口合并）
@@ -259,6 +262,8 @@ fun SettingsScreen(
     suspend fun refreshDerived() {
         runCatching { ThemeCollectionStore.init(context) }
         SettingsLayoutStore.init(context)
+        // v1.4.8 A4：网络入口副标题读 DoH 开关实时值。
+        DohSettings.init(context)
         // v0.147.0：统计失败不再静默回 0（之前 0 和“真没有”分不出来），记日志方便定位
         // v0.171.0：失败汇总到 statsFailed，界面上显示"—"与"统计失败"而不是 0
         var failed = false
@@ -305,6 +310,8 @@ fun SettingsScreen(
     // 原有每一项设置、入口、动作都保留，弹窗与逻辑一行未动。
     val cs = MaterialTheme.colorScheme
     val logEnabled by LogStore.enabled.collectAsState()
+    // v1.4.8 A4：网络入口副标题（DoH 开关实时值）。
+    val dohEnabled by DohSettings.enabled.collectAsState()
     val themeKey by ThemeStore.themeKey.collectAsState()
     val statText: (Int) -> String = { n -> if (!statsLoaded) "…" else if (statsFailed) "—" else "$n" }
     // v1.2.7：设置页活布局——拖拽状态 + 布局表（可移行住哪、按什么顺序）。
@@ -588,7 +595,25 @@ fun SettingsScreen(
                     }
                 }
             }
-            // 6. 插件（289：“插件市场源”占位格已删，插件中心只剩工具磁贴一个入口）
+            // 6. 网络（v1.4.8 A4：DoH 设置子页入口，不进可拖拽体系）
+            item { SettingsCaption("网络") }
+            item {
+                AppCard(
+                    shape = RoundedCornerShape(V5.CornerCard),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        SegItem(
+                            position = SegPos.Single,
+                            icon = Icons.Outlined.Link,
+                            title = "网络",
+                            subtitle = if (dohEnabled) "DoH 已开启" else "DoH 已关闭 · DNS over HTTPS",
+                            onClick = onNetworkSettingsClick,
+                        )
+                    }
+                }
+            }
+            // 7. 插件（289：“插件市场源”占位格已删，插件中心只剩工具磁贴一个入口）
             item { SettingsCaption("插件") }
             item {
                 AppCard(
@@ -619,7 +644,7 @@ fun SettingsScreen(
                     }
                 }
             }
-            // 7. 帮助
+            // 8. 帮助
             item { SettingsCaption("帮助") }
             item {
                 AppCard(

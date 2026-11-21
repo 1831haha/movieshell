@@ -27,13 +27,17 @@ import com.movieshell.domain.model.PlayerEngine
 import com.movieshell.domain.model.Site
 import com.movieshell.domain.model.Vod
 import com.movieshell.data.store.PlayerSettings
+import com.movieshell.data.store.ChannelPref
+import com.movieshell.data.store.LiveStore
 import com.movieshell.data.store.SourceHealthStore
 import com.movieshell.data.source_mgr.PySourceManager
+import com.movieshell.data.source_mgr.ServicePluginManager
 import com.movieshell.ui.search.LOCAL_DRPY_PREFIX
 import com.movieshell.ui.search.LOCAL_PY_PREFIX
 import com.movieshell.ui.search.buildSearchConfigJson
 import com.movieshell.ui.components.AppButton
 import com.movieshell.ui.components.AppButtonVariant
+import com.movieshell.ui.components.AppSwitch
 import com.movieshell.ui.components.V5Chip
 import com.movieshell.ui.components.TechDialog
 import com.movieshell.ui.components.TechTextField
@@ -189,7 +193,7 @@ private const val SEEK_STEP_PX = 60f
 /** 手势：垂直滑动每走这么多像素触发一次亮度/音量调节 */
 private const val ADJUST_STEP_PX = 50f
 
-/** v0.21.0：手势——按住超过此时长且未滑动视为长按，进 2x 快放 */
+/** v0.21.0：手势——按住超过此时长且未滑动视为长按，进 3x 快放 */
 private const val LONG_PRESS_MS = 400L
 
 /**
@@ -216,6 +220,10 @@ fun PlayerScreen(
     isLive: Boolean = false,
     // v1.2.14：Emby 自签证书播放（路由 ignoreCert 参数透传；其他入口默认关）。
     ignoreCert: Boolean = false,
+    // v1.4.8 A2：直播频道 id（LiveChannel.id，即 sourceKey|url；嵌入页由
+    // LiveScreen 传 selected.id，全屏页由路由 ch 参数传）。点播、历史页播
+    // 直播、无 id 的旧入口为 null，内核/比例走全局偏好，与今天一致。
+    channelId: String? = null,
     onBack: () -> Unit,
     // v1.1.31：libmpv 未安装时跳插件市场（市场页签）装插件；默认空实现
     onOpenPluginCenter: () -> Unit = {},
@@ -316,7 +324,37 @@ fun PlayerScreen(
     var playModeIndex by remember { mutableIntStateOf(0) } // v0.65：循环模式，默认顺序播放
     // v0.125.0：全屏画面比例偏好（持久化恢复；v0.255.0 起默认适应，见 PlayerSettings）
     var resizeIndex by remember { mutableIntStateOf(PlayerSettings.getResizeMode(context)) }
+    // v1.4.8 A2：本台偏好（直播且有 channelId 时才有；null = 无偏好，跟随全局）。
+    // 进页/切台时从 LiveStore 读一次；播放器内改写后这里同步更新，齿轮页
+    // “本台偏好”行与内核 chips 的选中态都读它，不直接读盘。
+    var channelPref by remember { mutableStateOf<ChannelPref?>(null) }
+    // v1.4.8 A2：进页/切台时偏好跟台走——有本台比例记它，没有跟全局。
+    // 同一 PlayerScreen 实例切台（嵌入页）时 channelId 变了，这里重读，
+    // 不用等重建；手动改比例只写盘+改 resizeIndex，不触发本效应重跑。
+    LaunchedEffect(channelId) {
+        channelPref = channelId?.let { LiveStore.getChannelPref(context, it) }
+        resizeIndex = channelPref?.scale ?: PlayerSettings.getResizeMode(context)
+    }
+
+    /** v1.4.8 A2：改画面比例唯一入口——直播且有 channelId 时写本台偏好，否则写全局；写哪都 Toast 说清，不许静默改全局。 */
+    fun applyResizeMode(i: Int) {
+        resizeIndex = i
+        if (isLive && channelId != null) {
+            LiveStore.setChannelPref(context, channelId, engine = null, scale = i)
+            channelPref = LiveStore.getChannelPref(context, channelId)
+            AppToast.show(context, "画面比例已记为本台：${RESIZE_MODES[i].second}", long = false)
+        } else {
+            PlayerSettings.setResizeMode(context, i)
+            AppToast.show(context, "画面比例已记为全局：${RESIZE_MODES[i].second}", long = false)
+        }
+    }
     var errorMsg by remember { mutableStateOf<String?>(null) }
+    // v1.4.8 A7：短剧模式状态——进页默认关，不持久化；快照只在模式开着
+    // 时有值，退模式时凭它恢复方向。竖屏精简条与底部 40% 切集手势是
+    // 现有分支（竖屏即精简条、竖屏全屏即切集区），锁竖屏后自动生效，
+    // 不另起一套控制器。
+    var dramaState by remember { mutableStateOf(ShortDramaState()) }
+    val shortDramaMode = dramaState.isOn
     // v0.124.0：本播放器是否已把窗口切进沉浸式全出血（恢复时凭它守卫，没动过不恢复）
     var immersiveApplied by remember { mutableStateOf(false) }
     // v1.4.6 A1.1：首屏诊断待记解析耗时——切集处解析完成时写入，新会话建立时消费；
@@ -388,12 +426,59 @@ fun PlayerScreen(
         rotateWasPlaying = EngineHost.isPlayingNow()
         rotatePosMs = EngineHost.currentPosition()
     }
+
+    /**
+     * v1.4.8 A7：进短剧模式——按定稿顺序：①全屏 ②锁竖屏 ③置模式开，
+     * 顺序不能反（锁方向时容器须已是全屏尺寸）。
+     * ① 全屏：详情页嵌入用原地全屏（onFullscreen，同一实例只换容器）；
+     * 独立页已是全屏容器时跳过这步；直播不进模式，不走这条路。
+     * ② 锁竖屏：复用 toggleOrientation 的锁方向件（manualLocked 置位，
+     * 重力感应不再抢回）。不用 toggleOrientation() 本身——它是切换，
+     * 已是竖屏时调它会锁横屏；这里要的是无条件锁竖屏。
+     * ③ 置模式开：竖屏锁定后，竖屏精简条与底部 40% 切集手势按现有
+     * 分支自动生效。进模式前先快照方向，退模式时按快照恢复。
+     */
+    fun enterShortDramaMode() {
+        if (isLive || dramaState.isOn) return
+        val activity = context as? Activity ?: return
+        val snapshot = DramaOrientationSnapshot(
+            requestedOrientation = activity.requestedOrientation,
+            manualLocked = OrientationSensor.manualLocked,
+        )
+        snapshotForRotation()
+        if (embedded && !isFullscreen) onFullscreen()
+        OrientationSensor.manualLocked = true
+        activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+        dramaState = dramaState.enter(snapshot)
+        LogBus.i("Player", "短剧模式：已开启")
+    }
+
+    /**
+     * v1.4.8 A7：退短剧模式——关模式 → 恢复方向快照 → 按来源回目标。
+     * 详情页嵌入进入：onExitFullscreen() 回嵌入（同一实例只换容器）；
+     * 独立播放页进入：留在独立页，不调 onBack、不调 onExitFullscreen
+     * （独立页的 onExitFullscreen 默认空实现，调了也没用）。
+     */
+    fun exitShortDramaMode() {
+        if (!dramaState.isOn) return
+        val (next, snapshot) = dramaState.exit()
+        dramaState = next
+        val activity = context as? Activity
+        if (activity != null && snapshot != null) {
+            activity.requestedOrientation = snapshot.requestedOrientation
+            OrientationSensor.manualLocked = snapshot.manualLocked
+        }
+        if (embedded) onExitFullscreen()
+        LogBus.i("Player", "短剧模式：已关闭")
+    }
     val snackbarHostState = remember { SnackbarHostState() }
     // v0.20.0：双引擎——Media3（默认）/ libmpv，记忆选择
     // v0.21.0：engineOverride 为自动换内核的临时覆盖（静默，不持久化），优先于用户设置
+    // v1.4.8 A2：有效引擎 = 临时覆盖 > 本台偏好 > 全局偏好（与 EngineHost.play 的
+    // 决策同序；channelPref 为空时退回全局，点播/无 id 入口与今天一致）。
     val engineSetting by PlayerSettings.engine.collectAsState()
     val engineOverride by EngineHost.engineOverride.collectAsState()
-    val engine = engineOverride ?: engineSetting
+    val engine = engineOverride ?: channelPref?.engine ?: engineSetting
     // v1.3.25 合并 7：音轨——当前流的音频轨道（双引擎都推到这里）。
     // 手动选过音轨的地址 / 已自动按偏好选过的地址（切集后比对失效，旧选择不串到新集）。
     val audioTracks by EngineHost.audioTracks.collectAsState()
@@ -407,7 +492,12 @@ fun PlayerScreen(
     val sleepArmed by VideoSleepTimer.afterEpisodeArmed.collectAsState()
 
     // v0.294.45：原地全屏时返回键先收回容器，不退出详情页；其他情况走原来的 onBack。
-    BackHandler(onBack = { if (embedded && isFullscreen) onExitFullscreen() else onBack() })
+    // v1.4.8 A7：模式开时返回键＝关模式；模式关后返回键＝现有行为。
+    BackHandler(onBack = {
+        if (shortDramaMode) exitShortDramaMode()
+        else if (embedded && isFullscreen) onExitFullscreen()
+        else onBack()
+    })
 
     // DisposableEffect 的 onDispose 闭包捕获的是首次组合的值，
     // 用 rememberUpdatedState 保证退出时存的是最新的 url/title。
@@ -740,6 +830,8 @@ fun PlayerScreen(
                 context, playUrl, headers = lastHeaders,
                 startPositionMs = rotatePosMs, subtitleUrl = sub, live = isLive,
                 ignoreCert = ignoreCert, useProxy = playUseProxy,
+                // v1.4.8 A2：旋转不换台，透传本页 channelId。
+                channelId = channelId,
             )
             if (ok) {
                 EngineHost.applySubtitleStyle(PlayerSettings.subtitleStyle.value, playerView)
@@ -827,6 +919,8 @@ fun PlayerScreen(
                 context, playUrl, headers = lastHeaders,
                 startPositionMs = startPositionMs, subtitleUrl = sub, live = isLive,
                 ignoreCert = ignoreCert, useProxy = playUseProxy,
+                // v1.4.8 A2：重试同一地址，透传本页 channelId。
+                channelId = channelId,
             )
         }
     }
@@ -1113,7 +1207,9 @@ fun PlayerScreen(
             }
             return
         }
-        val cur = EngineHost.engine()
+        // v1.4.8 A2：失败换内核的决策引擎——带本页 channelId，直播且有
+        // 偏好时按本台偏好认当前内核，否则按全局（与 play 决策同序）。
+        val cur = EngineHost.engine(channelId, context)
         // v1.3.15：libmpv 在此地址上已彻底失败（同内核重拉耗尽）——记下来，
         // Media3 侧的编码 fallback 不再把它切回去空转。按 path 记，同一集换
         // 解析（只换 auth_key）仍认得；退出播放页时清空。
@@ -1243,8 +1339,10 @@ fun PlayerScreen(
             // 不重置重试计数，否则全屏跳页/返回小窗会把自动换内核的成果
             // 与重试预算清掉，再失败就从头烧一遍。
             val resuming = playUrl.isNotBlank() && EngineHost.isActiveFor(playUrl)
-            if (!resuming) {
+            if (EngineHost.shouldClearOverrideOnAddressChange(resuming)) {
                 // v0.21.0：换地址清除自动换内核覆盖，回到用户持久化选择
+                // v1.4.8 A2：切台必换地址，覆盖不跨台（单测锁定本条）；
+                // 接续同一播放器（全屏跳页/返回小窗）时不清，见 resuming 分支。
                 EngineHost.setEngineOverride(null)
                 triedEngines.clear()
                 EngineHost.clearFallbackTriedEngines()
@@ -1313,6 +1411,8 @@ fun PlayerScreen(
                         subtitleUrl = subtitleUrl, live = isLive,
                         ignoreCert = ignoreCert,
                         useProxy = playUseProxy,
+                        // v1.4.8 A2：切台/换地址的新起播，频道身份由此进入决策。
+                        channelId = channelId,
                     )
                     // v0.21.0：应用字幕样式
                     if (ok) {
@@ -1580,6 +1680,8 @@ fun PlayerScreen(
                     context, playUrl, headers = lastHeaders,
                     startPositionMs = pos, subtitleUrl = sub, live = isLive,
                     ignoreCert = ignoreCert, useProxy = playUseProxy,
+                    // v1.4.8 A2：挂字幕后同一地址重播，透传本页 channelId。
+                    channelId = channelId,
                 )
                 if (ok) EngineHost.applySubtitleStyle(PlayerSettings.subtitleStyle.value, playerView)
                 else AppToast.show(context, "字幕应用失败", long = false)
@@ -1638,14 +1740,26 @@ fun PlayerScreen(
                 }
                 EngineHost.stop()
                 EngineHost.setEngineOverride(null)
-                PlayerSettings.setEngine(context, target)
-                AppToast.show(context, "播放内核已切换为 ${if (target == PlayerEngine.MEDIA3) "Media3" else "libmpv"}", long = false)
+                // v1.4.8 A2：直播且有 channelId 时写本台偏好，否则写全局；
+                // 写哪都 Toast 说清，不许静默改全局。
+                if (isLive && channelId != null) {
+                    LiveStore.setChannelPref(context, channelId, engine = target, scale = null)
+                    channelPref = LiveStore.getChannelPref(context, channelId)
+                    AppToast.show(context, "播放内核已切换为 ${if (target == PlayerEngine.MEDIA3) "Media3" else "libmpv"}（本台）", long = false)
+                } else {
+                    PlayerSettings.setEngine(context, target)
+                    AppToast.show(context, "播放内核已切换为 ${if (target == PlayerEngine.MEDIA3) "Media3" else "libmpv"}（全局）", long = false)
+                }
                 LogBus.i("Player", "切换播放内核 → $target")
                 val sub = runCatching { currentSubtitleUrl() }.getOrNull()
                 val ok = EngineHost.play(
                     context, playUrl, headers = lastHeaders,
                     startPositionMs = pos, subtitleUrl = sub, live = isLive,
                     ignoreCert = ignoreCert, useProxy = playUseProxy,
+                    // v1.4.8 A2：必须透传——切核写入的是本台偏好（直播且有
+                    // channelId 时），此次 play 不带 channelId 就会读全局，
+                    // 切换看起来“没切上”。
+                    channelId = channelId,
                 )
                 if (ok) {
                     // v1.3.21 M3：手动切内核成功是新的重试对象——已试过的
@@ -1734,6 +1848,8 @@ fun PlayerScreen(
                                             context, playUrl, headers = noRefHeaders,
                                             startPositionMs = pos, subtitleUrl = sub, live = isLive,
                                             ignoreCert = ignoreCert, useProxy = playUseProxy,
+                                            // v1.4.8 A2：清 Referer 后同一地址重试，透传本页 channelId。
+                                            channelId = channelId,
                                         )
                                         if (!ok) playError = PlayError.classify("重试失败")
                                     } catch (t: Throwable) {
@@ -1759,7 +1875,8 @@ fun PlayerScreen(
                     }
                     // v1.1.31：Media3 播不了时，libmpv（FFmpeg 软解）可能播得了——
                     // 未安装时在报错弹窗里给一键装插件入口
-                    if (EngineHost.engine() == PlayerEngine.MEDIA3 &&
+                    // v1.4.8 A2：带本页 channelId，按有效引擎（本台偏好优先）判断。
+                    if (EngineHost.engine(channelId, context) == PlayerEngine.MEDIA3 &&
                         !MpvPluginLoader.isInstalled(context) && !MpvPlayerManager.initFailed
                     ) {
                         androidx.compose.material3.TextButton(
@@ -2105,7 +2222,7 @@ fun PlayerScreen(
                     awaitEachGesture {
                         val down = awaitFirstDown()
                         var mode = 0 // 0=未定 1=水平 2=垂直
-                        // v0.21.0：400ms 内无滑动视为长按 → 2x 快放，松手恢复原倍速
+                        // v0.21.0：400ms 内无滑动视为长按 → 3x 快放，松手恢复原倍速
                         var longPressed = false
                         val slopChange = try {
                             withTimeout(LONG_PRESS_MS) {
@@ -2884,8 +3001,8 @@ fun PlayerScreen(
                         }
                         TextButton(
                             onClick = {
-                                resizeIndex = (resizeIndex + 1) % RESIZE_MODES.size
-                                PlayerSettings.setResizeMode(context, resizeIndex)
+                                // v1.4.8 A2：直播且有 channelId 时记本台，否则记全局（见 applyResizeMode）。
+                                applyResizeMode((resizeIndex + 1) % RESIZE_MODES.size)
                             },
                             modifier = Modifier.height(48.dp),
                             contentPadding = PaddingValues(horizontal = 6.dp),
@@ -3029,8 +3146,8 @@ fun PlayerScreen(
                                     text = mode.second,
                                     selected = i == resizeIndex,
                                     onClick = {
-                                        resizeIndex = i
-                                        PlayerSettings.setResizeMode(context, i)
+                                        // v1.4.8 A2：直播且有 channelId 时记本台，否则记全局（见 applyResizeMode）。
+                                        applyResizeMode(i)
                                     },
                                 )
                             }
@@ -3053,6 +3170,63 @@ fun PlayerScreen(
                                 selected = engine == PlayerEngine.LIBMPV,
                                 onClick = { switchToEngine(PlayerEngine.LIBMPV) },
                             )
+                        }
+                        // v1.4.8 A2：“本台偏好”行——仅直播且有 channelId、且本台
+                        // 记了偏好时显示；文案按实际记了哪项拼；点恢复只删该台
+                        // 偏好条目，不动全局与其他台；resizeIndex/engine 回到全局值。
+                        val channelPrefText = channelPref?.let { pref ->
+                            listOfNotNull(
+                                pref.engine?.let { if (it == PlayerEngine.MEDIA3) "Media3" else "libmpv" },
+                                pref.scale?.let { RESIZE_MODES[it].second },
+                            ).joinToString(" / ")
+                        }.orEmpty()
+                        if (isLive && channelId != null && channelPrefText.isNotBlank()) {
+                            Spacer(Modifier.height(8.dp))
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    text = "本台：${channelPrefText}",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.weight(1f),
+                                )
+                                AppButton(
+                                    text = "恢复跟随全局",
+                                    onClick = {
+                                        LiveStore.clearChannelPref(context, channelId)
+                                        channelPref = null
+                                        resizeIndex = PlayerSettings.getResizeMode(context)
+                                        AppToast.show(context, "已恢复跟随全局", long = false)
+                                    },
+                                    variant = AppButtonVariant.Ghost,
+                                )
+                            }
+                        }
+                        // v1.4.8 A7：“短剧模式”开关——仅点播、集数 > 1 时可见，
+                        // 直播不显示；齿轮按钮仅竖屏显示，横屏下入口不可见。
+                        // 开：按“全屏 → 锁竖屏 → 置模式开”顺序进模式；关：恢复
+                        // 方向快照后按来源回目标（嵌入回小窗，独立页留在本页）。
+                        if (ShortDramaState.isVisible(isLive, PlaySession.currentLine()?.episodes?.size ?: 0)) {
+                            Spacer(Modifier.height(8.dp))
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = "短剧模式",
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = MaterialTheme.colorScheme.onSurface,
+                                    )
+                                    Text(
+                                        text = "竖屏全屏 · 上下滑切集 · 播完自动下一集",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                }
+                                AppSwitch(
+                                    checked = shortDramaMode,
+                                    onCheckedChange = { on ->
+                                        if (on) enterShortDramaMode() else exitShortDramaMode()
+                                    },
+                                )
+                            }
                         }
                         if (!isLive && vodId != null) {
                             Spacer(Modifier.height(8.dp))
@@ -3162,7 +3336,8 @@ fun PlayerScreen(
                                     onClick = {
                                         PlayerSettings.setAnime4KMode(context, mode.key)
                                         EngineHost.setAnime4K(mode)
-                                        if (EngineHost.engine() != PlayerEngine.LIBMPV) {
+                                        // v1.4.8 A2：带本页 channelId，按有效引擎判断。
+                                        if (EngineHost.engine(channelId, context) != PlayerEngine.LIBMPV) {
                                             AppToast.show(context, "当前是 Media3 引擎，切 libmpv 后生效", long = false)
                                         }
                                     },
@@ -3265,6 +3440,43 @@ fun PlayerScreen(
             val builtinHost by ds.builtinHost.collectAsState()
             var showBuiltinHostDialog by remember { mutableStateOf(false) }
             var builtinHostDraft by remember { mutableStateOf("") }
+            // v1.4.8 A5：插件弹幕源（danmu-service CUSTOM_HOSTS env）编辑态
+            var showPluginHostsDialog by remember { mutableStateOf(false) }
+            var pluginHostsDraft by remember { mutableStateOf("") }
+            var pluginHostsSaved by remember { mutableStateOf("") }
+            var pluginDefVersion by remember { mutableStateOf<String?>(null) }
+            var pluginInstalled by remember { mutableStateOf(false) }
+            var pluginRunning by remember { mutableStateOf(false) }
+            var pluginStateLoaded by remember { mutableStateOf(false) }
+            var pluginSaving by remember { mutableStateOf(false) }
+            var pluginRestarting by remember { mutableStateOf(false) }
+            var pluginPendingRestart by remember { mutableStateOf(false) }
+            // v1.4.8 A5：打开弹幕设置时读一次插件状态（版本门 + 是否在运行）；
+            // 读不到不崩，只置灰编辑区。
+            LaunchedEffect(Unit) {
+                try {
+                    val def = withContext(Dispatchers.IO) {
+                        ServicePluginManager.serviceDef(
+                            context,
+                            com.movieshell.player.danmaku.DANMU_SERVICE_ID,
+                        )
+                    }
+                    pluginInstalled = def != null
+                    pluginDefVersion = def?.version
+                    pluginRunning = ServicePluginManager.isRunning(
+                        com.movieshell.player.danmaku.DANMU_SERVICE_ID,
+                    )
+                    pluginHostsSaved = def?.env?.firstOrNull {
+                        it.first == com.movieshell.player.danmaku.DANMU_SERVICE_CUSTOM_HOSTS_KEY
+                    }?.second ?: ""
+                    pluginStateLoaded = true
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    pluginStateLoaded = true
+                    LogBus.w("Danmaku", "读弹幕服务状态失败：${e.message}")
+                }
+            }
             TechDialog(
                 onDismissRequest = { uiVm.showDanmakuSettings = false },
                 title = "弹幕设置",
@@ -3386,6 +3598,88 @@ fun PlayerScreen(
                                 variant = AppButtonVariant.Ghost,
                             )
                         }
+                        Spacer(Modifier.size(8.dp))
+                        // v1.4.8 A5：插件弹幕源——写 danmu-service 的 CUSTOM_HOSTS env，
+                        // 追加到插件内置 14 家之后；只在插件已安装、版本 1.0.2 及以上、
+                        // 正在运行时可编辑（版本门：旧插件不读 env，写了也无效）。
+                        Text("插件弹幕源", style = MaterialTheme.typography.labelLarge)
+                        val pluginVersionOk =
+                            com.movieshell.player.danmaku.isDanmakuPluginVersionSupported(pluginDefVersion)
+                        val pluginEditable = pluginInstalled && pluginVersionOk && pluginRunning
+                        val pluginVersionText = pluginDefVersion ?: "未知"
+                        val pluginSavedHosts =
+                            com.movieshell.player.danmaku.serializePluginDanmakuHosts(pluginHostsSaved)
+                        val pluginSavedCount =
+                            if (pluginSavedHosts.isEmpty()) 0 else pluginSavedHosts.split(",").size
+                        Text(
+                            text = when {
+                                !pluginStateLoaded -> "正在读取插件状态…"
+                                !pluginInstalled -> "未安装弹幕服务插件，请先在服务市场安装 danmu-service。"
+                                !pluginVersionOk -> "插件版本 ${pluginVersionText} 过低，请更新到 1.0.2 及以上；旧插件不读该配置。"
+                                !pluginRunning -> "弹幕服务未启动，请先在服务市场启动 danmu-service。"
+                                else -> "追加到插件内置 14 家之后，最多 10 个；保存后重启服务生效。"
+                            },
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(
+                                text = if (!pluginStateLoaded) "…" else if (pluginSavedCount == 0) "未添加" else "已加 ${pluginSavedCount} 个",
+                                style = MaterialTheme.typography.bodyMedium,
+                                modifier = Modifier.weight(1f),
+                            )
+                            AppButton(
+                                text = "编辑",
+                                onClick = {
+                                    pluginHostsDraft = pluginHostsSaved.replace(",", "\n")
+                                    showPluginHostsDialog = true
+                                },
+                                variant = AppButtonVariant.Ghost,
+                                enabled = pluginEditable && !pluginSaving,
+                            )
+                        }
+                        // v1.4.8 A5：保存后才出现的一键重启——saveService 落盘后
+                        // 再 stop/start，start 才读到新 env；重启失败不谎报成功。
+                        if (pluginPendingRestart && pluginEditable) {
+                            Spacer(Modifier.size(8.dp))
+                            AppButton(
+                                text = if (pluginRestarting) "重启中…" else "重启弹幕服务",
+                                onClick = {
+                                    if (!pluginRestarting) {
+                                        pluginRestarting = true
+                                        scope.launch {
+                                            try {
+                                                withContext(Dispatchers.IO) {
+                                                    ServicePluginManager.stop(
+                                                        context,
+                                                        com.movieshell.player.danmaku.DANMU_SERVICE_ID,
+                                                    )
+                                                    ServicePluginManager.start(
+                                                        context,
+                                                        com.movieshell.player.danmaku.DANMU_SERVICE_ID,
+                                                    )
+                                                }
+                                                pluginPendingRestart = false
+                                                pluginRunning = ServicePluginManager.isRunning(
+                                                    com.movieshell.player.danmaku.DANMU_SERVICE_ID,
+                                                )
+                                                AppToast.show(context, "弹幕服务已重启，新配置生效", long = false)
+                                            } catch (e: CancellationException) {
+                                                throw e
+                                            } catch (e: Exception) {
+                                                AppToast.show(context, "重启失败：${e.message}", long = false)
+                                            } finally {
+                                                pluginRestarting = false
+                                            }
+                                        }
+                                    }
+                                },
+                                variant = AppButtonVariant.Secondary,
+                                enabled = !pluginRestarting,
+                            )
+                        }
                     }
                 }
             // v1.2.22：自定义弹幕接口编辑弹窗（嵌在弹幕设置里，同 AI 设置嵌服务商弹窗的做法）。
@@ -3433,6 +3727,60 @@ fun PlayerScreen(
                         placeholder = "api.dandanplay.net",
                         modifier = Modifier.fillMaxWidth(),
                         singleLine = true,
+                    )
+                }
+            }
+            // v1.4.8 A5：插件弹幕源编辑弹窗。保存只写 env（其余 env 项原样保留），
+            // 不在这里重启——保存后主弹窗里出现“一键重启”按钮。
+            if (showPluginHostsDialog) {
+                TechDialog(
+                    onDismissRequest = { showPluginHostsDialog = false },
+                    title = "插件弹幕源",
+                    subtitle = "每行一个弹幕站 host，追加到插件内置 14 家之后，最多 10 个",
+                    confirmText = "保存",
+                    onConfirm = {
+                        if (!pluginSaving) {
+                            pluginSaving = true
+                            showPluginHostsDialog = false
+                            val draft = pluginHostsDraft
+                            scope.launch {
+                                try {
+                                    val saved = withContext(Dispatchers.IO) {
+                                        val current = ServicePluginManager.serviceDef(
+                                            context,
+                                            com.movieshell.player.danmaku.DANMU_SERVICE_ID,
+                                        ) ?: throw IllegalStateException("未安装弹幕服务")
+                                        if (!com.movieshell.player.danmaku.isDanmakuPluginVersionSupported(current.version)) {
+                                            throw IllegalStateException("插件版本过低，请更新到 1.0.2 及以上")
+                                        }
+                                        val serialized = com.movieshell.player.danmaku.serializePluginDanmakuHosts(draft)
+                                        val newEnv = current.env.filter {
+                                            it.first != com.movieshell.player.danmaku.DANMU_SERVICE_CUSTOM_HOSTS_KEY
+                                        } + (com.movieshell.player.danmaku.DANMU_SERVICE_CUSTOM_HOSTS_KEY to serialized)
+                                        ServicePluginManager.saveService(context, current.copy(env = newEnv))
+                                        serialized
+                                    }
+                                    pluginHostsSaved = saved
+                                    pluginPendingRestart = true
+                                    AppToast.show(context, "已保存，重启弹幕服务后生效", long = false)
+                                } catch (e: CancellationException) {
+                                    throw e
+                                } catch (e: Exception) {
+                                    AppToast.show(context, "保存失败：${e.message}", long = false)
+                                } finally {
+                                    pluginSaving = false
+                                }
+                            }
+                        }
+                    },
+                ) {
+                    TechTextField(
+                        value = pluginHostsDraft,
+                        onValueChange = { pluginHostsDraft = it },
+                        placeholder = "dm.999.team",
+                        modifier = Modifier.fillMaxWidth().height(160.dp),
+                        singleLine = false,
+                        shape = RoundedCornerShape(12.dp),
                     )
                 }
             }

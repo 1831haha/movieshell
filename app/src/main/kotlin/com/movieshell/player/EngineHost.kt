@@ -10,6 +10,7 @@ import androidx.media3.common.PlaybackException
 import androidx.media3.ui.PlayerView
 import com.movieshell.core.log.LogBus
 import com.movieshell.data.source_mgr.ClashProxy
+import com.movieshell.data.store.LiveStore
 import com.movieshell.domain.model.PlayerEngine
 import com.movieshell.data.store.PlayerSettings
 import com.movieshell.domain.model.SubtitleStyle
@@ -33,7 +34,77 @@ object EngineHost {
     /** 自动换内核的临时覆盖；null 表示用用户持久化选择 */
     val engineOverride: StateFlow<PlayerEngine?> = _override
 
+    /**
+     * v1.4.8 A2：引擎决策（纯函数，可单测）——临时覆盖 > 频道偏好 > 全局偏好。
+     * channelPref 为 null（无该台偏好/非直播/无 id）时跟随全局。
+     */
+    fun resolveEngine(
+        channelPref: PlayerEngine?,
+        global: PlayerEngine,
+        override: PlayerEngine?,
+    ): PlayerEngine = override ?: channelPref ?: global
+
+    /**
+     * v1.4.8 A2：协议强制（纯函数，可单测）——RTMP/RTP/RTSP 只能走 libmpv，
+     * 但只在当前决策引擎是 Media3 时才写 LIBMPV 覆盖；已是 LIBMPV 时不写。
+     * 返回 null 表示不写覆盖。
+     */
+    fun protocolForcedEngine(isProtocol: Boolean, engine: PlayerEngine): PlayerEngine? =
+        if (isProtocol && engine == PlayerEngine.MEDIA3) PlayerEngine.LIBMPV else null
+
+    /**
+     * v1.4.8：协议分支写覆盖后，分发引擎 = 覆盖 ?: 基础引擎。
+     * RTMP/RTP/RTSP 时协议分支刚把 LIBMPV 写进覆盖，eng 必须跟上覆盖
+     * 读（原来是 var eng = engine() 在分支之后读）；直接取 baseEngine
+     * 会把 RTMP 错分给 Media3（Media3 不吃 RTMP）。无新覆盖时即
+     * baseEngine，不变。
+     */
+    internal fun engineAfterProtocolOverride(override: PlayerEngine?, baseEngine: PlayerEngine): PlayerEngine =
+        override ?: baseEngine
+
+    /**
+     * v1.4.8 A2：自签 Emby 证书分支（纯函数，可单测）——只有同时满足
+     * 放行条件、本次决策引擎是 libmpv、且没有临时覆盖时才切回 Media3；
+     * 已有覆盖时不插手。
+     */
+    fun shouldBypassCertToMedia3(
+        ignoreCert: Boolean,
+        url: String,
+        engine: PlayerEngine,
+        override: PlayerEngine?,
+    ): Boolean =
+        shouldBypassCert(ignoreCert, url) && engine == PlayerEngine.LIBMPV && override == null
+
+    /**
+     * v1.4.8 A2：libmpv 初始化失败回退（纯函数，可单测）——决策引擎是
+     * libmpv 且初始化失败过时回退 Media3；与自签分支不同，这里不看临时
+     * 覆盖：无条件写 MEDIA3 覆盖，会盖掉已有的临时覆盖（现状锁定，不统一）。
+     */
+    fun resolveInitFailedFallback(engine: PlayerEngine, initFailed: Boolean): PlayerEngine =
+        if (engine == PlayerEngine.LIBMPV && initFailed) PlayerEngine.MEDIA3 else engine
+
+    /**
+     * v1.4.8 A2：换地址时是否清临时覆盖（纯函数，可单测）——接续同一播放器
+     * （全屏跳页/返回小窗）时不清；真正换地址（切台/切集/换线路）时清，
+     * 覆盖不跨台。
+     */
+    fun shouldClearOverrideOnAddressChange(resuming: Boolean): Boolean = !resuming
+
     fun engine(): PlayerEngine = _override.value ?: PlayerSettings.engine.value
+
+    /**
+     * v1.4.8 A2：带频道维度的引擎决策——临时覆盖 > 该台偏好 > 全局偏好。
+     * 无 channelId（点播、历史页播直播、无 id 的旧入口）或 context 为空时
+     * 等同 engine()，走全局，与今天一致。
+     */
+    fun engine(channelId: String?, context: Context?): PlayerEngine {
+        val channelPref = if (channelId != null && context != null) {
+            LiveStore.getChannelPref(context, channelId)?.engine
+        } else {
+            null
+        }
+        return resolveEngine(channelPref, PlayerSettings.engine.value, _override.value)
+    }
 
     /**
      * v1.3.21 H2+M39：实际在播的引擎——play() 分发成功后记，stop() 清掉。
@@ -131,6 +202,9 @@ object EngineHost {
         ignoreCert: Boolean = false,
         // v1.3.26：本次播放走 clash 代理（PlayerScreen 按当前源的开关算好传进来；默认关）。
         useProxy: Boolean = false,
+        // v1.4.8 A2：直播频道 id（LiveChannel.id，即 sourceKey|url）；点播、
+        // 历史页播直播、无 id 的旧入口传 null，走全局偏好，与今天一致。
+        channelId: String? = null,
     ): Boolean {
         // v1.3.17：后台拒绝起播（见 backgrounded 注释）
         if (backgrounded) {
@@ -164,6 +238,17 @@ object EngineHost {
         // v0.162.0：原生 rtp:// 同理（组播只在局域网 WiFi 下有意义，蜂窝下播不了属环境限制，
         // 不是代码能保证的；不做 /status 探活，播了才知道）。
         // v1.2.2：rtsp:// 同理（Media3 不吃 rtsp；广东 IPTV 这类运营商流走 libmpv/FFmpeg）。
+        // v1.4.8 A2：本次起播的决策引擎——临时覆盖 > 频道偏好 > 全局偏好。
+        // 频道偏好只在这里读一次（play 入口），下面三处改写 eng 的分支
+        // （协议强制/自签证书/初始化失败回退）都以它为起点，顺序不变。
+        val channelPrefEngine = channelId?.let { LiveStore.getChannelPref(context, it)?.engine }
+        // v1.4.8 A2：本次起播即最近使用该台——有条目时刷新 lastUsed，
+        // 200 条淘汰按最近使用排，常看的台不因“很久没改过偏好”被误淘汰；
+        // 无条目时不动，不新建条目（缺省即跟随全局）。
+        if (channelId != null) LiveStore.touchChannelPref(context, channelId)
+        val baseEngine = resolveEngine(
+            channelPrefEngine, PlayerSettings.engine.value, _override.value,
+        )
         val isRtmp = url.trim().startsWith("rtmp://", true)
         val isRtp = url.trim().startsWith("rtp://", true)
         val isRtsp = url.trim().startsWith("rtsp://", true)
@@ -189,18 +274,23 @@ object EngineHost {
                     return false
                 }
             }
-            if (engine() == PlayerEngine.MEDIA3) {
-                setEngineOverride(PlayerEngine.LIBMPV)
+            // v1.4.8 A2：协议强制只在决策引擎是 Media3 时写 LIBMPV 覆盖
+            //（已是 LIBMPV 时不写，见 protocolForcedEngine）。
+            protocolForcedEngine(isRtmp || isRtp || isRtsp, baseEngine)?.let {
+                setEngineOverride(it)
                 LogBus.i("Play", "$proto 走 libmpv（临时覆盖，不改用户设置）")
             }
         }
-        var eng = engine()
+        // v1.4.8 A2：协议分支可能刚写了 LIBMPV 覆盖——像原来 var eng = engine()
+        // 一样，在分支之后再读一次覆盖，否则 RTMP/RTP/RTSP 会按 baseEngine
+        // 走 Media3（Media3 不吃这三种协议）。无新覆盖时即 baseEngine，不变。
+        var eng = engineAfterProtocolOverride(_override.value, baseEngine)
         // v1.2.14：自签 Emby 播放——libmpv 没有按次放行证书的口子（tls-verify
         // 是实例级选项，播完再改回有竞态），本次改走 Media3（OkHttp 放行
         // 数据源）；用户持久化的内核偏好不动，下次非自签播放仍走原内核。
         // 已有自动换内核覆盖时不插手（硬解失败回退 libmpv 的重试走原路，
         // 再翻回 Media3 会撞上已知坏解码原地空转）。
-        if (shouldBypassCert(ignoreCert, url) && eng == PlayerEngine.LIBMPV && _override.value == null) {
+        if (shouldBypassCertToMedia3(ignoreCert, url, eng, _override.value)) {
             LogBus.i("Play", "自签 Emby 播放切回 Media3（libmpv 不支持按次放行证书）")
             AppToast.show(context, "自签证书播放已切回 Media3", long = false)
             eng = PlayerEngine.MEDIA3
@@ -218,7 +308,9 @@ object EngineHost {
                 LogBus.w("Play", "libmpv 已禁用（初始化失败过），回退 Media3")
                 AppToast.show(context, "libmpv 不可用，已切回 Media3", long = false)
                 setEngineOverride(PlayerEngine.MEDIA3)
-                eng = PlayerEngine.MEDIA3
+                // v1.4.8 A2：这里无条件写 MEDIA3 覆盖，会盖掉已有的临时覆盖
+                //（与自签分支的“已有覆盖不插手”不同，现状锁定，不统一）。
+                eng = resolveInitFailedFallback(eng, MpvPlayerManager.initFailed)
             }
         }
         // v1.4.6 A1.1：首屏分段诊断——Attempt 从这里建（T0 = 本函数入口的 t0）；

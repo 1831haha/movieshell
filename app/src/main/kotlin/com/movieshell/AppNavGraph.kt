@@ -89,6 +89,7 @@ import com.movieshell.ui.reader.ReaderScreen
 import com.movieshell.ui.search.SearchScreen
 import com.movieshell.ui.settings.DataSettingsScreen
 import com.movieshell.ui.settings.ClashSettingsScreen
+import com.movieshell.ui.settings.NetworkSettingsScreen
 import com.movieshell.ui.settings.ParseSettingsScreen
 import com.movieshell.ui.settings.SettingsScreen
 import com.movieshell.ui.settings.SniffPatternsScreen
@@ -296,6 +297,8 @@ fun NavGraphBuilder.appDestinations(
                                         url = ch.url,
                                         title = ch.name,
                                         isLive = true,
+                                        // v1.4.8 A2：全屏直播页带频道 id，偏好跟台走。
+                                        channelId = ch.id,
                                     )
                                 },
                                 onManageClick = { navController.navigate("live_manage") },
@@ -607,6 +610,8 @@ fun NavGraphBuilder.appDestinations(
                                 onDataSettingsClick = { navController.navigate("data_settings") },
                                 // v1.3.26：Clash 代理设置页
                                 onClashSettingsClick = { navController.navigate("clash_settings") },
+                                // v1.4.8 A4：网络设置页（DoH）
+                                onNetworkSettingsClick = { navController.navigate("network_settings") },
                                 // v1.2.14：TMDB 独立设置页
                                 onTmdbSettingsClick = { navController.navigate("tmdb_settings") },
                                 // v0.127.0：插件中心单入口（原插件市场/服务插件合并）
@@ -669,6 +674,12 @@ fun NavGraphBuilder.appDestinations(
                         // v1.2.14：TMDB 独立设置页
                         composable("tmdb_settings") {
                             TmdbSettingsScreen(
+                                onBack = { navController.popBackStack() },
+                            )
+                        }
+                        // v1.4.8 A4：网络设置页（DoH）
+                        composable("network_settings") {
+                            NetworkSettingsScreen(
                                 onBack = { navController.popBackStack() },
                             )
                         }

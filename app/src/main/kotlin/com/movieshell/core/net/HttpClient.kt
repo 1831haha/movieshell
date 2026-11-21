@@ -6,9 +6,11 @@ import okhttp3.Cookie
 import okhttp3.CookieJar
 import okhttp3.Dispatcher
 import okhttp3.HttpUrl
+import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.Interceptor
 import okhttp3.OkHttpClient
+import okhttp3.dnsoverhttps.DnsOverHttps
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
@@ -78,25 +80,53 @@ object HttpClient {
         sharedClient.newBuilder().dispatcher(picDispatcher).build()
     }
 
-    private fun buildDefaultClient(): OkHttpClient = OkHttpClient.Builder()
-        .proxySelector(ProxyRouting.selector)
-        .connectTimeout(TIMEOUT_S, TimeUnit.SECONDS)
-        .readTimeout(TIMEOUT_S, TimeUnit.SECONDS)
-        .writeTimeout(TIMEOUT_S, TimeUnit.SECONDS)
-        .callTimeout(CALL_TIMEOUT_S, TimeUnit.SECONDS)
-        // v0.99.0 P1-1：拦截器链——UA 统一补、IO 异常重试、内存 CookieJar、简易日志
-        .cookieJar(memoryCookieJar)
-        .addInterceptor(uaInterceptor)
-        .addInterceptor(retryInterceptor)
-        .addInterceptor(simpleLogInterceptor)
-        .build()
+    private fun buildDefaultClient(): OkHttpClient {
+        val builder = OkHttpClient.Builder()
+            .proxySelector(ProxyRouting.selector)
+            .connectTimeout(TIMEOUT_S, TimeUnit.SECONDS)
+            .readTimeout(TIMEOUT_S, TimeUnit.SECONDS)
+            .writeTimeout(TIMEOUT_S, TimeUnit.SECONDS)
+            .callTimeout(CALL_TIMEOUT_S, TimeUnit.SECONDS)
+            // v0.99.0 P1-1：拦截器链——UA 统一补、IO 异常重试、内存 CookieJar、简易日志
+            .cookieJar(memoryCookieJar)
+            .addInterceptor(uaInterceptor)
+            .addInterceptor(retryInterceptor)
+            .addInterceptor(simpleLogInterceptor)
+        // v1.4.8 A4：DoH 只接 defaultClient（派生 client 自动继承；独立 Builder 的
+        // drpyClient / lxClient / 两个 Emby client / Spider / Coil / 下载等本版不动）。
+        // 开关开时加 dns(...)，开关关时不设 dns(...)（即 Dns.SYSTEM，与今天完全一致）。
+        // endpoint 由启动快照注入，必合法（非法已在 Doh.resolveEndpoint 回默认），
+        // 这里直接 toHttpUrl()；不配 bootstrapDns，首跳仍走系统 DNS。
+        // endpoint 不可用时无自动回退：依赖 OkHttp 的请求 DNS 全失败，不自动回落系统 DNS。
+        if (dohConfig.enabled) {
+            builder.dns(
+                DnsOverHttps.Builder()
+                    .client(OkHttpClient())
+                    .url(dohConfig.endpoint.toHttpUrl())
+                    .build(),
+            )
+        }
+        return builder.build()
+    }
+
+    /**
+     * v1.4.8 A4：DoH 启动快照（XiaYingApp.onCreate 里 DohSettings.snapshot 注入纯值，
+     * core 层不反向依赖 data 层）。sharedClient 是 lazy 单例，开关改完须重启 App
+     * 才重建 client 生效；启动后再调只改快照，不影响已建好的 client。
+     */
+    @Volatile
+    private var dohConfig = DohConfig(enabled = false, endpoint = Doh.DEFAULT_ENDPOINT)
+
+    fun initDoh(config: DohConfig) {
+        dohConfig = config
+    }
 
     /**
      * v0.257.0：drpy 规则请求专用 client（隔离于 defaultClient，只供 V8DrpyEngine 用）。
      * 背景：规则 JS 单次执行上限 15 秒，而 defaultClient 单请求最坏约 46.5 秒
      * （15 秒乘 3 次重试加退避），一个挂起的请求就能拖垮整个会话
-     * （13:12 首页全空实证）。本 client：连接 3 秒、读取 4 秒、写入 4 秒、
-     * 整 call 5 秒、零重试、retryOnConnectionFailure=false；保留 UA 拦截器、
+     * （13:12 首页全空实证）。本 client：连接 8 秒、读取 10 秒、写入 8 秒、
+     * 整 call 12 秒、零重试、retryOnConnectionFailure=false；保留 UA 拦截器、
      * 内存 CookieJar 与简易日志（规则请求没 UA 会被部分站拒、会话 Cookie
      * 不能丢），只去掉重试拦截器。累计预算（单次执行 12 秒）由
      * V8DrpyEngine 侧控制，不在这里做。

@@ -1,7 +1,9 @@
 package com.movieshell.data.source
 
 import com.movieshell.data.source.CmsApi
+import com.movieshell.core.log.LogBus
 import com.movieshell.core.net.DEFAULT_UA_SHORT
+import com.movieshell.core.net.ProxyRouting
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ensureActive
@@ -21,11 +23,13 @@ import java.util.UUID
 /**
  * XMLTV 节目单尽力解析（v0.24.0）。
  *
- * 输入 epgUrl + 频道名：找 display-name 含频道名的 <channel>，
- * 取其 id 下的 <programme>，算出当前节目与下一个节目。
+ * 输入 epgUrl + 频道名：按分层规则匹配 display-name（归一化精确、
+ * 单向包含），取其 id 下的 <programme>，算出当前节目与下一个节目。
  * 任何一步失败返回 (null, null)，不崩。
  */
 object EpgFetcher {
+
+    private const val TAG = "EpgFetcher"
 
     data class Program(
         val title: String,
@@ -111,12 +115,55 @@ object EpgFetcher {
             }.getOrDefault(null to null)
         }
 
-    private fun parse(xml: String, channelName: String): Pair<Program?, Program?> {
+    /**
+     * v1.4.8 A3(c)：EPG 地址解析——本源 epgUrl 非空即用本源，仅本源
+     * 未配置（空/空白）时用全局兜底；本源已配但拉取失败或匹配不到时
+     * 调用方返回 (null, null)，不回落全局。
+     */
+    internal fun resolveEpgUrl(channelEpgUrl: String?, globalEpgUrl: String): String =
+        if (!channelEpgUrl.isNullOrBlank()) channelEpgUrl else globalEpgUrl
+
+    /**
+     * v1.4.8 A3(b)：频道名归一化——去空白、去 -、去“高清/HD/超清”
+     * 后缀、拉丁字母大小写折叠。
+     */
+    internal fun normalizeChannelName(name: String): String {
+        var n = name.replace("\\s".toRegex(), "").replace("-", "").lowercase()
+        var changed: Boolean
+        do {
+            changed = false
+            for (suffix in listOf("超清", "高清", "hd")) {
+                if (n.length > suffix.length && n.endsWith(suffix)) {
+                    n = n.dropLast(suffix.length)
+                    changed = true
+                }
+            }
+        } while (changed)
+        return n
+    }
+
+    /**
+     * v1.4.8 A3(b)：匹配分层，只此两层，第三层（双向包含）已删除。
+     * 第一层归一化精确相等；第二层单向包含——EPG 名须为频道名的前缀，
+     * 且剩余部分仅为数字/分隔符后缀（含至少一位数字）。
+     */
+    internal fun epgNameMatches(epgName: String, channelName: String): Boolean {
+        val e = normalizeChannelName(epgName)
+        val c = normalizeChannelName(channelName)
+        if (e.isEmpty() || c.isEmpty()) return false
+        if (e == c) return true
+        if (!c.startsWith(e)) return false
+        val rest = c.removePrefix(e)
+        return rest.isNotEmpty() && rest.any { it.isDigit() } &&
+            rest.all { it.isDigit() || it in "-_./·:" }
+    }
+
+    internal fun parse(xml: String, channelName: String): Pair<Program?, Program?> {
         if (channelName.isBlank()) return null to null
         val factory = XmlPullParserFactory.newInstance().apply { isNamespaceAware = false }
         val p = factory.newPullParser().apply { setInput(xml.reader()) }
-        // channel id -> display-name
-        val names = mutableMapOf<String, String>()
+        // channel id -> display-name 列表：多语言名各一条，逐个比，不拼串
+        val names = mutableMapOf<String, MutableList<String>>()
         var curId = ""
         var curText = StringBuilder()
         var inDisplayName = false
@@ -153,7 +200,7 @@ object EpgFetcher {
                 XmlPullParser.END_TAG -> when (p.name) {
                     "display-name" -> {
                         if (curId.isNotBlank()) {
-                            names[curId] = (names[curId].orEmpty() + " " + curText.toString()).trim()
+                            names.getOrPut(curId) { mutableListOf() }.add(curText.toString())
                         }
                         inDisplayName = false
                     }
@@ -170,11 +217,9 @@ object EpgFetcher {
             }
             ev = p.next()
         }
-        // 频道匹配：display-name 含频道名或反之（去空白后包含）
-        val norm = channelName.replace("\\s".toRegex(), "")
-        val matched = names.filter { (_, n) ->
-            val nn = n.replace("\\s".toRegex(), "")
-            nn.contains(norm) || norm.contains(nn)
+        // 频道匹配：分层规则逐个 display-name 过，任一命中即该 channel id 命中
+        val matched = names.filter { (_, list) ->
+            list.any { epgNameMatches(it, channelName) }
         }.keys
         if (matched.isEmpty()) return null to null
         val now = System.currentTimeMillis()
@@ -194,6 +239,13 @@ object EpgFetcher {
      * 现注册取消即 cancel 底层 call，超时真正起效。
      */
     private suspend fun downloadBytes(url: String): ByteArray {
+        // v1.4.8 A3(e)：EPG 拉取记直连/代理（供真机验确认实际路由）。
+        // 脱敏：只记 host + 路由 + 结果，不打完整 URL、query 参数、敏感串。
+        val host = runCatching { java.net.URI(url).host }.getOrNull().orEmpty()
+        val viaProxy = host.isNotBlank() && ProxyRouting.proxyAddress() != null &&
+            ProxyRouting.shouldProxyHost(host)
+        val route = if (viaProxy) "代理" else "直连"
+        LogBus.d(TAG, "EPG 拉取 host=$host 路由=$route")
         val req = Request.Builder()
             .url(url)
             .header("User-Agent", DEFAULT_UA_SHORT)
@@ -204,6 +256,7 @@ object EpgFetcher {
         try {
             call.execute().use { resp ->
                 if (!resp.isSuccessful) throw IllegalStateException("HTTP ${resp.code}")
+                LogBus.d(TAG, "EPG 拉取完成 host=$host 路由=$route HTTP ${resp.code}")
                 val stream = resp.body?.byteStream() ?: throw IllegalStateException("空响应")
                 stream.use { input ->
                     val out = java.io.ByteArrayOutputStream()
@@ -222,6 +275,7 @@ object EpgFetcher {
                 }
             }
         } catch (e: CancellationException) {
+            LogBus.d(TAG, "EPG 拉取取消 host=$host 路由=$route ${e::class.simpleName}")
             throw e
         } catch (e: Exception) {
             // 取消时抛回 job 自身的取消异常：超时触发的是
@@ -229,6 +283,7 @@ object EpgFetcher {
             // （抛普通 CancellationException 会穿出 withTimeoutOrNull）；
             // 外部取消的则是 JobCancellationException，原样透传。
             if (job?.isCancelled == true) currentCoroutineContext().ensureActive()
+            LogBus.d(TAG, "EPG 拉取失败 host=$host 路由=$route ${e::class.simpleName}")
             throw e
         }
     }
