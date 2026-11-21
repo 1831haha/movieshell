@@ -390,6 +390,13 @@ fun LiveScreen(
         hiddenStreams = LiveStore.hiddenStreamUrls(context)
         if (wasSelected) {
             if (fallback != null) {
+                // v1.4.9 DeepSeek 审稿：跨台回落时清掉旧台名的源映射，
+                // 否则按台名记源会指到已隐藏的流。
+                val oldName = selected?.name
+                if (oldName != null && fallback.name != oldName) {
+                    liveSourceByName = liveSourceByName - oldName
+                    LiveSelection.sourceByName.remove(oldName)
+                }
                 liveSourceByName = liveSourceByName + (fallback.name to fallback.id)
                 LiveSelection.sourceByName[fallback.name] = fallback.id
                 LiveSelection.channelId = fallback.id
@@ -593,7 +600,7 @@ fun LiveScreen(
                                     val tail = it.url.substringAfterLast('/').substringBefore('?')
                                         .takeIf { s -> s.isNotBlank() }?.let { t -> "…/$t" }
                                     listOfNotNull(
-                                        "源${same.indexOf(it) + 1}",
+                                        "源${same.indexOfFirst { c -> c.id == it.id } + 1}",
                                         liveSourceLabel(it.sourceKey).takeIf { s -> s.isNotBlank() },
                                         LiveStore.hostOfUrl(it.url).takeIf { s -> s.isNotBlank() },
                                         tail,

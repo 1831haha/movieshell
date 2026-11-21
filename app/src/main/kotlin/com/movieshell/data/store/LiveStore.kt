@@ -484,14 +484,15 @@ object LiveStore {
      */
     suspend fun refresh(context: Context): List<String> = withContext(Dispatchers.IO) {
         val favs = readFavs(context)
-        // v1.4.9：已隐藏的流刷新不复活——缓存加载与聚合出口都过滤。
-        val hidden = parseHiddenStreamsJson(prefs(context).getString(KEY_HIDDEN_STREAMS, null))
         // 内存为空时先读盘：进程重建后不等刷新完也有频道可看。
         if (_channels.value.isEmpty()) {
             loadCachedChannels(context)?.let { cached ->
+                // v1.4.9 DeepSeek 审稿：缓存分支也重读隐藏集，与聚合出口同口径，
+                // 刷新进行中藏流不从缓存拉回内存。
+                val hiddenForCache = parseHiddenStreamsJson(prefs(context).getString(KEY_HIDDEN_STREAMS, null))
                 _channels.value = filterHiddenChannels(
                     cached.map { it.copy(favorite = favs.contains(it.id)) },
-                    hidden,
+                    hiddenForCache,
                 )
             }
         }
