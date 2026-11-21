@@ -36,11 +36,4 @@ object Doh {
         val trimmed = stored?.trim().orEmpty()
         return if (trimmed.isNotEmpty() && isValidEndpoint(trimmed)) trimmed else DEFAULT_ENDPOINT
     }
-
-    /** 候选列表解析：存的值是三家内置之一时返回它，否则返回 null（即自定义地址）。 */
-    fun matchBuiltin(stored: String?): String? {
-        val trimmed = stored?.trim().orEmpty()
-        if (trimmed.isEmpty()) return null
-        return BUILTIN_ENDPOINTS.firstOrNull { it == trimmed }
-    }
 }

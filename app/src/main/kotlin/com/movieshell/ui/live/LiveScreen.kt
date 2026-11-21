@@ -112,6 +112,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImagePainter
 import coil.compose.rememberAsyncImagePainter
+import coil.request.ImageRequest
+import coil.size.Size
 import com.movieshell.data.source.EpgFetcher
 import com.movieshell.data.store.LiveChannel
 import com.movieshell.data.store.LiveSource
@@ -1071,6 +1073,7 @@ private fun ChannelCell(
     onFavorite: () -> Unit,
 ) {
     val v = MaterialTheme.colorScheme
+    val context = LocalContext.current
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -1090,7 +1093,15 @@ private fun ChannelCell(
         ) {
             // v1.4.8 A3(a)：台标只显示不读像素；加载中/失败先显示首字块，
             // 图到后再换图片，不留空白块。
-            val logoPainter = rememberAsyncImagePainter(model = channel.logo)
+            // 1.3.2 的教训：只读 state 的画笔必须给 ImageRequest 显式尺寸，
+            // 否则 coil 不发请求、state 永远到不了 Success。
+            val logoRequest = remember(channel.logo) {
+                ImageRequest.Builder(context)
+                    .data(channel.logo)
+                    .size(Size.ORIGINAL)
+                    .build()
+            }
+            val logoPainter = rememberAsyncImagePainter(model = logoRequest)
             val logoReady = channel.logo.isNotBlank() &&
                 logoPainter.state is AsyncImagePainter.State.Success
             if (logoReady) {
@@ -1225,7 +1236,15 @@ private fun ChannelDetailSheet(
                     contentAlignment = Alignment.Center,
                 ) {
                     // v1.4.8 A3(a)：与 ChannelCell 同口径，加载中/失败落 Tv 图标块。
-                    val logoPainter = rememberAsyncImagePainter(model = channel.logo)
+                    // 画笔同 ChannelCell：带 size(Size.ORIGINAL) 的 ImageRequest，
+                    // 否则 coil 不发请求、state 永远到不了 Success（1.3.2 教训）。
+                    val logoRequest = remember(channel.logo) {
+                        ImageRequest.Builder(context)
+                            .data(channel.logo)
+                            .size(Size.ORIGINAL)
+                            .build()
+                    }
+                    val logoPainter = rememberAsyncImagePainter(model = logoRequest)
                     val logoReady = channel.logo.isNotBlank() &&
                         logoPainter.state is AsyncImagePainter.State.Success
                     if (logoReady) {

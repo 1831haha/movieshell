@@ -50,31 +50,31 @@ class ChannelEngineResolveTest {
     // ---- 6 处透传决策表（每处：有 id 走本台，无 id 走全局） ----
 
     @Test
-    fun `rotation replay uses channel pref when id present else global`() {
+    fun `resolveEngine rotation replay uses channel pref when id present else global`() {
         assertEquals(channelPref, EngineHost.resolveEngine(channelPref, global, null))
         assertEquals(global, EngineHost.resolveEngine(null, global, null))
     }
 
     @Test
-    fun `retry entry uses channel pref when id present else global`() {
+    fun `resolveEngine retry entry uses channel pref when id present else global`() {
         assertEquals(channelPref, EngineHost.resolveEngine(channelPref, global, null))
         assertEquals(global, EngineHost.resolveEngine(null, global, null))
     }
 
     @Test
-    fun `main start uses channel pref when id present else global`() {
+    fun `resolveEngine main start uses channel pref when id present else global`() {
         assertEquals(channelPref, EngineHost.resolveEngine(channelPref, global, null))
         assertEquals(global, EngineHost.resolveEngine(null, global, null))
     }
 
     @Test
-    fun `replay with subtitle uses channel pref when id present else global`() {
+    fun `resolveEngine replay with subtitle uses channel pref when id present else global`() {
         assertEquals(channelPref, EngineHost.resolveEngine(channelPref, global, null))
         assertEquals(global, EngineHost.resolveEngine(null, global, null))
     }
 
     @Test
-    fun `manual engine switch replay uses channel pref when id present else global`() {
+    fun `resolveEngine manual engine switch replay uses channel pref when id present else global`() {
         // 关键一处：切核写入的是本台偏好，此次 play 必须带 channelId，
         // 否则读全局，切换看起来“没切上”。
         assertEquals(channelPref, EngineHost.resolveEngine(channelPref, global, null))
@@ -82,7 +82,7 @@ class ChannelEngineResolveTest {
     }
 
     @Test
-    fun `clear referer retry uses channel pref when id present else global`() {
+    fun `resolveEngine clear referer retry uses channel pref when id present else global`() {
         assertEquals(channelPref, EngineHost.resolveEngine(channelPref, global, null))
         assertEquals(global, EngineHost.resolveEngine(null, global, null))
     }

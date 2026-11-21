@@ -77,16 +77,4 @@ class DohTest {
             Doh.resolveEndpoint("  https://doh.360.cn/dns-query "),
         )
     }
-
-    @Test
-    fun matchBuiltin() {
-        assertEquals("https://doh.pub/dns-query", Doh.matchBuiltin("https://doh.pub/dns-query"))
-        assertEquals(
-            "https://doh.360.cn/dns-query",
-            Doh.matchBuiltin("  https://doh.360.cn/dns-query "),
-        )
-        assertNull(Doh.matchBuiltin("https://example.com/dns-query"))
-        assertNull(Doh.matchBuiltin(null))
-        assertNull(Doh.matchBuiltin(""))
-    }
 }

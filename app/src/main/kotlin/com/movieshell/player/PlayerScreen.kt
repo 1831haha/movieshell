@@ -3444,6 +3444,9 @@ fun PlayerScreen(
             var showPluginHostsDialog by remember { mutableStateOf(false) }
             var pluginHostsDraft by remember { mutableStateOf("") }
             var pluginHostsSaved by remember { mutableStateOf("") }
+            // v1.4.8 A5：上次保存失败的草稿——失败时保留，重开编辑弹窗时优先恢复，
+            // 否则会被 pluginHostsSaved 覆盖、用户得重输。
+            var pluginHostsFailedDraft by remember { mutableStateOf<String?>(null) }
             var pluginDefVersion by remember { mutableStateOf<String?>(null) }
             var pluginInstalled by remember { mutableStateOf(false) }
             var pluginRunning by remember { mutableStateOf(false) }
@@ -3633,7 +3636,8 @@ fun PlayerScreen(
                             AppButton(
                                 text = "编辑",
                                 onClick = {
-                                    pluginHostsDraft = pluginHostsSaved.replace(",", "\n")
+                                    pluginHostsDraft = pluginHostsFailedDraft
+                                        ?: pluginHostsSaved.replace(",", "\n")
                                     showPluginHostsDialog = true
                                 },
                                 variant = AppButtonVariant.Ghost,
@@ -3761,11 +3765,13 @@ fun PlayerScreen(
                                         serialized
                                     }
                                     pluginHostsSaved = saved
+                                    pluginHostsFailedDraft = null
                                     pluginPendingRestart = true
                                     AppToast.show(context, "已保存，重启弹幕服务后生效", long = false)
                                 } catch (e: CancellationException) {
                                     throw e
                                 } catch (e: Exception) {
+                                    pluginHostsFailedDraft = draft
                                     AppToast.show(context, "保存失败：${e.message}", long = false)
                                 } finally {
                                     pluginSaving = false
