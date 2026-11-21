@@ -231,6 +231,7 @@ fun V5TopTabs(
  * 选中 secondaryContainer + 勾）。用于 主题模式、直播 源1–6 等。
  * v1.2.13：加可选 icons（与文案同行、16dp，传了图标时不画勾，图标+文字居中对齐）。
  */
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun V5Segmented(
     options: List<String>,
@@ -240,6 +241,10 @@ fun V5Segmented(
     height: Dp = 40.dp,
     showCheck: Boolean = true,
     icons: List<ImageVector>? = null,
+    // v1.4.9：长按回调（直播源详情用；不传则无长按）与本会话失败标记
+    // （红点，只放内存，不持久化；成功播出后由调用方清掉）。
+    onLongSelect: ((Int) -> Unit)? = null,
+    failed: Set<Int> = emptySet(),
 ) {
     val cs = MaterialTheme.colorScheme
     val shape = RoundedCornerShape(50)
@@ -267,7 +272,15 @@ fun V5Segmented(
                     .weight(1f)
                     .fillMaxHeight()
                     .background(bg)
-                    .clickable(role = Role.RadioButton) { onSelect(i) }
+                    // v1.4.9：只在有长按时才用 combinedClickable（同文件 V5TopTabs
+                    // 的条件式口径），其他调用点（主题/页签等）的点按行为一字不动。
+                    .then(
+                        if (onLongSelect != null) Modifier.combinedClickable(
+                            role = Role.RadioButton,
+                            onLongClick = { onLongSelect(i) },
+                            onClick = { onSelect(i) },
+                        ) else Modifier.clickable(role = Role.RadioButton) { onSelect(i) },
+                    )
                     .semantics { this.selected = on }
                     .padding(horizontal = if (compact) 4.dp else 8.dp),
                 verticalAlignment = Alignment.CenterVertically,
@@ -288,6 +301,15 @@ fun V5Segmented(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
+                // v1.4.9：本会话失败过的源打红点，成功播出后清掉。
+                if (i in failed) {
+                    Spacer(Modifier.width(4.dp))
+                    Box(
+                        modifier = Modifier
+                            .size(6.dp)
+                            .background(cs.error, CircleShape),
+                    )
+                }
             }
         }
     }

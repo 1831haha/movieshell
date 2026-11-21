@@ -85,6 +85,7 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import com.movieshell.ui.components.TechDialog
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -237,6 +238,12 @@ fun LiveScreen(
     // v0.171.0：初值从单例恢复，切 tab 回来不回"全部"
     var selectedLiveSource by remember { mutableStateOf(LiveSelection.selectedLiveSource) }
     var liveTriedIds by remember { mutableStateOf<Set<String>>(emptySet()) }
+    // v1.4.9：本会话失败过的源 id（源按钮打红点）；成功播出后清掉该条，不持久化。
+    var liveFailedIds by remember { mutableStateOf<Set<String>>(emptySet()) }
+    // v1.4.9：长按源 N 弹出的源详情（null=不弹）。
+    var sourceDetail by remember { mutableStateOf<LiveChannel?>(null) }
+    // v1.4.9：设置弹层里的已隐藏流 URL（打开设置时读一次，恢复时同步减）。
+    var hiddenStreams by remember { mutableStateOf<List<String>>(emptyList()) }
     // v0.159.0：按台名记住上次选的源（源1/源2）——中列点台不再永远取同名第一条（源1）
     var liveSourceByName by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
     val globalEpg by LiveStore.globalEpg.collectAsState()
@@ -361,6 +368,39 @@ fun LiveScreen(
         LiveSelection.channelId = ch.id
         saveLiveSelection(context)
         selected = ch
+    }
+
+    // v1.4.9：按 URL 隐藏一条流（同名源可删单条）：写盘后内存与缓存里已清掉，
+    // 刷新不复活。被藏的恰好是当前选中源时，回落到同名第一条（核对
+    // groupChannelsDistinct 的回落口径：上次选的源 id 失效即取第一条），
+    // 同名全藏完了再回落到剩余首台；选中态与单例同步写盘。
+    fun hideSourceByUrl(url: String) {
+        val wasSelected = selected?.url == url
+        val fallback = if (wasSelected) {
+            channels.filter { it.name == selected?.name }.firstOrNull { it.url != url }
+                ?: channels.firstOrNull { it.url != url }
+        } else {
+            null
+        }
+        if (!LiveStore.hideStream(context, url)) {
+            AppToast.show(context, "该源已隐藏", long = false)
+            return
+        }
+        if (wasSelected) {
+            if (fallback != null) {
+                liveSourceByName = liveSourceByName + (fallback.name to fallback.id)
+                LiveSelection.sourceByName[fallback.name] = fallback.id
+                LiveSelection.channelId = fallback.id
+                saveLiveSelection(context)
+                selected = fallback
+            } else {
+                selected = null
+                LiveSelection.channelId = null
+                saveLiveSelection(context)
+            }
+            liveTriedIds = emptySet()
+        }
+        AppToast.show(context, "已隐藏该源", long = false)
     }
 
     // v0.277.0（T10）：切台时间跟 selected 走——正常切台、自动切
@@ -525,6 +565,8 @@ fun LiveScreen(
                         // 切到其他源时把换源过滤放回全部，避免列表与在播频道对不上
                         onLiveError = {
                             val cur = selected
+                            // v1.4.9：失败过的源先打上本会话标记（源按钮红点）。
+                            if (cur != null) liveFailedIds = liveFailedIds + cur.id
                             val same = if (cur == null) emptyList()
                             else channels.filter { it.name == cur.name }
                             val tried = liveTriedIds + (cur?.id.orEmpty())
@@ -537,13 +579,20 @@ fun LiveScreen(
                                     selectedLiveSource = null
                                     LiveSelection.selectedLiveSource = null
                                 }
-                                AppToast.show(context, "当前源播放失败，已自动切到源${same.indexOf(next) + 1}", long = false)
+                                // v1.4.9：点名失败的那条（来源显示名 + host），
+                                // 不只说切到了源几，否则删之前认不出哪条死了。
+                                val failedDesc = cur?.let { "${liveSourceLabel(it.sourceKey)} · ${LiveStore.hostOfUrl(it.url)}" }.orEmpty()
+                                AppToast.show(context, "播放失败（${failedDesc}），已自动切到源${same.indexOf(next) + 1}", long = false)
                                 liveSourceByName = liveSourceByName + (next.name to next.id)
                                 LiveSelection.sourceByName[next.name] = next.id
                                 LiveSelection.channelId = next.id
                                 saveLiveSelection(context)
                                 selected = next
                             }
+                        },
+                        // v1.4.9：首次真正播出，清掉该源的本会话失败标记。
+                        onLiveFirstPlayed = {
+                            selected?.id?.let { liveFailedIds = liveFailedIds - it }
                         },
                         // v0.160.0：频道自带 ua 才传（cctv-live 目前 ua 为空，传空 map，不编 header）
                         liveHeaders = playing.ua.takeIf { it.isNotBlank() }
@@ -585,6 +634,8 @@ fun LiveScreen(
                 sourceCount = if (sources.size > 1) sources.size else 0,
                 selectedSourceIndex = sources.indexOfFirst { it.id == selected?.id },
                 onSelectSource = { idx -> sources.getOrNull(idx)?.let { playChannel(it) } },
+                failedSourceIndices = sources.indices.filter { sources[it].id in liveFailedIds }.toSet(),
+                onLongSelectSource = { idx -> sources.getOrNull(idx)?.let { sourceDetail = it } },
             )
             // 原“直播页内换源条（全部 + 各源）”按设计稿从主屏移走：同一功能在 直播设置 弹层
             // 第一个页签「切换直播源」（“切回接口默认直播源”=全部 + 各源单选），状态共用 selectedLiveSource。
@@ -682,11 +733,21 @@ fun LiveScreen(
     }
 
     // v0.176.0：DS 式直播设置弹层（顶栏设置+刷新移进来，订阅管理仍走原整页）
+    // v1.4.9：打开设置时读一次已隐藏流，供弹层里的恢复列表用。
+    LaunchedEffect(showLiveSettings) {
+        if (showLiveSettings) hiddenStreams = LiveStore.hiddenStreamUrls(context)
+    }
     if (showLiveSettings) {
         LiveSettingsSheet(
             sourceKeys = sourceKeys,
             selectedLiveSource = selectedLiveSource,
             globalEpg = globalEpg,
+            hiddenStreams = hiddenStreams,
+            onUnhideStream = { u ->
+                LiveStore.unhideStream(context, u)
+                hiddenStreams = hiddenStreams - u
+                doRefresh()
+            },
             onDismiss = { showLiveSettings = false },
             onRefresh = { doRefresh() },
             onSelectLiveSource = { key ->
@@ -719,6 +780,55 @@ fun LiveScreen(
             },
         )
     }
+
+    // v1.4.9：源详情（长按节目卡源 N）：来源显示名 + host + 完整 URL，
+    // 确认即按 URL 隐藏该条流（不删订阅、不删台）。
+    sourceDetail?.let { ch ->
+        val detailIndex = sources.indexOfFirst { it.id == ch.id }
+        TechDialog(
+            onDismissRequest = { sourceDetail = null },
+            title = if (detailIndex >= 0) "源${detailIndex + 1}详情" else "源详情",
+            confirmText = "隐藏该源",
+            confirmDanger = true,
+            onConfirm = {
+                sourceDetail = null
+                hideSourceByUrl(ch.url)
+            },
+        ) {
+            Column {
+                Text(
+                    text = "来源",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Text(
+                    text = liveSourceLabel(ch.sourceKey),
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    text = "地址",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Text(
+                    text = LiveStore.hostOfUrl(ch.url).ifBlank { "—" },
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    text = "完整地址",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Text(
+                    text = ch.url,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+    }
 }
 
 /**
@@ -733,6 +843,9 @@ private fun LiveSettingsSheet(
     sourceKeys: List<String>,
     selectedLiveSource: String?,
     globalEpg: String,
+    // v1.4.9：已隐藏的流 URL 与逐条恢复回调（恢复后调用方刷新拉回）。
+    hiddenStreams: List<String> = emptyList(),
+    onUnhideStream: (String) -> Unit = {},
     onDismiss: () -> Unit,
     onRefresh: () -> Unit,
     onSelectLiveSource: (String?) -> Unit,
@@ -833,6 +946,46 @@ private fun LiveSettingsSheet(
                         )
                     }
                 }
+                // v1.4.9：已隐藏的源（长按节目卡源按钮藏起来的单条流），
+                // 可逐条恢复；恢复后刷新拉回。
+                if (hiddenStreams.isNotEmpty()) {
+                    Spacer(Modifier.height(16.dp))
+                    Text(
+                        text = "已隐藏的源",
+                        style = MaterialTheme.typography.bodyLarge,
+                    )
+                    Text(
+                        text = "单条死流藏在这里，恢复后刷新拉回",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Spacer(Modifier.height(4.dp))
+                    hiddenStreams.forEach { hiddenUrl ->
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = LiveStore.hostOfUrl(hiddenUrl).ifBlank { hiddenUrl },
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                                Text(
+                                    text = hiddenUrl,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            }
+                            TextButton(onClick = { onUnhideStream(hiddenUrl) }) {
+                                Text("恢复")
+                            }
+                        }
+                    }
+                }
             } else {
                 Text(
                     text = "全局节目单（兜底）",
@@ -906,6 +1059,9 @@ private fun ProgramInfoCard(
     sourceCount: Int = 0,
     selectedSourceIndex: Int = -1,
     onSelectSource: (Int) -> Unit = {},
+    // v1.4.9：本会话失败过的源下标（红点）与长按回调（弹源详情）。
+    failedSourceIndices: Set<Int> = emptySet(),
+    onLongSelectSource: (Int) -> Unit = {},
 ) {
     val (now, next) = epg ?: (null to null)
     val v = MaterialTheme.colorScheme
@@ -1009,6 +1165,8 @@ private fun ProgramInfoCard(
                             onSelect = onSelectSource,
                             height = 32.dp,
                             modifier = Modifier.width((sourceCount * 62).dp),
+                            onLongSelect = onLongSelectSource,
+                            failed = failedSourceIndices,
                         )
                     }
                 }

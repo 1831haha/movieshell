@@ -55,4 +55,22 @@ class ShortDramaModeTest {
         assertTrue(reentered.isOn)
         assertEquals(second, reentered.snapshot)
     }
+
+    // v1.4.9：短剧模式强制裁剪——模式开时恒为裁剪（下标 1），不读存的比例；
+    // 非模式时全屏用存的比例，小窗恒适应（下标 0）。
+    @Test fun dramaModeAlwaysForcesZoom() {
+        assertEquals(1, effectiveResizeIndex(shortDramaMode = true, fullscreenNow = true, resizeIndex = 0))
+        assertEquals(1, effectiveResizeIndex(shortDramaMode = true, fullscreenNow = true, resizeIndex = 2))
+        assertEquals(1, effectiveResizeIndex(shortDramaMode = true, fullscreenNow = false, resizeIndex = 0))
+    }
+
+    @Test fun withoutDramaModeFullscreenUsesStoredIndex() {
+        assertEquals(0, effectiveResizeIndex(shortDramaMode = false, fullscreenNow = true, resizeIndex = 0))
+        assertEquals(2, effectiveResizeIndex(shortDramaMode = false, fullscreenNow = true, resizeIndex = 2))
+    }
+
+    @Test fun withoutDramaModeSmallWindowAlwaysFit() {
+        assertEquals(0, effectiveResizeIndex(shortDramaMode = false, fullscreenNow = false, resizeIndex = 1))
+        assertEquals(0, effectiveResizeIndex(shortDramaMode = false, fullscreenNow = false, resizeIndex = 2))
+    }
 }

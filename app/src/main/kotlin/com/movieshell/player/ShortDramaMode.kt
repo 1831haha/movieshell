@@ -43,3 +43,13 @@ data class ShortDramaState(
         if (!isOn) this to null
         else copy(isOn = false, snapshot = null) to snapshot
 }
+
+/**
+ * v1.4.9：短剧模式强制裁剪——有效比例下标纯函数（下标与
+ * PlayerScreen.RESIZE_MODES 一致：0=适应 FIT / 1=裁剪 ZOOM / 2=拉伸 FILL）。
+ * 模式开时恒为裁剪（1），不读不写已存的本台/全局偏好，退出即恢复；
+ * 非模式时全屏用存的比例，小窗恒适应。调用点：PlayerView 工厂与
+ * 画面比例应用效应共用这一个判断，不在各处另写。
+ */
+fun effectiveResizeIndex(shortDramaMode: Boolean, fullscreenNow: Boolean, resizeIndex: Int): Int =
+    if (shortDramaMode) 1 else if (fullscreenNow) resizeIndex else 0

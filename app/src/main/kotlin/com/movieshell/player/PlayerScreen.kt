@@ -249,6 +249,9 @@ fun PlayerScreen(
     // v0.158.0：直播最终失败回调（同内核重拉 2 次 + 换内核之后才到这里，
     // 直播页用它自动切同名源；null 时走原错误对话框，不改点播行为）
     onLiveError: (() -> Unit)? = null,
+    // v1.4.9：直播首次真正播出回调（isPlaying 首次为真时调一次；直播页用它
+    // 清掉该源的本会话失败标记；点播不传）
+    onLiveFirstPlayed: (() -> Unit)? = null,
     // v1.1.31：播放失败自动换源——全部线路耗尽时搜其他源同名剧，跳详情页同集播；
     // null=不自动换源（直播不传，走原 onLiveError）
     onAutoSwitchSource: ((vodId: String, siteKey: String, episodeIndex: Int) -> Unit)? = null,
@@ -498,6 +501,15 @@ fun PlayerScreen(
         else if (embedded && isFullscreen) onExitFullscreen()
         else onBack()
     })
+
+    // v1.4.9：短剧模式全屏不变量——模式开着时全屏不能丢：顶栏返回箭头、底栏
+    // 退出全屏等路只收容器不关模式，守卫发现 embedded 且未全屏就补调
+    // onFullscreen()。退出模式先关模式再调 onExitFullscreen，守卫条件已
+    // 不满足，不打架。onFullscreen 经 rememberUpdatedState 取最新值，不进 key。
+    val currentOnFullscreen by rememberUpdatedState(onFullscreen)
+    LaunchedEffect(shortDramaMode, embedded, isFullscreen) {
+        if (shortDramaMode && embedded && !isFullscreen) currentOnFullscreen()
+    }
 
     // DisposableEffect 的 onDispose 闭包捕获的是首次组合的值，
     // 用 rememberUpdatedState 保证退出时存的是最新的 url/title。
@@ -860,6 +872,8 @@ fun PlayerScreen(
     // v0.123/124 无条件 ZOOM 裁掉上下约两成被反馈"卡边"，所以裁剪只留给用户
     // 手动选，不做默认），非全屏（竖屏小窗）恒适应 FIT。resizeIndex 只由
     // 「画面比例」菜单修改并落盘，本效应只负责应用，不再覆盖用户选择。
+    // v1.4.9：短剧模式是唯一例外——模式开时有效比例恒为裁剪（见
+    // effectiveResizeIndex），不写盘，退出即恢复原来的比例。
     // v0.294.45：原地全屏也算全屏——沉浸式窗口和画面档位都按全屏走，
     // 方向、沉浸式、档位仍只有这一处说了算，不再另起一套控制器。
     val fullscreenNow = !embedded || isFullscreen || cfgOrientation == Configuration.ORIENTATION_LANDSCAPE
@@ -873,8 +887,8 @@ fun PlayerScreen(
     DisposableEffect(Unit) {
         onDispose { PlayerManager.setPlayerFullscreen(false) }
     }
-    LaunchedEffect(fullscreenNow, playerView, engine, resizeIndex) {
-        val idx = if (fullscreenNow) resizeIndex else 0
+    LaunchedEffect(fullscreenNow, playerView, engine, resizeIndex, shortDramaMode) {
+        val idx = effectiveResizeIndex(shortDramaMode, fullscreenNow, resizeIndex)
         if (engine == PlayerEngine.MEDIA3) {
             playerView?.resizeMode = RESIZE_MODES[idx].first
         } else {
@@ -2120,7 +2134,9 @@ fun PlayerScreen(
                                 useController = false
                                 setShowNextButton(false)
                                 setShowPreviousButton(false)
-                                resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
+                                // v1.4.9：建画笔即按有效比例走（短剧模式强制裁剪），
+                                // 不先写死 FIT 再等应用效应纠正；换内核重建后仍是裁剪。
+                                resizeMode = RESIZE_MODES[effectiveResizeIndex(shortDramaMode, fullscreenNow, resizeIndex)].first
                                 layoutParams = ViewGroup.LayoutParams(
                                     ViewGroup.LayoutParams.MATCH_PARENT,
                                     ViewGroup.LayoutParams.MATCH_PARENT,
@@ -2463,9 +2479,11 @@ fun PlayerScreen(
                     icon = Icons.AutoMirrored.Filled.ArrowBack,
                     desc = "返回",
                     onClick = {
-                        // v0.123.0：嵌入直播横屏时返回 = 退出横屏（LiveScreen 传的 onBack 是
-                        // 空实现，横屏下点了一点反应都没有，正是"返回键失效"的实锤之一）
-                        if (embedded && isLive &&
+                        // v1.4.9：短剧模式开着时顶栏返回＝关模式，不要只收全屏
+                        // （只收全屏会触发全屏守卫立刻再进全屏，闪一下）。
+                        if (shortDramaMode) {
+                            exitShortDramaMode()
+                        } else if (embedded && isLive &&
                             cfgOrientation == Configuration.ORIENTATION_LANDSCAPE
                         ) {
                             toggleEmbeddedLandscape()
@@ -2743,7 +2761,12 @@ fun PlayerScreen(
             while (true) {
                 delay(500)
                 isPlaying = EngineHost.isPlayingNow()
-                if (isPlaying) liveEverPlayed = true
+                // v1.4.9：首次真正播出即记 liveEverPlayed（8 秒无画面守卫用），
+                // 直播同时调一次 onLiveFirstPlayed（直播页清本会话失败标记）。
+                if (isPlaying && !liveEverPlayed) {
+                    liveEverPlayed = true
+                    if (isLive) onLiveFirstPlayed?.invoke()
+                }
                 if (!scrubbing) pos = EngineHost.currentPosition()
                 dur = EngineHost.duration()
             }
@@ -3058,7 +3081,9 @@ fun PlayerScreen(
                     RoundControlButton(
                         icon = if (isFullscreen) Icons.Filled.FullscreenExit else Icons.Filled.Fullscreen,
                         desc = if (isFullscreen) "退出全屏" else "全屏",
-                        onClick = { if (isFullscreen) onExitFullscreen() else goFullscreenOnly() },
+                        // v1.4.9：短剧模式开着时点它＝关模式（同顶栏返回箭头）；
+                        // 只收全屏会触发全屏守卫立刻再进全屏，闪一下。
+                        onClick = { if (shortDramaMode) exitShortDramaMode() else if (isFullscreen) onExitFullscreen() else goFullscreenOnly() },
                         size = 36.dp,
                     )
                 } else {

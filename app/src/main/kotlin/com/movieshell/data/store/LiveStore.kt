@@ -32,8 +32,10 @@ import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import okhttp3.Request
+import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
+import java.net.URI
 
 /** v1.4.8 A2：单频道偏好——只记与全局不同的项，缺省字段 = 跟随全局，不存默认值。 */
 data class ChannelPref(
@@ -353,6 +355,89 @@ object LiveStore {
             .apply()
     }
 
+    // ---------------- 已隐藏的直播流（v1.4.9） ----------------
+    //
+    // 存哪：live_prefs 下单个 JSON 键 live_hidden_streams，值是流 URL 的 JSON
+    // 数组（形态照抄频道偏好表的单键 JSON 口径）。隐藏粒度按流 URL：同一条
+    // 流挂在多个台名下时删一次全干净。刷新聚合与缓存加载都过滤，隐藏后
+    // 刷新不复活；恢复只删记录，频道要下次刷新才回来。
+
+    private const val KEY_HIDDEN_STREAMS = "live_hidden_streams"
+
+    /** 已隐藏流上限（条），超了按先藏先删。 */
+    const val MAX_HIDDEN_STREAMS = 500
+
+    /** 解析已隐藏流 JSON：坏串只返回空集，不抛（纯函数，可单测）。 */
+    fun parseHiddenStreamsJson(raw: String?): LinkedHashSet<String> {
+        val out = LinkedHashSet<String>()
+        if (raw.isNullOrBlank()) return out
+        runCatching {
+            val arr = JSONArray(raw)
+            for (i in 0 until arr.length()) {
+                arr.optString(i).takeIf { it.isNotBlank() }?.let { out.add(it) }
+            }
+        }
+        return out
+    }
+
+    /** 已隐藏流写 JSON（纯函数，可单测）。 */
+    fun serializeHiddenStreamsJson(urls: Collection<String>): String {
+        val arr = JSONArray()
+        urls.forEach { arr.put(it) }
+        return arr.toString()
+    }
+
+    /** 滤掉已隐藏的流（纯函数，可单测）：隐藏集为空时原样返回。 */
+    fun filterHiddenChannels(
+        channels: List<LiveChannel>,
+        hidden: Set<String>,
+    ): List<LiveChannel> =
+        if (hidden.isEmpty()) channels else channels.filterNot { it.url in hidden }
+
+    /** 取流 URL 的 host（纯函数，可单测）：解析失败返回 ""。 */
+    fun hostOfUrl(url: String): String =
+        runCatching { URI(url.trim()).host.orEmpty() }.getOrDefault("")
+
+    /** 读已隐藏流 URL（插入序）。 */
+    @Synchronized
+    fun hiddenStreamUrls(context: Context): List<String> =
+        parseHiddenStreamsJson(prefs(context).getString(KEY_HIDDEN_STREAMS, null)).toList()
+
+    /**
+     * 隐藏一条流：写盘 + 立即从内存与缓存清掉，刷新不再拉回。
+     * @return 已隐藏返回 true；空白或已隐藏过返回 false。
+     */
+    @Synchronized
+    fun hideStream(context: Context, url: String): Boolean {
+        val u = url.trim()
+        if (u.isBlank()) return false
+        val set = parseHiddenStreamsJson(prefs(context).getString(KEY_HIDDEN_STREAMS, null))
+        if (!set.add(u)) return false
+        while (set.size > MAX_HIDDEN_STREAMS) set.remove(set.first())
+        persistHiddenStreams(context, set)
+        _channels.value = _channels.value.filterNot { it.url == u }
+        saveCachedChannels(context, _channels.value)
+        return true
+    }
+
+    /**
+     * 恢复一条流：只删隐藏记录，频道要下次刷新才回来（调用方刷新）。
+     * @return 删掉记录返回 true；本来就没藏返回 false。
+     */
+    @Synchronized
+    fun unhideStream(context: Context, url: String): Boolean {
+        val set = parseHiddenStreamsJson(prefs(context).getString(KEY_HIDDEN_STREAMS, null))
+        if (!set.remove(url.trim())) return false
+        persistHiddenStreams(context, set)
+        return true
+    }
+
+    private fun persistHiddenStreams(context: Context, urls: Collection<String>) {
+        prefs(context).edit()
+            .putString(KEY_HIDDEN_STREAMS, serializeHiddenStreamsJson(urls))
+            .apply()
+    }
+
     // ---------------- 刷新聚合 ----------------
 
     /** 单源拉取结果：channels=null 表示下载/解析失败（failReason 带原因）。 */
@@ -399,10 +484,15 @@ object LiveStore {
      */
     suspend fun refresh(context: Context): List<String> = withContext(Dispatchers.IO) {
         val favs = readFavs(context)
+        // v1.4.9：已隐藏的流刷新不复活——缓存加载与聚合出口都过滤。
+        val hidden = parseHiddenStreamsJson(prefs(context).getString(KEY_HIDDEN_STREAMS, null))
         // 内存为空时先读盘：进程重建后不等刷新完也有频道可看。
         if (_channels.value.isEmpty()) {
             loadCachedChannels(context)?.let { cached ->
-                _channels.value = cached.map { it.copy(favorite = favs.contains(it.id)) }
+                _channels.value = filterHiddenChannels(
+                    cached.map { it.copy(favorite = favs.contains(it.id)) },
+                    hidden,
+                )
             }
         }
         // 合并前的旧频道快照（按 sourceKey 分组），失败源从这里取旧频道。
@@ -445,9 +535,9 @@ object LiveStore {
                     out += parseLiveJson(pluginText, key).map { it.copy(favorite = favs.contains(it.id)) }
                 }
         }
-        _channels.value = out
-        saveCachedChannels(context, out)
-        LogBus.i("Live", "聚合 ${out.size} 个频道（手动/订阅/插件）")
+        _channels.value = filterHiddenChannels(out, hidden)
+        saveCachedChannels(context, _channels.value)
+        LogBus.i("Live", "聚合 ${_channels.value.size} 个频道（手动/订阅/插件）")
         emptySources
     }
 
