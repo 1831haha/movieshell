@@ -535,7 +535,10 @@ object LiveStore {
                     out += parseLiveJson(pluginText, key).map { it.copy(favorite = favs.contains(it.id)) }
                 }
         }
-        _channels.value = filterHiddenChannels(out, hidden)
+        // v1.4.9 审稿：刷新进行中藏流，结尾须重读隐藏集再过滤，
+        // 否则 hideStream 刚清掉的流会被旧集写回内存与盘上。
+        val hiddenNow = parseHiddenStreamsJson(prefs(context).getString(KEY_HIDDEN_STREAMS, null))
+        _channels.value = filterHiddenChannels(out, hiddenNow)
         saveCachedChannels(context, _channels.value)
         LogBus.i("Live", "聚合 ${_channels.value.size} 个频道（手动/订阅/插件）")
         emptySources

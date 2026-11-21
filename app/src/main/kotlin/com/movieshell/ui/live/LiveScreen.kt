@@ -386,11 +386,18 @@ fun LiveScreen(
             AppToast.show(context, "该源已隐藏", long = false)
             return
         }
+        // v1.4.9 审稿：设置弹层开着时隐藏列表也要跟上，不用关掉重开。
+        hiddenStreams = LiveStore.hiddenStreamUrls(context)
         if (wasSelected) {
             if (fallback != null) {
                 liveSourceByName = liveSourceByName + (fallback.name to fallback.id)
                 LiveSelection.sourceByName[fallback.name] = fallback.id
                 LiveSelection.channelId = fallback.id
+                // v1.4.9 审稿：跨台回落时中列分组也要跟过去，否则播的台不在列表里。
+                if (fallback.group.isNotBlank() && fallback.group != selectedGroup) {
+                    selectedGroup = fallback.group
+                    LiveSelection.selectedGroup = fallback.group
+                }
                 saveLiveSelection(context)
                 selected = fallback
             } else {
@@ -579,9 +586,19 @@ fun LiveScreen(
                                     selectedLiveSource = null
                                     LiveSelection.selectedLiveSource = null
                                 }
-                                // v1.4.9：点名失败的那条（来源显示名 + host），
-                                // 不只说切到了源几，否则删之前认不出哪条死了。
-                                val failedDesc = cur?.let { "${liveSourceLabel(it.sourceKey)} · ${LiveStore.hostOfUrl(it.url)}" }.orEmpty()
+                                // v1.4.9：点名失败的那条（源号 + 来源显示名 + host + 路径尾段），
+                                // 不只说切到了源几，否则删之前认不出哪条死了；
+                                // 同 host 多路径时只看 host 也分不出（1695 与 1697 就是一例）。
+                                val failedDesc = cur?.let {
+                                    val tail = it.url.substringAfterLast('/').substringBefore('?')
+                                        .takeIf { s -> s.isNotBlank() }?.let { t -> "…/$t" }
+                                    listOfNotNull(
+                                        "源${same.indexOf(it) + 1}",
+                                        liveSourceLabel(it.sourceKey).takeIf { s -> s.isNotBlank() },
+                                        LiveStore.hostOfUrl(it.url).takeIf { s -> s.isNotBlank() },
+                                        tail,
+                                    ).joinToString(" · ")
+                                }.orEmpty()
                                 AppToast.show(context, "播放失败（${failedDesc}），已自动切到源${same.indexOf(next) + 1}", long = false)
                                 liveSourceByName = liveSourceByName + (next.name to next.id)
                                 LiveSelection.sourceByName[next.name] = next.id
@@ -1061,7 +1078,7 @@ private fun ProgramInfoCard(
     onSelectSource: (Int) -> Unit = {},
     // v1.4.9：本会话失败过的源下标（红点）与长按回调（弹源详情）。
     failedSourceIndices: Set<Int> = emptySet(),
-    onLongSelectSource: (Int) -> Unit = {},
+    onLongSelectSource: ((Int) -> Unit)? = null,
 ) {
     val (now, next) = epg ?: (null to null)
     val v = MaterialTheme.colorScheme
