@@ -17,7 +17,7 @@ import java.io.IOException
  */
 class FirstScreenOkHttpListener(
     private val attempt: FirstScreenAttempt,
-) : EventListener {
+) : EventListener() {
 
     private val isMain: Boolean = attempt.claimMainCall()
     private var callStartMs: Long = 0L
